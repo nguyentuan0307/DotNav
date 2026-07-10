@@ -10,11 +10,16 @@
   "categories": [
     "Other"
   ],
+  "extensionDependencies": [
+    "ms-dotnettools.csharp"
+  ],
   "activationEvents": [
     "onStartupFinished",
+    "onLanguage:csharp",
     "onView:dotnetSolutionNavigator",
     "onCommand:dotnetSolutionNavigator.refresh",
-    "onCommand:dotnetSolutionNavigator.showHistoryForSelection"
+    "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
+    "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -55,6 +60,11 @@
         "command": "dotnetSolutionNavigator.showHistoryForSelection",
         "title": "Show History for Selection",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.formatSelection",
+        "title": "Format Selection",
+        "icon": "$(symbol-method)"
       },
       {
         "command": "dotnetSolutionNavigator.openItem",
@@ -243,10 +253,20 @@
         "command": "dotnetSolutionNavigator.deleteItem",
         "key": "delete",
         "when": "focusedView == dotnetSolutionNavigator"
+      },
+      {
+        "command": "dotnetSolutionNavigator.formatSelection",
+        "key": "ctrl+alt+l",
+        "when": "editorTextFocus && editorLangId == csharp"
       }
     ],
     "menus": {
       "editor/context": [
+        {
+          "command": "dotnetSolutionNavigator.formatSelection",
+          "when": "editorLangId == csharp",
+          "group": "z_dotnetNavigator@0"
+        },
         {
           "command": "dotnetSolutionNavigator.showHistoryForSelection",
           "when": "editorHasSelection",
@@ -536,6 +556,37 @@
           "default": 50,
           "minimum": 1,
           "description": "Maximum commits returned by Show History for Selection."
+        },
+        "dotnetSolutionNavigator.format.normalizeIndentWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Normalize leading indentation to the active indentation unit before applying C# house-style passes."
+        },
+        "dotnetSolutionNavigator.format.enableLeadingComma": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format multiline C# parameter and argument lists with leading commas."
+        },
+        "dotnetSolutionNavigator.format.enableFluentChainWrap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Normalize indentation for multiline fluent and LINQ chains."
+        },
+        "dotnetSolutionNavigator.format.fluentChainMinSegments": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "Minimum fluent-chain segment count before chain formatting is applied."
+        },
+        "dotnetSolutionNavigator.format.enableBlankLineRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse repeated blank lines and remove blank lines immediately inside braces."
+        },
+        "dotnetSolutionNavigator.format.expandToEnclosingMember": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expand Format Selection to the enclosing C# member before formatting."
         },
         "dotnetSolutionNavigator.fileNestingRules": {
           "type": "array",

@@ -5,6 +5,7 @@ import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner'
 import { openTerminalAt, runDotnetForProject } from './dotnetCli';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
+import { formatSelection } from './format/formatSelection';
 import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
 import { GitOperationCancelledError, LineHistoryQuery, getLineHistory, lineHistoryLabel } from './git/lineHistory';
 import { LineHistoryPanel } from './git/lineHistoryPanel';
@@ -85,6 +86,17 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.showHistoryForSelection', () => showHistoryForSelection(context)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.formatSelection', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('Open a C# file before formatting a selection.');
+        return;
+      }
+      return formatSelection(editor).catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(message);
+      });
+    }),
     treeView.onDidChangeSelection(event => interaction.setSelection(event.selection)),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('dotnetSolutionNavigator')) {
