@@ -75,6 +75,35 @@ Key files:
 Key files:
 - `src/extension.ts`
 
+## Git History for Selection
+
+- Added `Show History for Selection` for editor selections.
+- The command runs `git log -L <start>,<end>:<file>` asynchronously and supports cancellation.
+- Git is executed through `child_process.spawn` with argv arrays, not a shell.
+- Repo root is resolved from the selected file, so files in different repos work independently.
+- Dirty worktree line numbers are mapped back to HEAD using `git diff --no-color -U0`.
+- Fully uncommitted selected ranges stop early with a user-facing message instead of calling `git log`.
+- Results render in a single reusable webview panel titled `History for Selection`.
+- The webview shows a commit list beside the patch hunks returned by `git log -L`; it does not open a whole-file diff.
+- The commit list pane can be resized by dragging the splitter and collapsed/restored by double-clicking it.
+- Commit pane width and collapsed state are stored in webview `localStorage`.
+- Arrow keys move through commits in the webview and update the patch pane in place.
+- Patch hunks include real old/new line numbers; added lines have no old number, deleted lines have no new number.
+- Diff paths are parsed from each `git log -L` record so rename history can show the old file name.
+- Webview rendering uses DOM `textContent` and JSON `<` escaping so commit messages/code are displayed as text.
+- Added `dotnetSolutionNavigator.gitHistoryMaxCommits`, default `50`.
+- Added unit tests for line mapping, `git log -L` parser behavior, and patch hunk line-number parsing.
+
+Key files:
+- `src/git/gitCli.ts`
+- `src/git/lineMapping.ts`
+- `src/git/lineHistory.ts`
+- `src/git/lineHistoryPanel.ts`
+- `src/extension.ts`
+- `src/test/lineMapping.test.ts`
+- `src/test/lineHistory.test.ts`
+- `package.json`
+
 ## Stability Fixes
 
 - Dependency child node ids are scoped by owner project to avoid duplicate VSCode tree ids:
@@ -92,3 +121,18 @@ Key files:
 - `src/processManager.ts`
 - `src/debugRunner.ts`
 
+## Verification Notes
+
+Manual/mock checks performed during implementation:
+
+- `npm run compile`
+- `git diff --check`
+- Backend `ELDesk.sln` parses 119 projects.
+- Dependency child ids: 504 checked, 0 duplicates.
+- Concurrent `getChildren()` calls load the solution once.
+- `BaseJob.cs` reveal chain works through `src -> Services -> CustomApp -> Jobs -> project`.
+- `appsettings.Development.json` resolves under `appsettings.json`.
+- Project-only workspace fallback can reveal a file under the project node.
+- `npm test`
+- `npx --yes @vscode/vsce package --allow-missing-repository`
+- Smoke parsed real `git log -L 1,5:src/pathUtils.ts` output from this repo.

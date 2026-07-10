@@ -13,7 +13,8 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:dotnetSolutionNavigator",
-    "onCommand:dotnetSolutionNavigator.refresh"
+    "onCommand:dotnetSolutionNavigator.refresh",
+    "onCommand:dotnetSolutionNavigator.showHistoryForSelection"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -49,6 +50,11 @@
         "command": "dotnetSolutionNavigator.selectOpenedFile",
         "title": "Select Opened File",
         "icon": "$(target)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.showHistoryForSelection",
+        "title": "Show History for Selection",
+        "icon": "$(git-commit)"
       },
       {
         "command": "dotnetSolutionNavigator.openItem",
@@ -240,6 +246,13 @@
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "dotnetSolutionNavigator.showHistoryForSelection",
+          "when": "editorHasSelection",
+          "group": "z_dotnetNavigator@1"
+        }
+      ],
       "view/title": [
         {
           "command": "dotnetSolutionNavigator.addRunConfig",
@@ -518,6 +531,12 @@
           "default": false,
           "description": "Automatically reveal the active editor file in the .NET solution tree."
         },
+        "dotnetSolutionNavigator.gitHistoryMaxCommits": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum commits returned by Show History for Selection."
+        },
         "dotnetSolutionNavigator.fileNestingRules": {
           "type": "array",
           "default": [],
@@ -543,6 +562,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile"
   },
