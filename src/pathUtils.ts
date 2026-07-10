@@ -4,6 +4,15 @@ export function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
+/**
+ * MSBuild and .sln files store paths with backslashes regardless of host OS.
+ * On POSIX a backslash is a valid filename character, so path.resolve would
+ * treat the whole segment as one name instead of a directory chain.
+ */
+export function resolveMsbuildPath(baseDirectory: string, msbuildPath: string): string {
+  return path.resolve(baseDirectory, msbuildPath.replace(/\\/g, path.sep));
+}
+
 export function pathExistsLabel(filePath: string): string {
   return path.basename(filePath);
 }
