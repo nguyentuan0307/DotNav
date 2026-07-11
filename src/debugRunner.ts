@@ -3,6 +3,7 @@ import type { Dirent } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models';
+import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 
 interface StartOptions {
@@ -49,15 +50,17 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const launchSettingsPath = path.join(project.directory, 'Properties', 'launchSettings.json');
+  const name = `${options.debug ? 'Debug' : 'Run'} ${project.name}${profile ? ` (${profile.name})` : ''}`;
   const configuration: vscode.DebugConfiguration = {
-    name: `${options.debug ? 'Debug' : 'Run'} ${project.name}${profile ? ` (${profile.name})` : ''}`,
+    name,
     type: 'coreclr',
     request: 'launch',
     program,
     cwd: project.directory,
     args: parseCommandLineArgs(profile?.commandLineArgs),
     console: 'internalConsole',
-    noDebug: !options.debug
+    noDebug: !options.debug,
+    dotnetSolutionNavigatorProjectPath: project.path
   };
 
   if (profile && await exists(launchSettingsPath)) {
@@ -65,7 +68,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     configuration.launchSettingsProfile = profile.name;
   }
 
-  options.processManager?.expectDebugSession(project);
+  options.processManager?.expectDebugSession(project, name);
   const started = await vscode.debug.startDebugging(workspaceFolder, configuration);
   if (!started) {
     options.processManager?.cancelExpectedDebugSession(project);
@@ -110,14 +113,36 @@ export async function buildProject(project: ProjectModel, processManager?: Proce
   processManager?.trackTask(project, 'build', execution);
 
   return new Promise(resolve => {
-    const disposable = vscode.tasks.onDidEndTaskProcess(event => {
+    let finished = false;
+    let fallbackTimer: NodeJS.Timeout | undefined;
+    const finish = (ok: boolean) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
+
+      processDisposable.dispose();
+      taskDisposable.dispose();
+      if (!ok) {
+        vscode.window.showErrorMessage(`Build failed for ${project.name}.`);
+      }
+
+      resolve(ok);
+    };
+
+    const processDisposable = vscode.tasks.onDidEndTaskProcess(event => {
       if (event.execution === execution) {
-        disposable.dispose();
-        const ok = event.exitCode === 0;
-        if (!ok) {
-          vscode.window.showErrorMessage(`Build failed for ${project.name}.`);
-        }
-        resolve(ok);
+        finish(event.exitCode === 0);
+      }
+    });
+
+    const taskDisposable = vscode.tasks.onDidEndTask(event => {
+      if (event.execution === execution) {
+        fallbackTimer = setTimeout(() => finish(false), 1000);
       }
     });
   });
@@ -166,14 +191,6 @@ function resolveTarget(solution: SolutionModel, projectPath: string, profileName
     : undefined;
 
   return { project, profile };
-}
-
-function samePath(a: string, b: string): boolean {
-  const normalize = (value: string) => process.platform === 'win32'
-    ? path.resolve(value).toLowerCase()
-    : path.resolve(value);
-
-  return normalize(a) === normalize(b);
 }
 
 function shouldBuildBeforeRun(): boolean {

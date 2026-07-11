@@ -10,10 +10,16 @@
   "categories": [
     "Other"
   ],
+  "extensionDependencies": [
+    "ms-dotnettools.csharp"
+  ],
   "activationEvents": [
     "onStartupFinished",
+    "onLanguage:csharp",
     "onView:dotnetSolutionNavigator",
-    "onCommand:dotnetSolutionNavigator.refresh"
+    "onCommand:dotnetSolutionNavigator.refresh",
+    "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
+    "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -39,6 +45,26 @@
         "command": "dotnetSolutionNavigator.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.selectSolution",
+        "title": "Select Active Solution",
+        "icon": "$(repo)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.selectOpenedFile",
+        "title": "Select Opened File",
+        "icon": "$(target)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.showHistoryForSelection",
+        "title": "Show History for Selection",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.formatSelection",
+        "title": "Format Selection",
+        "icon": "$(symbol-method)"
       },
       {
         "command": "dotnetSolutionNavigator.openItem",
@@ -164,6 +190,16 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "dotnetSolutionNavigator.addRunConfig",
+        "title": "Add Run Configuration",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.removeRunConfig",
+        "title": "Remove Run Configuration",
+        "icon": "$(close)"
+      },
+      {
         "command": "dotnetSolutionNavigator.runActiveConfig",
         "title": "Run Active Configuration",
         "icon": "$(play)"
@@ -217,10 +253,37 @@
         "command": "dotnetSolutionNavigator.deleteItem",
         "key": "delete",
         "when": "focusedView == dotnetSolutionNavigator"
+      },
+      {
+        "command": "dotnetSolutionNavigator.formatSelection",
+        "key": "ctrl+alt+l",
+        "when": "editorTextFocus && editorLangId == csharp"
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "dotnetSolutionNavigator.formatSelection",
+          "when": "editorLangId == csharp",
+          "group": "z_dotnetNavigator@0"
+        },
+        {
+          "command": "dotnetSolutionNavigator.showHistoryForSelection",
+          "when": "editorHasSelection",
+          "group": "z_dotnetNavigator@1"
+        }
+      ],
       "view/title": [
+        {
+          "command": "dotnetSolutionNavigator.addRunConfig",
+          "when": "view == dotnetSolutionNavigator",
+          "group": "navigation@0"
+        },
+        {
+          "command": "dotnetSolutionNavigator.selectOpenedFile",
+          "when": "view == dotnetSolutionNavigator",
+          "group": "navigation@0"
+        },
         {
           "command": "dotnetSolutionNavigator.runActiveConfig",
           "when": "view == dotnetSolutionNavigator",
@@ -240,6 +303,11 @@
           "command": "dotnetSolutionNavigator.refresh",
           "when": "view == dotnetSolutionNavigator",
           "group": "navigation@4"
+        },
+        {
+          "command": "dotnetSolutionNavigator.selectSolution",
+          "when": "view == dotnetSolutionNavigator",
+          "group": "navigation@5"
         },
         {
           "command": "dotnetSolutionNavigator.selectRunConfig",
@@ -364,14 +432,14 @@
           "group": "inline@2"
         },
         {
+          "command": "dotnetSolutionNavigator.removeRunConfig",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/",
+          "group": "inline@3"
+        },
+        {
           "command": "dotnetSolutionNavigator.setActiveConfig",
           "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/",
           "group": "cfg@1"
-        },
-        {
-          "command": "dotnetSolutionNavigator.deleteCompound",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && viewItem =~ /compound/",
-          "group": "cfg@2"
         }
       ],
       "dotnetSolutionNavigator.add": [
@@ -478,6 +546,48 @@
           "default": true,
           "description": "Nest related files under parent files in the .NET solution tree."
         },
+        "dotnetSolutionNavigator.alwaysSelectOpenedFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically reveal the active editor file in the .NET solution tree."
+        },
+        "dotnetSolutionNavigator.gitHistoryMaxCommits": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum commits returned by Show History for Selection."
+        },
+        "dotnetSolutionNavigator.format.normalizeIndentWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Normalize leading indentation to the active indentation unit before applying C# house-style passes."
+        },
+        "dotnetSolutionNavigator.format.enableLeadingComma": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format multiline C# parameter and argument lists with leading commas."
+        },
+        "dotnetSolutionNavigator.format.enableFluentChainWrap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Normalize indentation for multiline fluent and LINQ chains."
+        },
+        "dotnetSolutionNavigator.format.fluentChainMinSegments": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "Minimum fluent-chain segment count before chain formatting is applied."
+        },
+        "dotnetSolutionNavigator.format.enableBlankLineRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse repeated blank lines and remove blank lines immediately inside braces."
+        },
+        "dotnetSolutionNavigator.format.expandToEnclosingMember": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expand Format Selection to the enclosing C# member before formatting."
+        },
         "dotnetSolutionNavigator.fileNestingRules": {
           "type": "array",
           "default": [],
@@ -503,6 +613,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile"
   },

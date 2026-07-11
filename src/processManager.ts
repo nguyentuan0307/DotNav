@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ProjectModel } from './models';
+import { normalizePath, samePath } from './pathUtils';
 
 type TaskVerb = 'build' | 'test' | 'clean';
 
@@ -9,13 +10,18 @@ interface ManagedTask {
   readonly execution: vscode.TaskExecution;
 }
 
+interface PendingDebugProject {
+  readonly project: ProjectModel;
+  readonly sessionName: string;
+}
+
 export class ProcessManager implements vscode.Disposable {
   private readonly onDidChangeRunningStateEmitter = new vscode.EventEmitter<boolean>();
   readonly onDidChangeRunningState = this.onDidChangeRunningStateEmitter.event;
 
   private readonly sessionsByProject = new Map<string, Set<vscode.DebugSession>>();
   private readonly tasksByProject = new Map<string, Set<ManagedTask>>();
-  private readonly pendingDebugProjects: ProjectModel[] = [];
+  private readonly pendingDebugProjects: PendingDebugProject[] = [];
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor() {
@@ -24,12 +30,12 @@ export class ProcessManager implements vscode.Disposable {
     this.disposables.push(vscode.tasks.onDidEndTaskProcess(event => this.untrackTaskExecution(event.execution)));
   }
 
-  expectDebugSession(project: ProjectModel): void {
-    this.pendingDebugProjects.push(project);
+  expectDebugSession(project: ProjectModel, sessionName: string): void {
+    this.pendingDebugProjects.push({ project, sessionName });
   }
 
   cancelExpectedDebugSession(project: ProjectModel): void {
-    const index = this.pendingDebugProjects.findIndex(candidate => projectKey(candidate.path) === projectKey(project.path));
+    const index = this.pendingDebugProjects.findIndex(candidate => samePath(candidate.project.path, project.path));
     if (index >= 0) {
       this.pendingDebugProjects.splice(index, 1);
     }
@@ -112,9 +118,10 @@ export class ProcessManager implements vscode.Disposable {
   }
 
   private trackNextDebugSession(session: vscode.DebugSession): void {
-    const project = this.pendingDebugProjects.shift();
-    if (project) {
-      this.trackDebugSession(project, session);
+    const index = this.pendingDebugProjects.findIndex(candidate => debugSessionMatches(candidate, session));
+    if (index >= 0) {
+      const [pending] = this.pendingDebugProjects.splice(index, 1);
+      this.trackDebugSession(pending.project, session);
     }
   }
 
@@ -151,5 +158,14 @@ export class ProcessManager implements vscode.Disposable {
 }
 
 function projectKey(projectPath: string): string {
-  return projectPath.toLowerCase();
+  return normalizePath(projectPath);
+}
+
+function debugSessionMatches(pending: PendingDebugProject, session: vscode.DebugSession): boolean {
+  const projectPath = session.configuration.dotnetSolutionNavigatorProjectPath;
+  if (typeof projectPath === 'string' && samePath(projectPath, pending.project.path)) {
+    return true;
+  }
+
+  return session.configuration.name === pending.sessionName;
 }

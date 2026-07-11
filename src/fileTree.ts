@@ -82,7 +82,7 @@ function compareNodes(a: TreeNode, b: TreeNode): number {
   return a.label.localeCompare(b.label);
 }
 
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }

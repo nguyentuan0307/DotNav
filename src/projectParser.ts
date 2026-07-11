@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { loadLaunchProfiles } from './launchSettings';
 import { PackageReference, ProjectKind, ProjectModel, ProjectReference } from './models';
-import { normalizeSlashes, relativeOrName } from './pathUtils';
+import { normalizeSlashes, relativeOrName, resolveMsbuildPath } from './pathUtils';
 
 const packageReferenceRegex = /<PackageReference\b([^>]*)>(?:[\s\S]*?<\/PackageReference>)?/gi;
 const projectReferenceRegex = /<ProjectReference\b([^>]*)>/gi;
@@ -47,6 +47,7 @@ function parsePackageReferences(xml: string): PackageReference[] {
   const packages: PackageReference[] = [];
   let match: RegExpExecArray | null;
 
+  packageReferenceRegex.lastIndex = 0;
   while ((match = packageReferenceRegex.exec(xml)) !== null) {
     const attributes = parseAttributes(match[1]);
     const name = attributes.Include ?? attributes.Update ?? attributes.Remove;
@@ -66,6 +67,7 @@ function parseProjectReferences(xml: string, projectDirectory: string): ProjectR
   const references: ProjectReference[] = [];
   let match: RegExpExecArray | null;
 
+  projectReferenceRegex.lastIndex = 0;
   while ((match = projectReferenceRegex.exec(xml)) !== null) {
     const attributes = parseAttributes(match[1]);
     const include = attributes.Include;
@@ -73,7 +75,7 @@ function parseProjectReferences(xml: string, projectDirectory: string): ProjectR
       continue;
     }
 
-    const referencePath = path.resolve(projectDirectory, include);
+    const referencePath = resolveMsbuildPath(projectDirectory, include);
     references.push({
       name: path.basename(referencePath, path.extname(referencePath)),
       path: referencePath
