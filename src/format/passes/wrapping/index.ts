@@ -47,12 +47,16 @@ function wrapBestList(line: string, ctx: PassContext, chop: boolean): string | u
   }
   pairs.sort((a, b) => a.open - b.open);
   for (const pair of pairs) {
-    if (isControlFlow(line, pair.open)) continue;
+    if (isWithinControlFlow(line, pair, pairs)) continue;
     const parts = splitItems(line, mask, pair.open + 1, pair.close);
     if (parts.length < 2) continue;
     return render(line, pair.open, pair.close, parts, ctx, chop);
   }
   return undefined;
+}
+
+function isWithinControlFlow(line: string, pair: { open: number; close: number }, pairs: Array<{ open: number; close: number }>): boolean {
+  return pairs.some(candidate => candidate.open <= pair.open && candidate.close >= pair.close && isControlFlow(line, candidate.open));
 }
 
 function splitItems(line: string, mask: boolean[], start: number, end: number): string[] {

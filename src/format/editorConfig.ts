@@ -52,14 +52,26 @@ function matches(pattern: string, relativePath: string): boolean {
   const expanded = expandBraces(pattern);
   return expanded.some(value => {
     const target = value.includes('/') ? relativePath : path.posix.basename(relativePath);
-    const regex = value.split('').map((ch, i) => {
-      if (ch === '*' && value[i + 1] === '*') return '';
-      if (ch === '*') return '[^/]*';
-      if (ch === '?') return '[^/]';
-      return ch.replace(/[\\^$+.()|[\]{}]/g, '\\$&');
-    }).join('');
+    const regex = globRegex(value);
     return new RegExp(`^${regex}$`, 'i').test(target);
   });
+}
+
+function globRegex(pattern: string): string {
+  let result = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '*' && pattern[i + 1] === '*') {
+      i++;
+      if (pattern[i + 1] === '/') {
+        i++;
+        result += '(?:.*/)?';
+      } else result += '.*';
+    } else if (ch === '*') result += '[^/]*';
+    else if (ch === '?') result += '[^/]';
+    else result += ch.replace(/[\\^$+.()|[\]{}]/g, '\\$&');
+  }
+  return result;
 }
 
 function expandBraces(pattern: string): string[] {

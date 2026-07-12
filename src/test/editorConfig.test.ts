@@ -27,3 +27,14 @@ test('supports relative path patterns and off overrides', async t => {
   assert.equal(await resolveMaxLineLength(path.join(root, 'Normal.cs')), 88);
   assert.equal(await resolveMaxLineLength(path.join(root, 'generated', 'Code.cs')), undefined);
 });
+
+test('supports recursive double-star patterns at zero or many directory levels', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'navigator-editorconfig-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, 'src', 'deep', 'feature'), { recursive: true });
+  await fs.writeFile(path.join(root, '.editorconfig'), 'root=true\n[src/**/*.cs]\nmax_line_length=96\n');
+
+  assert.equal(await resolveMaxLineLength(path.join(root, 'src', 'Root.cs')), 96);
+  assert.equal(await resolveMaxLineLength(path.join(root, 'src', 'deep', 'feature', 'Nested.cs')), 96);
+  assert.equal(await resolveMaxLineLength(path.join(root, 'test', 'Other.cs')), undefined);
+});

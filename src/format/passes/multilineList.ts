@@ -12,7 +12,7 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
   for (const pair of pairs) {
     const openLine = lineIndexAt(lines, pair.open);
     const closeLine = lineIndexAt(lines, pair.close);
-    if (openLine === closeLine || isControlFlow(text, pair.open)) continue;
+    if (openLine === closeLine || isWithinControlFlow(text, pair, pairs) || hasUnsafeTrivia(lines, openLine, closeLine)) continue;
 
     const separators = topLevelCommas(text, mask, pair.open + 1, pair.close);
     if (separators.length === 0) continue;
@@ -36,6 +36,18 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
   return joinLines(lines);
 }
 
+function isWithinControlFlow(text: string, pair: Pair, pairs: Pair[]): boolean {
+  return pairs.some(candidate => candidate.open <= pair.open && candidate.close >= pair.close && isControlFlow(text, candidate.open));
+}
+
+function hasUnsafeTrivia(lines: { text: string }[], start: number, end: number): boolean {
+  for (let i = start + 1; i < end; i++) {
+    const trimmed = lines[i].text.trimStart();
+    if (trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) return true;
+  }
+  return false;
+}
+
 function findParenPairs(text: string, mask: boolean[]): Pair[] {
   const stack: number[] = [];
   const pairs: Pair[] = [];
@@ -49,7 +61,7 @@ function findParenPairs(text: string, mask: boolean[]): Pair[] {
 
 function topLevelCommas(text: string, mask: boolean[], start: number, end: number): number[] {
   const result: number[] = [];
-  let paren = 0, bracket = 0, brace = 0;
+  let paren = 0, bracket = 0, brace = 0, angle = 0;
   for (let i = start; i < end; i++) {
     if (!mask[i]) continue;
     const ch = text[i];
@@ -59,9 +71,15 @@ function topLevelCommas(text: string, mask: boolean[], start: number, end: numbe
     else if (ch === ']') bracket--;
     else if (ch === '{') brace++;
     else if (ch === '}') brace--;
-    else if (ch === ',' && !paren && !bracket && !brace) result.push(i);
+    else if (ch === '<' && looksLikeGenericOpen(text, i)) angle++;
+    else if (ch === '>' && angle) angle--;
+    else if (ch === ',' && !paren && !bracket && !brace && !angle) result.push(i);
   }
   return result;
+}
+
+function looksLikeGenericOpen(text: string, index: number): boolean {
+  return /[\w)>\]]/.test(text[index - 1] ?? '') && /[\w@[(]/.test(text[index + 1] ?? '');
 }
 
 function lineIndexAt(lines: { start: number; end: number }[], offset: number): number {

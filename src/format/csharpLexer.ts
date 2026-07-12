@@ -137,20 +137,14 @@ interface StringPrefix {
 function readStringPrefix(text: string, start: number): StringPrefix | undefined {
   let i = start;
   let dollars = 0;
-  while (text[i] === '$') {
-    dollars++;
-    i++;
-  }
-
   let verbatim = false;
-  if (text[i] === '@') {
-    verbatim = true;
+  while (text[i] === '$' || text[i] === '@') {
+    if (text[i] === '$') dollars++;
+    else {
+      if (verbatim) return undefined;
+      verbatim = true;
+    }
     i++;
-  }
-
-  if (dollars === 0 && text[start] === '@') {
-    verbatim = true;
-    i = start + 1;
   }
 
   if (text[i] !== '"') {
@@ -163,7 +157,7 @@ function readStringPrefix(text: string, start: number): StringPrefix | undefined
   }
 
   return {
-    contentStart: i + quoteCount,
+    contentStart: i + (quoteCount >= 3 ? quoteCount : 1),
     interpolated: dollars > 0,
     verbatim,
     rawQuoteCount: quoteCount
