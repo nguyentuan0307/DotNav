@@ -18,7 +18,7 @@ export async function formatSelection(editor: vscode.TextEditor): Promise<void> 
   }
 
   const config = vscode.workspace.getConfiguration('dotnetSolutionNavigator.format', document.uri);
-  const range = await expandSelectionRange(document, editor.selection, config.get<boolean>('expandToEnclosingMember', true));
+  const range = await expandSelectionRange(document, editor.selection, config.get<boolean>('expandToEnclosingMember', false));
   const tabSize = numberSetting(editor.options.tabSize, 4);
   const insertSpaces = booleanSetting(editor.options.insertSpaces, false);
   const configuredWrapColumn = config.get<number>('wrapColumn', 120);

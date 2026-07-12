@@ -91,7 +91,27 @@ test('does not treat control-flow conditions as argument lists', () => {
 test('keep only suppresses new wrapping and still normalizes existing lists', () => {
   const long = '\tCall(firstArgument, secondArgument, thirdArgument);';
   assert.equal(formatLeadingCommas(long, { ...ctx, wrapColumn: 20 }, 'keep'), long);
-  assert.equal(formatLeadingCommas('\tCall(\n\t\t\t, first\n\t)', ctx, 'keep'), '\tCall(\n\t\t, first\n\t)');
+  assert.equal(formatLeadingCommas('\tCall(\n\t\tfirst\n\t\t\t, second\n\t)', ctx, 'keep'), '\tCall(\n\t\tfirst\n\t\t, second\n\t)');
+});
+
+test('uses the first leading-comma continuation as anchor when the first item is inline', () => {
+  const input = [
+    '\t\tawait mediator.Publish(new DomainEvent(record.Id)',
+    '\t\t\t\t\t, new List<int> { record.Id }',
+    '\t\t\t, tenantId',
+    '\t\t, null',
+    '\t\t\t\t, cancellationToken);'
+  ].join('\n');
+  const output = formatLeadingCommas(input, ctx);
+
+  assert.equal(output, [
+    '\t\tawait mediator.Publish(new DomainEvent(record.Id)',
+    '\t\t\t\t\t, new List<int> { record.Id }',
+    '\t\t\t\t\t, tenantId',
+    '\t\t\t\t\t, null',
+    '\t\t\t\t\t, cancellationToken);'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, ctx), output);
 });
 
 test('normalizes fluent chain indentation and object initializer inside chain', () => {

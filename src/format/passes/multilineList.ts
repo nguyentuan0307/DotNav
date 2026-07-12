@@ -17,6 +17,12 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
     const separators = topLevelCommas(text, mask, pair.open + 1, pair.close);
     if (separators.length === 0) continue;
     const separatorLines = separators.map(offset => lineIndexAt(lines, offset));
+    const allLeading = separatorLines.every((lineIndex, index) =>
+      lines[lineIndex].text.slice(0, separators[index] - lines[lineIndex].start).trim() === '');
+    if (allLeading) {
+      alignLeadingSeparators(lines, pair, separatorLines);
+      continue;
+    }
     if (separatorLines.some((lineIndex, index) => lines[lineIndex].text.slice(separators[index] - lines[lineIndex].start + 1).trim() !== '')) continue;
 
     const baseIndent = leadingWhitespace(lines[openLine].text);
@@ -34,6 +40,24 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
   }
 
   return joinLines(lines);
+}
+
+function alignLeadingSeparators(
+  lines: { text: string; start: number; end: number }[],
+  pair: Pair,
+  separatorLines: number[]
+): void {
+  const openLine = lineIndexAt(lines, pair.open);
+  const closeLine = lineIndexAt(lines, pair.close);
+  const openOffset = pair.open - lines[openLine].start;
+  const firstItemIsInline = lines[openLine].text.slice(openOffset + 1).trim() !== '';
+  const firstItemLine = firstItemIsInline ? undefined : nextContentLine(lines, openLine + 1, closeLine);
+  const anchor = firstItemLine !== undefined
+    ? leadingWhitespace(lines[firstItemLine].text)
+    : leadingWhitespace(lines[separatorLines[0]].text);
+  for (const lineIndex of separatorLines) {
+    lines[lineIndex].text = anchor + lines[lineIndex].text.trimStart();
+  }
 }
 
 function isWithinControlFlow(text: string, pair: Pair, pairs: Pair[]): boolean {

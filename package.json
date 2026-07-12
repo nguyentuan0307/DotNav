@@ -652,8 +652,8 @@
         },
         "dotnetSolutionNavigator.format.expandToEnclosingMember": {
           "type": "boolean",
-          "default": true,
-          "description": "Expand Format Selection to the enclosing C# member before formatting."
+          "default": false,
+          "description": "Expand Format Selection to the enclosing C# member. Disabled by default so formatting only changes the selected lines."
         },
         "dotnetSolutionNavigator.fileNestingRules": {
           "type": "array",
