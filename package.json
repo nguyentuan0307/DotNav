@@ -19,6 +19,10 @@
     "onView:dotnetSolutionNavigator",
     "onCommand:dotnetSolutionNavigator.refresh",
     "onCommand:dotnetSolutionNavigator.searchSolutionTree",
+    "onCommand:dotnetSolutionNavigator.buildSolution",
+    "onCommand:dotnetSolutionNavigator.rebuildSolution",
+    "onCommand:dotnetSolutionNavigator.cleanSolution",
+    "onCommand:dotnetSolutionNavigator.openWorkspaceFolder",
     "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
     "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
@@ -41,6 +45,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "dotnetSolutionNavigator",
+        "contents": "No .NET solution or project is open.\n[Open Folder](command:dotnetSolutionNavigator.openWorkspaceFolder)\n[Select Solution](command:dotnetSolutionNavigator.selectSolution)"
+      }
+    ],
     "commands": [
       {
         "command": "dotnetSolutionNavigator.refresh",
@@ -83,6 +93,26 @@
       {
         "command": "dotnetSolutionNavigator.buildProject",
         "title": "Build"
+      },
+      {
+        "command": "dotnetSolutionNavigator.buildSolution",
+        "title": "Build Solution",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.rebuildSolution",
+        "title": "Rebuild Solution",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.cleanSolution",
+        "title": "Clean Solution",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.openWorkspaceFolder",
+        "title": "Open Folder",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "dotnetSolutionNavigator.runProject",
@@ -362,6 +392,21 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "dotnetSolutionNavigator.buildSolution",
+          "when": "view == dotnetSolutionNavigator && viewItem == solution",
+          "group": "solution@1"
+        },
+        {
+          "command": "dotnetSolutionNavigator.rebuildSolution",
+          "when": "view == dotnetSolutionNavigator && viewItem == solution",
+          "group": "solution@2"
+        },
+        {
+          "command": "dotnetSolutionNavigator.cleanSolution",
+          "when": "view == dotnetSolutionNavigator && viewItem == solution",
+          "group": "solution@3"
+        },
         {
           "submenu": "dotnetSolutionNavigator.add",
           "when": "view == dotnetSolutionNavigator && viewItem =~ /folder|project/",

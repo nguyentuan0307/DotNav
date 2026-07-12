@@ -165,6 +165,37 @@ Key files:
 - `src/test/runSessionState.test.ts`
 - `src/test/processManager.test.ts`
 
+## Solution Operations and Build Progress
+
+- The solution node now exposes `Build Solution`, `Rebuild Solution`, and `Clean Solution` actions.
+- Rebuild uses `dotnet build --no-incremental`; all operations respect `dotnetSolutionNavigator.buildConfiguration`.
+- Solution commands require an actual `.sln` or `.slnx`; project-only workspaces continue using project actions.
+- Solution tasks use argv-based `ProcessExecution`, participate in the existing lifecycle/output channel, respect the build timeout, and can be stopped through notification Cancel or `Stop All`.
+- Direct project Build/Test/Clean actions now show cancellable progress notifications and use the same timeout/lifecycle tracking.
+- Duplicate operations for the same project or solution are rejected before a new task is started.
+- Run and Debug remain on status bar/output lifecycle UI rather than showing long-lived progress notifications.
+
+Key files:
+
+- `src/dotnetCli.ts`
+- `src/processManager.ts`
+- `src/extension.ts`
+- `src/test/processManager.test.ts`
+- `src/test/solutionFeatures.test.ts`
+
+## Empty-State Welcome View
+
+- The Solution view is empty when no workspace or .NET solution/project is available, allowing native `viewsWelcome` content to render.
+- Welcome actions provide `Open Folder` and `Select Solution` recovery paths.
+- Existing workspaces with a solution or standalone projects continue rendering the normal tree.
+
+Key files:
+
+- `src/treeProvider.ts`
+- `src/extension.ts`
+- `package.json`
+- `src/test/solutionFeatures.test.ts`
+
 ## Verification Notes
 
 Manual/mock checks performed during implementation:

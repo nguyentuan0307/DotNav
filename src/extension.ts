@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { addCodeItem, addExistingItem, addFile, addFolder } from './addCommands';
 import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner';
-import { openTerminalAt, runDotnetForProject } from './dotnetCli';
+import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForSolution } from './dotnetCli';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
 import { formatSelection } from './format/formatSelection';
@@ -69,6 +69,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.cleanSolution', () => runSolutionCommand(provider, processManager, 'clean')),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.openWorkspaceFolder', () => vscode.commands.executeCommand('workbench.action.files.openFolder')),
     vscode.commands.registerCommand('dotnetSolutionNavigator.runProject', (node: TreeNode) => runOrDebugProject(processManager, node, false)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.debugProject', (node: TreeNode) => runOrDebugProject(processManager, node, true)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.testProject', (node: TreeNode) => runProjectCommand(processManager, node, 'test')),
@@ -347,6 +351,24 @@ async function runProjectCommand(processManager: ProcessManager, node: TreeNode,
   }
 
   await runDotnetForProject(project, verb, processManager);
+}
+
+async function runSolutionCommand(
+  provider: DotnetTreeProvider,
+  processManager: ProcessManager,
+  operation: SolutionOperation
+): Promise<void> {
+  if (!provider.getSolution()) {
+    await provider.refresh();
+  }
+
+  const solution = provider.getSolution();
+  if (!solution) {
+    vscode.window.showInformationMessage('Open a .NET workspace before running a solution operation.');
+    return;
+  }
+
+  await runDotnetForSolution(solution, operation, processManager);
 }
 
 async function runOrDebugProject(processManager: ProcessManager, node: TreeNode, debug: boolean): Promise<void> {

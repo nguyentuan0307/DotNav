@@ -111,6 +111,23 @@ test('keeps a stopped task busy until VS Code confirms task completion', async (
   manager.dispose();
 });
 
+test('tracks a rebuild task as a cancellable build operation', async () => {
+  const manager = new ProcessManager();
+  const execution = { terminate: () => undefined };
+  vscodeMock.tasks.taskExecutions.push(execution);
+
+  const binding = manager.trackTask(project, 'rebuild', execution as never);
+  assert.equal(manager.getSession(binding.runId)?.phase, 'building');
+
+  taskProcessEnded.fire({ execution, exitCode: 0 });
+  taskEnded.fire({ execution });
+  await delay(0);
+
+  assert.equal(manager.getSession(binding.runId)?.phase, 'succeeded');
+  vscodeMock.tasks.taskExecutions.splice(vscodeMock.tasks.taskExecutions.indexOf(execution), 1);
+  manager.dispose();
+});
+
 test('cleans up a task even when no process-end event is emitted', async () => {
   const manager = new ProcessManager();
   const session = manager.beginRun('operation:build:app', 'Build App', 'build', [{ project }]);

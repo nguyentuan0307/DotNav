@@ -110,7 +110,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     if (!this.solution) {
-      return [{ kind: 'message', label: 'Open a workspace folder to inspect .NET projects.' }];
+      return [];
+    }
+
+    if (!this.solution.path && this.solution.projects.length === 0) {
+      return [];
     }
 
     if (!node) {

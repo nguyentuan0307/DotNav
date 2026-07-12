@@ -15,7 +15,7 @@ import {
   transitionTarget
 } from './runSessionState';
 
-type TaskVerb = 'build' | 'test' | 'clean';
+type TaskVerb = 'build' | 'rebuild' | 'test' | 'clean';
 
 export interface RunTargetDescriptor {
   readonly project: ProjectModel;
