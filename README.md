@@ -2,7 +2,7 @@
 
 A small VS Code extension MVP that adds a Rider-inspired `.NET` activity bar view.
 
-> Continuing development? Start with [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) for the current implementation, formatter behavior, verification baseline, known gaps, and recommended next work. The full feature history is in [docs/implemented-features.md](docs/implemented-features.md).
+> Continuing development? Start with `docs/CURRENT_STATE.md` for the current implementation, formatter behavior, verification baseline, known gaps, and recommended next work. The full feature history is in `docs/implemented-features.md`.
 
 ## Features
 

@@ -211,34 +211,66 @@ async function searchSolutionTree(
     return;
   }
 
-  let cancelled = false;
-  const items = await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Window,
-    cancellable: true,
-    title: 'Indexing solution tree'
-  }, (_progress, token) => {
-    const subscription = token.onCancellationRequested(() => {
-      cancelled = true;
+  const quickPick = vscode.window.createQuickPick<SolutionSearchItem>();
+  const cancellation = new vscode.CancellationTokenSource();
+  quickPick.title = 'Search Solution Tree';
+  quickPick.placeholder = 'Indexing solution tree…';
+  quickPick.matchOnDescription = true;
+  quickPick.matchOnDetail = true;
+  quickPick.busy = true;
+
+  const picked = await new Promise<SolutionSearchItem | undefined>(resolve => {
+    let settled = false;
+    const finish = (item?: SolutionSearchItem) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(item);
+    };
+    const acceptSubscription = quickPick.onDidAccept(() => {
+      const item = quickPick.selectedItems[0];
+      if (item) {
+        finish(item);
+        quickPick.hide();
+      }
+    });
+    const hideSubscription = quickPick.onDidHide(() => {
+      cancellation.cancel();
+      finish();
     });
 
-    return buildSolutionSearchItems(provider, token).finally(() => subscription.dispose());
+    quickPick.show();
+    buildSolutionSearchItems(provider, cancellation.token).then(items => {
+      if (cancellation.token.isCancellationRequested) {
+        return;
+      }
+
+      quickPick.items = items;
+      quickPick.busy = false;
+      quickPick.placeholder = items.length > 0
+        ? 'Search project, folder, or file'
+        : 'No searchable items found in the solution tree';
+    }, error => {
+      if (cancellation.token.isCancellationRequested) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      quickPick.busy = false;
+      quickPick.placeholder = 'Unable to index the solution tree';
+      vscode.window.showErrorMessage(`Search Solution Tree failed: ${message}`);
+    }).finally(() => {
+      if (settled) {
+        acceptSubscription.dispose();
+        hideSubscription.dispose();
+      }
+    });
   });
 
-  if (cancelled) {
-    return;
-  }
-
-  if (items.length === 0) {
-    vscode.window.showInformationMessage('No searchable items found in the solution tree.');
-    return;
-  }
-
-  const picked = await vscode.window.showQuickPick(items, {
-    title: 'Search Solution Tree',
-    placeHolder: 'Search project, folder, or file',
-    matchOnDescription: true,
-    matchOnDetail: true
-  });
+  cancellation.dispose();
+  quickPick.dispose();
 
   if (!picked) {
     return;

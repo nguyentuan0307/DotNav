@@ -80,6 +80,8 @@ Key files:
 ## Search Solution Tree
 
 - Added `Search Solution Tree` as a toolbar and command palette action.
+- The Quick Pick opens immediately and shows a busy state while the solution tree is indexed, so large solutions no longer make the toolbar click appear unresponsive.
+- Closing the Quick Pick cancels indexing, and indexing failures are reported instead of silently preventing the picker from opening.
 - The command builds a Quick Pick index from the current Solution tree provider instead of reparsing the workspace separately.
 - Search covers solution, project, folder, and file nodes; dependency/package nodes are intentionally omitted to keep navigation results focused.
 - Quick Pick matches label, tree breadcrumb, and filesystem detail.

@@ -15,6 +15,8 @@ Read this file first when reopening the repository or starting a new Codex task.
 - Git history for the selected lines using `git log -L`, including dirty-worktree line mapping and an interactive diff webview.
 - C# selection formatting that combines the installed C# extension's Roslyn formatter with repository-specific readability passes.
 
+Solution tree search opens its Quick Pick immediately, displays a busy state while indexing, supports cancellation by closing the picker, and reports indexing failures.
+
 See [implemented-features.md](implemented-features.md) for behavior and key files for every product area.
 
 ## C# Formatter: Current Behavior
