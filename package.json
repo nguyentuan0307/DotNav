@@ -18,6 +18,7 @@
     "onLanguage:csharp",
     "onView:dotnetSolutionNavigator",
     "onCommand:dotnetSolutionNavigator.refresh",
+    "onCommand:dotnetSolutionNavigator.searchSolutionTree",
     "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
     "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
@@ -55,6 +56,11 @@
         "command": "dotnetSolutionNavigator.selectOpenedFile",
         "title": "Select Opened File",
         "icon": "$(target)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.searchSolutionTree",
+        "title": "Search Solution Tree",
+        "icon": "$(search)"
       },
       {
         "command": "dotnetSolutionNavigator.showHistoryForSelection",
@@ -298,6 +304,11 @@
           "command": "dotnetSolutionNavigator.selectOpenedFile",
           "when": "view == dotnetSolutionNavigator",
           "group": "navigation@0"
+        },
+        {
+          "command": "dotnetSolutionNavigator.searchSolutionTree",
+          "when": "view == dotnetSolutionNavigator",
+          "group": "navigation@0.5"
         },
         {
           "command": "dotnetSolutionNavigator.runActiveConfig",

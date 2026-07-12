@@ -75,6 +75,20 @@ Key files:
 Key files:
 - `src/extension.ts`
 
+## Search Solution Tree
+
+- Added `Search Solution Tree` as a toolbar and command palette action.
+- The command builds a Quick Pick index from the current Solution tree provider instead of reparsing the workspace separately.
+- Search covers solution, project, folder, and file nodes; dependency/package nodes are intentionally omitted to keep navigation results focused.
+- Quick Pick matches label, tree breadcrumb, and filesystem detail.
+- Choosing a file opens it and reveals it in the Solution tree.
+- Choosing a solution, project, or folder reveals that node in the Solution tree.
+- The index respects current navigator settings such as hidden files/folders, project file visibility, and file nesting.
+
+Key files:
+- `src/extension.ts`
+- `package.json`
+
 ## Git History for Selection
 
 - Added `Show History for Selection` for editor selections.
@@ -138,7 +152,7 @@ Key files:
 - Compound startup is sequential and stops previously started targets when a later target fails.
 - Project and Run Configuration context menus are gated by runtime state.
 - Run Configuration nodes and the status bar show active or most recent lifecycle status.
-- Secondary Solution view actions are placed in the overflow menu; the primary toolbar contains Run, Debug, Stop All, and Refresh.
+- Secondary Solution view actions are placed in the overflow menu; the primary toolbar contains Select Opened File, Search, Run, Debug, Stop All, and Refresh.
 - A `.NET Navigator` output channel records lifecycle transitions with run ids.
 
 Key files:

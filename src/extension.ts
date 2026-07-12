@@ -65,6 +65,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.searchSolutionTree', () => searchSolutionTree(provider, treeView)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
@@ -191,6 +192,173 @@ async function selectOpenedFile(
   }
 
   await treeView.reveal(node, { select: true, focus: false, expand: true });
+}
+
+interface SolutionSearchItem extends vscode.QuickPickItem {
+  readonly node: TreeNode;
+}
+
+async function searchSolutionTree(
+  provider: DotnetTreeProvider,
+  treeView: vscode.TreeView<TreeNode>
+): Promise<void> {
+  if (!provider.getSolution()) {
+    await provider.refresh();
+  }
+
+  if (!provider.getSolution()) {
+    vscode.window.showInformationMessage('Open a .NET solution first.');
+    return;
+  }
+
+  let cancelled = false;
+  const items = await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Window,
+    cancellable: true,
+    title: 'Indexing solution tree'
+  }, (_progress, token) => {
+    const subscription = token.onCancellationRequested(() => {
+      cancelled = true;
+    });
+
+    return buildSolutionSearchItems(provider, token).finally(() => subscription.dispose());
+  });
+
+  if (cancelled) {
+    return;
+  }
+
+  if (items.length === 0) {
+    vscode.window.showInformationMessage('No searchable items found in the solution tree.');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Search Solution Tree',
+    placeHolder: 'Search project, folder, or file',
+    matchOnDescription: true,
+    matchOnDetail: true
+  });
+
+  if (!picked) {
+    return;
+  }
+
+  if (picked.node.kind === 'file' && picked.node.resourcePath) {
+    await openItem(provider, treeView, picked.node);
+    return;
+  }
+
+  await revealWithScrollPadding(provider, treeView, picked.node);
+}
+
+async function buildSolutionSearchItems(
+  provider: DotnetTreeProvider,
+  token: vscode.CancellationToken
+): Promise<SolutionSearchItem[]> {
+  const roots = (await provider.getChildren()).filter(node => node.kind === 'solution');
+  const items: SolutionSearchItem[] = [];
+
+  for (const root of roots) {
+    if (token.isCancellationRequested) {
+      break;
+    }
+
+    await collectSolutionSearchItems(provider, root, [], items, token);
+  }
+
+  return items;
+}
+
+async function collectSolutionSearchItems(
+  provider: DotnetTreeProvider,
+  node: TreeNode,
+  ancestors: string[],
+  items: SolutionSearchItem[],
+  token: vscode.CancellationToken
+): Promise<void> {
+  if (token.isCancellationRequested || node.kind === 'message') {
+    return;
+  }
+
+  if (!isSearchableSolutionNode(node)) {
+    return;
+  }
+
+  items.push(toSolutionSearchItem(node, ancestors));
+
+  if (node.kind === 'file') {
+    return;
+  }
+
+  const children = await provider.getChildren(node);
+  const nextAncestors = [...ancestors, node.label];
+  for (const child of children) {
+    if (token.isCancellationRequested) {
+      return;
+    }
+
+    await collectSolutionSearchItems(provider, child, nextAncestors, items, token);
+  }
+}
+
+function isSearchableSolutionNode(node: TreeNode): boolean {
+  return node.kind === 'solution'
+    || node.kind === 'project'
+    || node.kind === 'folder'
+    || node.kind === 'file';
+}
+
+function toSolutionSearchItem(node: TreeNode, ancestors: string[]): SolutionSearchItem {
+  const projectName = node.project?.name;
+  const description = [...ancestors.slice(1), node.kind === 'project' ? undefined : projectName]
+    .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+    .join(' / ');
+
+  return {
+    label: `${searchIconFor(node)} ${node.label}`,
+    description: description.length > 0 ? description : searchKindLabel(node),
+    detail: searchDetailFor(node),
+    node
+  };
+}
+
+function searchIconFor(node: TreeNode): string {
+  switch (node.kind) {
+    case 'solution':
+      return '$(repo)';
+    case 'project':
+      return '$(symbol-class)';
+    case 'folder':
+      return '$(folder)';
+    case 'file':
+      return '$(file)';
+    default:
+      return '$(circle-outline)';
+  }
+}
+
+function searchKindLabel(node: TreeNode): string {
+  switch (node.kind) {
+    case 'solution':
+      return 'solution';
+    case 'project':
+      return 'project';
+    case 'folder':
+      return node.id?.startsWith('folder:') ? 'solution folder' : 'folder';
+    case 'file':
+      return 'file';
+    default:
+      return node.kind;
+  }
+}
+
+function searchDetailFor(node: TreeNode): string | undefined {
+  if (node.kind === 'project' && node.project) {
+    return node.project.relativePath;
+  }
+
+  return node.resourcePath;
 }
 
 async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
