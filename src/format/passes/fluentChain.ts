@@ -1,4 +1,4 @@
-import { buildCodeMask, isCodeOnly } from '../csharpLexer';
+import { buildCodeMask } from '../csharpLexer';
 import { joinLines, leadingWhitespace, splitLines } from '../textLines';
 import { PassContext } from './types';
 
@@ -10,7 +10,7 @@ export function formatFluentChains(text: string, ctx: PassContext): string {
   while (i < lines.length) {
     const line = lines[i];
     const trimmed = line.text.trimStart();
-    if (!trimmed.startsWith('.') || !isCodeOnly(mask, line.start, line.end)) {
+    if (!isContinuation(trimmed) || !isLeadingTokenCode(mask, line)) {
       i++;
       continue;
     }
@@ -25,11 +25,7 @@ export function formatFluentChains(text: string, ctx: PassContext): string {
     while (runEnd < lines.length) {
       const current = lines[runEnd];
       const currentTrimmed = current.text.trimStart();
-      if (!isCodeOnly(mask, current.start, current.end)) {
-        break;
-      }
-
-      if (currentTrimmed.startsWith('.')) {
+      if (isContinuation(currentTrimmed) && isLeadingTokenCode(mask, current)) {
         dotCount++;
         rewriteLines.add(runEnd);
         runEnd++;
@@ -88,4 +84,13 @@ function inferPreviousIndent(lines: { text: string }[], index: number): string |
     }
   }
   return undefined;
+}
+
+function isContinuation(trimmed: string): boolean {
+  return trimmed.startsWith('.') || trimmed.startsWith('?.');
+}
+
+function isLeadingTokenCode(mask: boolean[], line: { text: string; start: number }): boolean {
+  const offset = line.text.length - line.text.trimStart().length;
+  return mask[line.start + offset] === true;
 }

@@ -152,6 +152,68 @@ test('aligns two sibling MongoDB builder calls to the same column by default', (
   assert.equal(formatFluentChains(output, { ...ctx, fluentChainMinSegments: 2 }), output);
 });
 
+test('aligns fluent calls containing strings and trailing comments', () => {
+  const local = { ...ctx, fluentChainMinSegments: 2 };
+  const input = [
+    '\tvar query = source',
+    '\t\t\t.Where(x => x.Name == "active") // preserve this comment',
+    '\t\t.Select(x => x.Id);'
+  ].join('\n');
+
+  assert.equal(formatFluentChains(input, local), [
+    '\tvar query = source',
+    '\t\t.Where(x => x.Name == "active") // preserve this comment',
+    '\t\t.Select(x => x.Id);'
+  ].join('\n'));
+});
+
+test('aligns null-conditional fluent continuations', () => {
+  const local = { ...ctx, fluentChainMinSegments: 2 };
+  const input = [
+    '\tvar result = source',
+    '\t\t\t?.Where(x => x.Enabled)',
+    '\t?.ToList();'
+  ].join('\n');
+
+  assert.equal(formatFluentChains(input, local), [
+    '\tvar result = source',
+    '\t\t?.Where(x => x.Enabled)',
+    '\t\t?.ToList();'
+  ].join('\n'));
+});
+
+test('normalizes a leading-comma string argument without touching its contents', () => {
+  const input = [
+    '\tCall(',
+    '\t\tfirst',
+    '\t\t\t\t, "second,value"',
+    '\t);'
+  ].join('\n');
+
+  assert.equal(formatLeadingCommas(input, ctx), [
+    '\tCall(',
+    '\t\tfirst',
+    '\t\t, "second,value"',
+    '\t);'
+  ].join('\n'));
+});
+
+test('wraps realistic nested, named, lambda, and relational arguments safely', () => {
+  const local = { ...ctx, wrapColumn: 70 };
+  const cases = [
+    '\tCall(new Dictionary<One, Two>(), Build(three, four), fifth).ToString();',
+    '\tCall(first: GetValue(one, two), predicate: item => item.Enabled, cancellationToken: token);',
+    '\tCall(firstValue < secondValue, thirdValue > fourthValue, finalValue);',
+    '\tCall([first, second, third], new Model { Name = "a,b" }, finalValue);'
+  ];
+
+  for (const input of cases) {
+    const output = formatLeadingCommas(input, local, 'chopAlways');
+    assert.equal(stripWhitespace(output), stripWhitespace(input));
+    assert.equal(formatLeadingCommas(output, local, 'chopAlways'), output);
+  }
+});
+
 test('collapses repeated blank lines without removing region spacing', () => {
   const input = [
     '#region Password',

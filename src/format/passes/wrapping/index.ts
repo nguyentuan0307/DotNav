@@ -11,12 +11,29 @@ const CONTROL_KEYWORDS = new Set(['if', 'while', 'for', 'foreach', 'switch', 'ca
 export function formatCSharpWrapping(text: string, ctx: PassContext, settings: CSharpWrappingSettings): string {
   if (settings.style === 'keep') return text;
   const lines = splitLines(text);
+  let parenDepth = 0;
   for (const line of lines) {
-    if (settings.style === 'wrapIfLong' && visualWidth(line.text, ctx.tabSize) <= ctx.wrapColumn) continue;
-    const wrapped = wrapBestList(line.text, ctx, settings.style === 'chopAlways');
-    if (wrapped) line.text = wrapped;
+    const delta = codeParenDelta(line.text);
+    const isStandalone = parenDepth === 0 && delta === 0;
+    if (isStandalone && !line.text.trimStart().startsWith(',')
+      && (settings.style !== 'wrapIfLong' || visualWidth(line.text, ctx.tabSize) > ctx.wrapColumn)) {
+      const wrapped = wrapBestList(line.text, ctx, settings.style === 'chopAlways');
+      if (wrapped) line.text = wrapped;
+    }
+    parenDepth = Math.max(0, parenDepth + delta);
   }
   return joinLines(lines);
+}
+
+function codeParenDelta(line: string): number {
+  const mask = buildCodeMask(line);
+  let delta = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (!mask[i]) continue;
+    if (line[i] === '(') delta++;
+    else if (line[i] === ')') delta--;
+  }
+  return delta;
 }
 
 function wrapBestList(line: string, ctx: PassContext, chop: boolean): string | undefined {

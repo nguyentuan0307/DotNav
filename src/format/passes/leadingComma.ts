@@ -1,4 +1,4 @@
-import { buildCodeMask, isCodeOnly } from '../csharpLexer';
+import { buildCodeMask } from '../csharpLexer';
 import { joinLines, leadingWhitespace, splitLines } from '../textLines';
 import { formatCSharpWrapping } from './wrapping';
 import { LeadingCommaWrapStyle, PassContext } from './types';
@@ -14,7 +14,8 @@ function normalizeMultilineLeadingCommas(text: string, ctx: PassContext): string
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.text.trimStart();
-    if (!trimmed.startsWith(',') || !isCodeOnly(mask, line.start, line.end)) {
+    const commaOffset = line.text.length - trimmed.length;
+    if (!trimmed.startsWith(',') || mask[line.start + commaOffset] !== true) {
       continue;
     }
 
