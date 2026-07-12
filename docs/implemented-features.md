@@ -2,6 +2,8 @@
 
 This file records feature and fix notes for future agent/developer review.
 
+For the latest checkpoint, formatter configuration, test baseline, known gaps, and next-step priorities, read [CURRENT_STATE.md](CURRENT_STATE.md) first.
+
 ## Solution Folder Tree
 
 - The tree now reads `.sln` solution folders instead of grouping projects only by disk path.
