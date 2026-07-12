@@ -80,15 +80,11 @@ Key files:
 ## Search Solution Tree
 
 - Added `Filter Solution Tree` as a toolbar and command palette action.
-- The input opens immediately and indexes in the background, so large solutions do not make the toolbar click appear unresponsive.
-- Typing filters the existing Explorer tree instead of presenting a separate list of search results.
-- Matching solution, project, folder, and file nodes remain visible together with every ancestor needed to preserve their tree context.
-- Matching uses labels, tree breadcrumbs, project names, and filesystem details. Dependencies/packages are intentionally omitted.
-- The filter persists after the input closes. A contextual `Clear Solution Tree Filter` toolbar action restores the complete tree.
-- A refresh clears the filter, and an empty result displays a message rather than making the view appear broken.
-- Closing during indexing cancels the work, and indexing failures are reported.
-- Indexing always reads the unfiltered provider tree, so repeated filters do not accidentally filter an already-pruned result set.
-- The index respects navigator settings such as hidden files/folders, project file visibility, and file nesting.
+- The toolbar action focuses the Solution Tree and opens VS Code's native Tree Find Control inside the view.
+- The control supports the editor's native highlight/filter and fuzzy-match modes without a modal input covering the editor.
+- Closing the native control removes the box and restores the compact Explorer UI.
+- Filtering is owned by VS Code's tree widget, so the extension does not mutate its solution model, child lists, file nesting, expansion state, drag/drop, or context menus.
+- The same control remains available through VS Code's standard tree-find keyboard shortcut when the view has focus.
 
 Key files:
 - `src/extension.ts`

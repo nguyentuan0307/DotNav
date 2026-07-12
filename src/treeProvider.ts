@@ -26,7 +26,6 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private startupProjectPath?: string;
   private projectStateProvider?: (project: ProjectModel) => RunPhase | undefined;
   private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
-  private filterNodeIds?: ReadonlySet<string>;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.startupProjectPath = context.workspaceState.get<string>('startupProjectPath');
@@ -44,8 +43,6 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   private async loadWorkspaceSolution(): Promise<void> {
     this.solutionTree = undefined;
-    this.filterNodeIds = undefined;
-    vscode.commands.executeCommand('setContext', 'dotnetSolutionNavigator.hasTreeFilter', false);
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
       this.solution = undefined;
@@ -108,32 +105,6 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
-    const children = await this.getUnfilteredChildren(node);
-    const filtered = this.filterNodeIds
-      ? children.filter(child => this.filterNodeIds!.has(this.nodeId(child)!))
-      : children;
-    if (!node && this.filterNodeIds && filtered.length === 0) {
-      return [{ kind: 'message', label: 'No items match the current filter.' }];
-    }
-
-    return filtered;
-  }
-
-  getSearchChildren(node?: TreeNode): Promise<TreeNode[]> {
-    return this.getUnfilteredChildren(node);
-  }
-
-  setSolutionTreeFilter(nodeIds?: ReadonlySet<string>): void {
-    this.filterNodeIds = nodeIds;
-    vscode.commands.executeCommand('setContext', 'dotnetSolutionNavigator.hasTreeFilter', Boolean(nodeIds));
-    this.onDidChangeTreeDataEmitter.fire();
-  }
-
-  getNodeId(node: TreeNode): string {
-    return this.nodeId(node) ?? `${node.kind}:${node.label}`;
-  }
-
-  private async getUnfilteredChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (!this.solution) {
       await this.refresh();
     }
