@@ -622,6 +622,18 @@
           "default": true,
           "description": "Format multiline C# parameter and argument lists with leading commas."
         },
+        "dotnetSolutionNavigator.format.wrapColumn": {
+          "type": "number",
+          "default": 120,
+          "minimum": 40,
+          "description": "Fallback line width for C# wrapping. A matching .editorconfig max_line_length takes precedence."
+        },
+        "dotnetSolutionNavigator.format.leadingCommaWrapStyle": {
+          "type": "string",
+          "enum": ["wrapIfLong", "chopAlways", "keep"],
+          "default": "wrapIfLong",
+          "description": "Controls wrapping of single-line C# parameter and argument lists; existing multiline leading commas are always normalized."
+        },
         "dotnetSolutionNavigator.format.enableFluentChainWrap": {
           "type": "boolean",
           "default": true,

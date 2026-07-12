@@ -10,7 +10,8 @@ export function runFormatPasses(text: string, settings: FormatPassSettings, part
     eol: partialContext.eol ?? detectEol(text),
     indentUnit: partialContext.indentUnit ?? '\t',
     tabSize: partialContext.tabSize ?? 4,
-    fluentChainMinSegments: partialContext.fluentChainMinSegments ?? 3
+    fluentChainMinSegments: partialContext.fluentChainMinSegments ?? 3,
+    wrapColumn: partialContext.wrapColumn ?? 120
   };
 
   let result = text;
@@ -18,7 +19,7 @@ export function runFormatPasses(text: string, settings: FormatPassSettings, part
     result = normalizeIndentWhitespace(result, ctx);
   }
   if (settings.enableLeadingComma) {
-    result = formatLeadingCommas(result, ctx);
+    result = formatLeadingCommas(result, ctx, settings.leadingCommaWrapStyle);
   }
   if (settings.enableFluentChainWrap) {
     result = formatFluentChains(result, ctx);

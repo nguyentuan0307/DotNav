@@ -11,7 +11,8 @@ const ctx: PassContext = {
   eol: '\n',
   indentUnit: '\t',
   tabSize: 4,
-  fluentChainMinSegments: 3
+  fluentChainMinSegments: 3,
+  wrapColumn: 120
 };
 
 test('normalizes mixed leading indentation only on code lines', () => {
@@ -58,9 +59,39 @@ test('wraps long single-line argument lists with leading commas', () => {
   const input = '\tCall(firstArgument, secondArgument, thirdArgument, fourthArgument, fifthArgument, sixthArgument, seventhArgument, eighthArgument, ninthArgument);';
   const output = formatLeadingCommas(input, ctx);
 
-  assert.ok(output.includes('\n\t\t, secondArgument'));
-  assert.ok(output.endsWith('\n\t);'));
+  assert.ok(output.includes('\n\t\t, eighthArgument, ninthArgument);'));
+  assert.ok(output.split('\n')[0].length <= ctx.wrapColumn);
   assert.equal(formatLeadingCommas(output, ctx), output);
+});
+
+test('keeps nested calls, generic commas, strings, and suffixes intact', () => {
+  const local = { ...ctx, wrapColumn: 55 };
+  const input = '\tvar value = Call(A(one, two), B<One, Two>(three, four), "five,six", seventh).ToString();';
+  const output = formatLeadingCommas(input, local);
+
+  assert.equal(stripWhitespace(output), stripWhitespace(input));
+  assert.ok(output.endsWith(').ToString();'));
+  assert.ok((output.match(/^\s*,/gm)?.length ?? 0) >= 1);
+  assert.ok(output.includes('A(one, two)'));
+  assert.ok(output.includes('B<One, Two>(three, four)'));
+  assert.equal(formatLeadingCommas(output, local), output);
+});
+
+test('does not treat control-flow conditions as argument lists', () => {
+  const local = { ...ctx, wrapColumn: 30 };
+  const inputs = [
+    '\tif (firstCondition && secondCondition && thirdCondition) Go();',
+    '\twhile (firstCondition || secondCondition || thirdCondition) Go();',
+    '\tfor (var index = 0; index < veryLargeNumber; index++) Go();',
+    '\treturn (firstValue + secondValue + thirdValue);'
+  ];
+  for (const input of inputs) assert.equal(formatLeadingCommas(input, local), input);
+});
+
+test('keep only suppresses new wrapping and still normalizes existing lists', () => {
+  const long = '\tCall(firstArgument, secondArgument, thirdArgument);';
+  assert.equal(formatLeadingCommas(long, { ...ctx, wrapColumn: 20 }, 'keep'), long);
+  assert.equal(formatLeadingCommas('\tCall(\n\t\t\t, first\n\t)', ctx, 'keep'), '\tCall(\n\t\t, first\n\t)');
 });
 
 test('normalizes fluent chain indentation and object initializer inside chain', () => {
@@ -150,7 +181,8 @@ test('full pass pipeline is idempotent and preserves non-whitespace tokens', () 
     normalizeIndentWhitespace: true,
     enableLeadingComma: true,
     enableFluentChainWrap: true,
-    enableBlankLineRules: true
+    enableBlankLineRules: true,
+    leadingCommaWrapStyle: 'wrapIfLong' as const
   };
   const output = runFormatPasses(input, settings, ctx);
 

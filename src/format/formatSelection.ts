@@ -5,6 +5,7 @@ import { expandSelectionRange } from './expandRange';
 import { runFormatPasses, FormatPassSettings } from './passes';
 import { formatRangeWithRoslyn } from './roslynFormat';
 import { detectEol } from './textLines';
+import { resolveMaxLineLength } from './editorConfig';
 
 export async function formatSelection(editor: vscode.TextEditor): Promise<void> {
   const document = editor.document;
@@ -26,6 +27,10 @@ export async function formatSelection(editor: vscode.TextEditor): Promise<void> 
   const range = await expandSelectionRange(document, editor.selection, config.get<boolean>('expandToEnclosingMember', true));
   const tabSize = numberSetting(editor.options.tabSize, 4);
   const insertSpaces = booleanSetting(editor.options.insertSpaces, false);
+  const configuredWrapColumn = config.get<number>('wrapColumn', 120);
+  const wrapColumn = document.uri.scheme === 'file'
+    ? (await resolveMaxLineLength(document.uri.fsPath)) ?? configuredWrapColumn
+    : configuredWrapColumn;
 
   const roslynText = await formatRangeWithRoslyn(document, range, {
     tabSize,
@@ -36,7 +41,8 @@ export async function formatSelection(editor: vscode.TextEditor): Promise<void> 
     eol: detectEol(document.getText()),
     indentUnit: insertSpaces ? ' '.repeat(tabSize) : '\t',
     tabSize,
-    fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 3)
+    fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 3),
+    wrapColumn
   });
 
   if (formatted === document.getText(range)) {
@@ -77,7 +83,8 @@ function readPassSettings(config: vscode.WorkspaceConfiguration): FormatPassSett
     normalizeIndentWhitespace: config.get<boolean>('normalizeIndentWhitespace', true),
     enableLeadingComma: config.get<boolean>('enableLeadingComma', true),
     enableFluentChainWrap: config.get<boolean>('enableFluentChainWrap', true),
-    enableBlankLineRules: config.get<boolean>('enableBlankLineRules', true)
+    enableBlankLineRules: config.get<boolean>('enableBlankLineRules', true),
+    leadingCommaWrapStyle: config.get<FormatPassSettings['leadingCommaWrapStyle']>('leadingCommaWrapStyle', 'wrapIfLong')
   };
 }
 
