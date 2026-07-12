@@ -185,6 +185,21 @@
         "icon": "$(stop-circle)"
       },
       {
+        "command": "dotnetSolutionNavigator.stopActiveConfig",
+        "title": "Stop Active Configuration",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.showRunOutput",
+        "title": "Show Run Output",
+        "icon": "$(output)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.stopConfigNode",
+        "title": "Stop Configuration",
+        "icon": "$(stop-circle)"
+      },
+      {
         "command": "dotnetSolutionNavigator.selectRunConfig",
         "title": "Select Run Configuration",
         "icon": "$(rocket)"
@@ -277,21 +292,21 @@
         {
           "command": "dotnetSolutionNavigator.addRunConfig",
           "when": "view == dotnetSolutionNavigator",
-          "group": "navigation@0"
+          "group": "1_config@0"
         },
         {
           "command": "dotnetSolutionNavigator.selectOpenedFile",
           "when": "view == dotnetSolutionNavigator",
-          "group": "navigation@0"
+          "group": "2_view@0"
         },
         {
           "command": "dotnetSolutionNavigator.runActiveConfig",
-          "when": "view == dotnetSolutionNavigator",
+          "when": "view == dotnetSolutionNavigator && !dotnetSolutionNavigator.activeConfigBusy",
           "group": "navigation@1"
         },
         {
           "command": "dotnetSolutionNavigator.debugActiveConfig",
-          "when": "view == dotnetSolutionNavigator",
+          "when": "view == dotnetSolutionNavigator && !dotnetSolutionNavigator.activeConfigBusy",
           "group": "navigation@2"
         },
         {
@@ -307,7 +322,7 @@
         {
           "command": "dotnetSolutionNavigator.selectSolution",
           "when": "view == dotnetSolutionNavigator",
-          "group": "navigation@5"
+          "group": "2_view@3"
         },
         {
           "command": "dotnetSolutionNavigator.selectRunConfig",
@@ -316,7 +331,7 @@
         },
         {
           "command": "dotnetSolutionNavigator.buildActiveConfig",
-          "when": "view == dotnetSolutionNavigator",
+          "when": "view == dotnetSolutionNavigator && !dotnetSolutionNavigator.activeConfigBusy",
           "group": "1_config@2"
         },
         {
@@ -388,12 +403,12 @@
         },
         {
           "command": "dotnetSolutionNavigator.runProject",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /runnable/ && !(viewItem =~ /running/)",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /runnable/ && !(viewItem =~ /busy/)",
           "group": "project@2"
         },
         {
           "command": "dotnetSolutionNavigator.debugProject",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /runnable/ && !(viewItem =~ /running/)",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /runnable/ && !(viewItem =~ /busy/)",
           "group": "project@2b"
         },
         {
@@ -403,7 +418,7 @@
         },
         {
           "command": "dotnetSolutionNavigator.stopProject",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /running/",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /project/ && viewItem =~ /busy/ && !(viewItem =~ /stopping/)",
           "group": "project@3b"
         },
         {
@@ -423,17 +438,27 @@
         },
         {
           "command": "dotnetSolutionNavigator.runConfigNode",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
           "group": "inline@1"
         },
         {
           "command": "dotnetSolutionNavigator.debugConfigNode",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
+          "group": "inline@2"
+        },
+        {
+          "command": "dotnetSolutionNavigator.stopConfigNode",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && viewItem =~ /busy/ && !(viewItem =~ /stopping/)",
+          "group": "inline@1"
+        },
+        {
+          "command": "dotnetSolutionNavigator.showRunOutput",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && viewItem =~ /busy/",
           "group": "inline@2"
         },
         {
           "command": "dotnetSolutionNavigator.removeRunConfig",
-          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
           "group": "inline@3"
         },
         {
@@ -532,6 +557,12 @@
           ],
           "default": "Debug",
           "description": "Build configuration used when running or debugging projects."
+        },
+        "dotnetSolutionNavigator.buildTimeoutSeconds": {
+          "type": "number",
+          "default": 600,
+          "minimum": 1,
+          "description": "Maximum time in seconds to wait for a build before marking the run as failed."
         },
         "dotnetSolutionNavigator.iconMode": {
           "type": "string",

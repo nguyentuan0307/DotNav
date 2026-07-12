@@ -9,6 +9,8 @@ import { ProcessManager } from './processManager';
 interface StartOptions {
   readonly debug: boolean;
   readonly processManager?: ProcessManager;
+  readonly runId?: string;
+  readonly targetId?: string;
 }
 
 export async function pickProfile(project: ProjectModel): Promise<LaunchProfile | undefined | null> {
@@ -33,8 +35,26 @@ export async function pickProfile(project: ProjectModel): Promise<LaunchProfile 
 }
 
 export async function startTarget(project: ProjectModel, profile: LaunchProfile | undefined, options: StartOptions): Promise<boolean> {
+  let runId = options.runId;
+  let targetId = options.targetId;
+  if (options.processManager && (!runId || !targetId)) {
+    try {
+      const session = options.processManager.beginRun(
+        `single:${project.path}::${profile?.name ?? 'Default'}`,
+        `${project.name}: ${profile?.name ?? 'Default'}`,
+        options.debug ? 'debug' : 'run',
+        [{ project, profileName: profile?.name }]
+      );
+      runId = session.runId;
+      targetId = session.targets[0].targetId;
+    } catch (error) {
+      vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
   if (shouldBuildBeforeRun()) {
-    const built = await buildProject(project, options.processManager);
+    const built = await buildProject(project, options.processManager, runId, targetId);
     if (!built) {
       return false;
     }
@@ -44,6 +64,12 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
   try {
     program = await resolveProgramPath(project);
   } catch (error) {
+    if (options.processManager && runId && targetId) {
+      options.processManager.failTarget(runId, targetId, {
+        code: 'start-error',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
     vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     return false;
   }
@@ -60,7 +86,9 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     args: parseCommandLineArgs(profile?.commandLineArgs),
     console: 'internalConsole',
     noDebug: !options.debug,
-    dotnetSolutionNavigatorProjectPath: project.path
+    dotnetSolutionNavigatorProjectPath: project.path,
+    dotnetSolutionNavigatorRunId: runId,
+    dotnetSolutionNavigatorTargetId: targetId
   };
 
   if (profile && await exists(launchSettingsPath)) {
@@ -68,11 +96,47 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     configuration.launchSettingsProfile = profile.name;
   }
 
-  options.processManager?.expectDebugSession(project, name);
-  const started = await vscode.debug.startDebugging(workspaceFolder, configuration);
-  if (!started) {
-    options.processManager?.cancelExpectedDebugSession(project);
-    vscode.window.showErrorMessage('Could not start .NET debugging. Install or enable C# Dev Kit / C# extension, then try again.');
+  if (options.processManager && runId && targetId) {
+    const currentTarget = options.processManager.getSession(runId)?.targets.find(target => target.targetId === targetId);
+    if (!currentTarget || currentTarget.phase === 'stopped' || currentTarget.phase === 'stopping') {
+      return false;
+    }
+    options.processManager.setTargetPhase(runId, targetId, 'starting');
+    options.processManager.expectDebugSession(project, name, runId, targetId);
+  }
+
+  let started = false;
+  try {
+    started = await vscode.debug.startDebugging(workspaceFolder, configuration);
+    if (!started) {
+      if (options.processManager && runId && targetId) {
+        options.processManager.failTarget(runId, targetId, {
+          code: 'start-rejected',
+          message: `Could not start ${project.name}.`
+        });
+      }
+      vscode.window.showErrorMessage('Could not start .NET debugging. Install or enable C# Dev Kit / C# extension, then try again.');
+    }
+  } catch (error) {
+    if (options.processManager && runId && targetId) {
+      options.processManager.failTarget(runId, targetId, {
+        code: 'start-error',
+        message: `Could not start ${project.name}.`,
+        cause: error instanceof Error ? error.message : String(error)
+      });
+    }
+    vscode.window.showErrorMessage(`Could not start ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (!started) {
+      options.processManager?.cancelExpectedDebugSession(project, runId, targetId);
+    }
+  }
+
+  if (started && options.processManager && runId && targetId) {
+    const currentTarget = options.processManager.getSession(runId)?.targets.find(target => target.targetId === targetId);
+    if (currentTarget?.phase === 'stopping' || currentTarget?.phase === 'stopped') {
+      return false;
+    }
   }
 
   return started;
@@ -98,7 +162,12 @@ export async function resolveProgramPath(project: ProjectModel): Promise<string>
   throw new Error(`Could not find ${assemblyName}.dll. Build ${project.name} first or check its output path.`);
 }
 
-export async function buildProject(project: ProjectModel, processManager?: ProcessManager): Promise<boolean> {
+export async function buildProject(
+  project: ProjectModel,
+  processManager?: ProcessManager,
+  runId?: string,
+  targetId?: string
+): Promise<boolean> {
   const configuration = buildConfiguration();
   const task = new vscode.Task(
     { type: 'dotnet', task: 'build', project: project.path },
@@ -109,43 +178,59 @@ export async function buildProject(project: ProjectModel, processManager?: Proce
     ['$msCompile']
   );
 
-  const execution = await vscode.tasks.executeTask(task);
-  processManager?.trackTask(project, 'build', execution);
+  let execution: vscode.TaskExecution;
+  try {
+    execution = await vscode.tasks.executeTask(task);
+  } catch (error) {
+    if (processManager && runId && targetId) {
+      processManager.failTarget(runId, targetId, {
+        code: 'build-failed',
+        message: `Could not start the build for ${project.name}.`,
+        cause: error instanceof Error ? error.message : String(error)
+      });
+    }
+    vscode.window.showErrorMessage(`Could not start the build for ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+  const binding = processManager?.trackTask(project, 'build', execution, runId, targetId);
+  if (!processManager) {
+    return waitForUnmanagedTask(execution, project.name);
+  }
 
-  return new Promise(resolve => {
-    let finished = false;
-    let fallbackTimer: NodeJS.Timeout | undefined;
-    const finish = (ok: boolean) => {
-      if (finished) {
-        return;
+  const timeoutMs = Math.max(1, vscode.workspace
+    .getConfiguration('dotnetSolutionNavigator')
+    .get<number>('buildTimeoutSeconds', 600)) * 1000;
+  try {
+    const exitCode = await processManager.waitForTask(execution, timeoutMs);
+    const currentTarget = binding
+      ? processManager.getSession(binding.runId)?.targets.find(target => target.targetId === binding.targetId)
+      : undefined;
+    if (currentTarget?.phase === 'stopped' || currentTarget?.phase === 'stopping') {
+      return false;
+    }
+    const ok = exitCode === 0;
+    if (!ok) {
+      if (binding) {
+        processManager.failTarget(binding.runId, binding.targetId, {
+          code: 'build-failed',
+          message: `Build failed for ${project.name}${exitCode === undefined ? '' : ` with exit code ${exitCode}`}.`
+        });
       }
-
-      finished = true;
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
-      }
-
-      processDisposable.dispose();
-      taskDisposable.dispose();
-      if (!ok) {
-        vscode.window.showErrorMessage(`Build failed for ${project.name}.`);
-      }
-
-      resolve(ok);
-    };
-
-    const processDisposable = vscode.tasks.onDidEndTaskProcess(event => {
-      if (event.execution === execution) {
-        finish(event.exitCode === 0);
-      }
-    });
-
-    const taskDisposable = vscode.tasks.onDidEndTask(event => {
-      if (event.execution === execution) {
-        fallbackTimer = setTimeout(() => finish(false), 1000);
-      }
-    });
-  });
+      vscode.window.showErrorMessage(`Build failed for ${project.name}.`);
+    }
+    return ok;
+  } catch (error) {
+    if (binding) {
+      processManager.failTarget(binding.runId, binding.targetId, {
+        code: 'build-timeout',
+        message: `Build timed out for ${project.name}.`,
+        cause: error instanceof Error ? error.message : String(error)
+      });
+    }
+    execution.terminate();
+    vscode.window.showErrorMessage(`Build timed out for ${project.name}.`);
+    return false;
+  }
 }
 
 export async function runConfig(
@@ -153,22 +238,76 @@ export async function runConfig(
   config: RunConfig,
   options: { debug: boolean; processManager?: ProcessManager }
 ): Promise<void> {
-  for (const target of config.targets) {
-    const resolved = resolveTarget(solution, target.projectPath, target.profileName);
+  const resolvedTargets = config.targets.map(target => resolveTarget(solution, target.projectPath, target.profileName));
+  const missingTarget = resolvedTargets.findIndex(target => !target.project);
+  if (missingTarget >= 0) {
+    vscode.window.showWarningMessage(`Project not found: ${config.targets[missingTarget].projectPath}`);
+    return;
+  }
+
+  let session: ReturnType<ProcessManager['beginRun']> | undefined;
+  if (options.processManager) {
+    try {
+      session = options.processManager.beginRun(
+        config.id,
+        config.label,
+        options.debug ? 'debug' : 'run',
+        resolvedTargets.map(target => ({ project: target.project!, profileName: target.profile?.name }))
+      );
+    } catch (error) {
+      const choice = await vscode.window.showWarningMessage(
+        error instanceof Error ? error.message : String(error),
+        'Stop existing run'
+      );
+      if (choice === 'Stop existing run') {
+        await options.processManager.stopConfig(config.id);
+      }
+      return;
+    }
+  }
+
+  for (const [index, target] of config.targets.entries()) {
+    const resolved = resolvedTargets[index];
     if (!resolved.project) {
-      vscode.window.showWarningMessage(`Project not found: ${target.projectPath}`);
-      continue;
+      return;
     }
 
     const started = await startTarget(resolved.project, resolved.profile, {
       debug: options.debug,
-      processManager: options.processManager
+      processManager: options.processManager,
+      runId: session?.runId,
+      targetId: session?.targets[index].targetId
     });
 
     if (!started) {
+      if (session) {
+        await options.processManager?.stopRun(session.runId);
+      }
       break;
     }
   }
+}
+
+function waitForUnmanagedTask(execution: vscode.TaskExecution, projectName: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const processDisposable = vscode.tasks.onDidEndTaskProcess(event => {
+      if (event.execution === execution) {
+        processDisposable.dispose();
+        taskDisposable.dispose();
+        resolve(event.exitCode === 0);
+      }
+    });
+    const taskDisposable = vscode.tasks.onDidEndTask(event => {
+      if (event.execution === execution) {
+        setTimeout(() => {
+          processDisposable.dispose();
+          taskDisposable.dispose();
+          vscode.window.showErrorMessage(`Could not determine build result for ${projectName}.`);
+          resolve(false);
+        }, 1000);
+      }
+    });
+  });
 }
 
 export async function buildConfig(
@@ -176,10 +315,40 @@ export async function buildConfig(
   config: RunConfig,
   processManager?: ProcessManager
 ): Promise<void> {
-  for (const target of config.targets) {
-    const resolved = resolveTarget(solution, target.projectPath, target.profileName);
-    if (resolved.project) {
-      await buildProject(resolved.project, processManager);
+  const resolvedTargets = config.targets.map(target => resolveTarget(solution, target.projectPath, target.profileName));
+  const missingTarget = resolvedTargets.findIndex(target => !target.project);
+  if (missingTarget >= 0) {
+    vscode.window.showWarningMessage(`Project not found: ${config.targets[missingTarget].projectPath}`);
+    return;
+  }
+
+  let session: ReturnType<ProcessManager['beginRun']> | undefined;
+  if (processManager) {
+    try {
+      session = processManager.beginRun(
+        config.id,
+        config.label,
+        'build',
+        resolvedTargets.map(target => ({ project: target.project!, profileName: target.profile?.name }))
+      );
+    } catch (error) {
+      vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+      return;
+    }
+  }
+
+  for (const [index, resolved] of resolvedTargets.entries()) {
+    const built = await buildProject(
+      resolved.project!,
+      processManager,
+      session?.runId,
+      session?.targets[index].targetId
+    );
+    if (!built) {
+      if (session) {
+        await processManager?.stopRun(session.runId);
+      }
+      return;
     }
   }
 }

@@ -14,7 +14,7 @@ import { ProjectModel, RunConfig, SolutionModel, TreeNode } from './models';
 import { isRunnableProject } from './projectCapabilities';
 import { ProcessManager } from './processManager';
 import * as runConfigStore from './runConfigStore';
-import { createStatusBar, updateStatusBar, updateStopStatus } from './statusBar';
+import { createStatusBar, updateStatusBar } from './statusBar';
 import { DotnetTreeProvider } from './treeProvider';
 
 let activeProcessManager: ProcessManager | undefined;
@@ -22,7 +22,16 @@ let activeProcessManager: ProcessManager | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
-  provider.setRunningStateProvider(project => processManager.hasRunningProject(project));
+  provider.setRunStateProvider(
+    project => processManager.getProjectPhase(project),
+    configId => {
+      const session = processManager.getLatestSessionForConfig(configId);
+      return session ? {
+        phase: session.phase,
+        busy: Boolean(processManager.getActiveSessionForConfig(configId))
+      } : undefined;
+    }
+  );
   activeProcessManager = processManager;
   const interaction = new ExplorerInteractionController(provider);
   const treeView = vscode.window.createTreeView('dotnetSolutionNavigator', {
@@ -32,10 +41,18 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   const statusItems = createStatusBar();
-  const refreshStatusBar = () => updateStatusBar(provider, context);
+  const refreshStatusBar = () => {
+    updateStatusBar(provider, context, processManager);
+    const solution = provider.getSolution();
+    const activeConfig = solution ? runConfigStore.getActive(solution, context) : undefined;
+    vscode.commands.executeCommand(
+      'setContext',
+      'dotnetSolutionNavigator.activeConfigBusy',
+      Boolean(activeConfig && processManager.getActiveSessionForConfig(activeConfig.id))
+    );
+  };
   const updateRunningContext = (hasRunningProcesses: boolean) => {
     vscode.commands.executeCommand('setContext', 'dotnetSolutionNavigator.hasRunningProcesses', hasRunningProcesses);
-    updateStopStatus(hasRunningProcesses);
     provider.fireChanged();
   };
 
@@ -57,6 +74,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.cleanProject', (node: TreeNode) => runProjectCommand(processManager, node, 'clean')),
     vscode.commands.registerCommand('dotnetSolutionNavigator.stopProject', (node: TreeNode) => stopProject(processManager, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.stopAll', () => processManager.stopAll()),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.stopActiveConfig', () => stopActiveConfig(context, provider, processManager)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.showRunOutput', () => processManager.showOutput()),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.stopConfigNode', (node: TreeNode) => node.configId ? processManager.stopConfig(node.configId) : undefined),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openTerminalHere', openTerminalHere),
     vscode.commands.registerCommand('dotnetSolutionNavigator.toggleProjectFiles', () => toggleProjectFiles(provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.toggleFileNesting', () => toggleFileNesting(provider)),
@@ -128,8 +148,8 @@ export function activate(context: vscode.ExtensionContext): void {
   registerWorkspaceFileWatcher(context, provider);
 }
 
-export function deactivate(): void {
-  activeProcessManager?.stopAll();
+export async function deactivate(): Promise<void> {
+  await activeProcessManager?.shutdown();
   activeProcessManager = undefined;
 }
 
@@ -462,6 +482,18 @@ async function withActiveConfig(
   }
 
   await action(active);
+}
+
+async function stopActiveConfig(
+  context: vscode.ExtensionContext,
+  provider: DotnetTreeProvider,
+  processManager: ProcessManager
+): Promise<void> {
+  const solution = provider.getSolution();
+  const active = solution ? runConfigStore.getActive(solution, context) : undefined;
+  if (active) {
+    await processManager.stopConfig(active.id);
+  }
 }
 
 async function selectRunConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider): Promise<void> {

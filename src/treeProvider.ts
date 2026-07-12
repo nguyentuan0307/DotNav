@@ -6,9 +6,15 @@ import { ProjectModel, SolutionModel, TreeNode } from './models';
 import { samePath } from './pathUtils';
 import { isRunnableProject, isTestProject } from './projectCapabilities';
 import * as runConfigStore from './runConfigStore';
+import { RunPhase } from './runSessionState';
 import { loadSolution, pickSolution } from './solutionParser';
 
 const activeSolutionPathKey = 'activeSolutionPath';
+
+interface ConfigRunSummary {
+  readonly phase: RunPhase;
+  readonly busy: boolean;
+}
 
 export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<TreeNode | undefined | null | void>();
@@ -18,7 +24,8 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private solutionTree?: TreeNode[];
   private loading?: Promise<void>;
   private startupProjectPath?: string;
-  private runningStateProvider?: (project: ProjectModel) => boolean;
+  private projectStateProvider?: (project: ProjectModel) => RunPhase | undefined;
+  private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.startupProjectPath = context.workspaceState.get<string>('startupProjectPath');
@@ -55,8 +62,12 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     return this.solution;
   }
 
-  setRunningStateProvider(provider: (project: ProjectModel) => boolean): void {
-    this.runningStateProvider = provider;
+  setRunStateProvider(
+    projectProvider: (project: ProjectModel) => RunPhase | undefined,
+    configProvider: (configId: string) => ConfigRunSummary | undefined
+  ): void {
+    this.projectStateProvider = projectProvider;
+    this.configStateProvider = configProvider;
   }
 
   fireChanged(): void {
@@ -606,8 +617,9 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         values.push('test');
       }
 
-      if (this.runningStateProvider?.(node.project)) {
-        values.push('running');
+      const phase = this.projectStateProvider?.(node.project);
+      if (phase) {
+        values.push('busy', phase);
       }
 
       return values.join(' ');
@@ -630,6 +642,14 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         values.push('compound');
       }
 
+      const state = node.configId ? this.configStateProvider?.(node.configId) : undefined;
+      if (state) {
+        values.push(state.phase);
+        if (state.busy) {
+          values.push('busy');
+        }
+      }
+
       return values.join(' ');
     }
 
@@ -643,8 +663,16 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       return [projectKindLabel(node.project), frameworks, startup].filter(Boolean).join('  ');
     }
 
-    if (node.kind === 'runConfig' && this.solution && node.configId === runConfigStore.getActive(this.solution, this.context)?.id) {
-      return 'active';
+    if (node.kind === 'runConfig') {
+      const values: string[] = [];
+      if (this.solution && node.configId === runConfigStore.getActive(this.solution, this.context)?.id) {
+        values.push('active');
+      }
+      const state = node.configId ? this.configStateProvider?.(node.configId) : undefined;
+      if (state) {
+        values.push(phaseLabel(state.phase));
+      }
+      return values.length > 0 ? values.join('  ') : undefined;
     }
 
     return undefined;
@@ -698,6 +726,22 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       ? runConfigStore.listConfigs(this.solution, this.context).find(candidate => candidate.id === node.configId)
       : undefined;
 
+    const phase = node.configId ? this.configStateProvider?.(node.configId)?.phase : undefined;
+    if (phase === 'queued' || phase === 'building' || phase === 'starting' || phase === 'stopping') {
+      return new vscode.ThemeIcon('sync~spin');
+    }
+    if (phase === 'running') {
+      return new vscode.ThemeIcon('debug-alt');
+    }
+    if (phase === 'failed') {
+      return new vscode.ThemeIcon('error');
+    }
+    if (phase === 'succeeded') {
+      return new vscode.ThemeIcon('pass');
+    }
+    if (phase === 'stopped') {
+      return new vscode.ThemeIcon('circle-slash');
+    }
     if (this.solution && node.configId === runConfigStore.getActive(this.solution, this.context)?.id) {
       return new vscode.ThemeIcon('check');
     }
@@ -756,6 +800,19 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     return `${node.kind}:${node.label}`;
+  }
+}
+
+function phaseLabel(phase: RunPhase): string {
+  switch (phase) {
+    case 'queued': return 'queued…';
+    case 'building': return 'building…';
+    case 'starting': return 'starting…';
+    case 'running': return 'running';
+    case 'stopping': return 'stopping…';
+    case 'succeeded': return 'completed';
+    case 'failed': return 'failed';
+    case 'stopped': return 'stopped';
   }
 }
 
