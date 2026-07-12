@@ -35,7 +35,7 @@ export async function formatSelection(editor: vscode.TextEditor): Promise<void> 
     eol: detectEol(document.getText()),
     indentUnit: insertSpaces ? ' '.repeat(tabSize) : '\t',
     tabSize,
-    fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 3),
+    fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 2),
     wrapColumn
   });
 

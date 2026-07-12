@@ -10,7 +10,7 @@ export function runFormatPasses(text: string, settings: FormatPassSettings, part
     eol: partialContext.eol ?? detectEol(text),
     indentUnit: partialContext.indentUnit ?? '\t',
     tabSize: partialContext.tabSize ?? 4,
-    fluentChainMinSegments: partialContext.fluentChainMinSegments ?? 3,
+    fluentChainMinSegments: partialContext.fluentChainMinSegments ?? 2,
     wrapColumn: partialContext.wrapColumn ?? 120
   };
 

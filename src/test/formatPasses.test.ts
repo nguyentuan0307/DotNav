@@ -129,6 +129,29 @@ test('leaves short fluent chains below threshold unchanged', () => {
   assert.equal(formatFluentChains(input, ctx), input);
 });
 
+test('aligns two sibling MongoDB builder calls to the same column by default', () => {
+  const input = [
+    '\tawait repository.Collection.UpdateManyAsync(',
+    '\t\t_ => prospectIds.Contains(_.Id!),',
+    '\t\tBuilders<Prospect>.Update',
+    '\t\t\t\t.Set(_ => _.UpdatedAt, DateTime.UtcNow)',
+    '\t\t\t.Set(_ => _.LastMessageSentAt, DateTime.UtcNow)',
+    '\t);'
+  ].join('\n');
+
+  const output = formatFluentChains(input, { ...ctx, fluentChainMinSegments: 2 });
+
+  assert.equal(output, [
+    '\tawait repository.Collection.UpdateManyAsync(',
+    '\t\t_ => prospectIds.Contains(_.Id!),',
+    '\t\tBuilders<Prospect>.Update',
+    '\t\t\t.Set(_ => _.UpdatedAt, DateTime.UtcNow)',
+    '\t\t\t.Set(_ => _.LastMessageSentAt, DateTime.UtcNow)',
+    '\t);'
+  ].join('\n'));
+  assert.equal(formatFluentChains(output, { ...ctx, fluentChainMinSegments: 2 }), output);
+});
+
 test('collapses repeated blank lines without removing region spacing', () => {
   const input = [
     '#region Password',

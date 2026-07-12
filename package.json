@@ -641,9 +641,9 @@
         },
         "dotnetSolutionNavigator.format.fluentChainMinSegments": {
           "type": "number",
-          "default": 3,
+          "default": 2,
           "minimum": 1,
-          "description": "Minimum fluent-chain segment count before chain formatting is applied."
+          "description": "Minimum number of dot-prefixed continuation lines before they are aligned to the same indentation level."
         },
         "dotnetSolutionNavigator.format.enableBlankLineRules": {
           "type": "boolean",
