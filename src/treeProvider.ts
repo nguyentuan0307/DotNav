@@ -791,7 +791,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     const fileName = folderIconFileName(node.label);
     if (iconMode === 'auto' && fileName === 'folder-default.svg') {
-      return vscode.ThemeIcon.Folder;
+      return new vscode.ThemeIcon('folder');
     }
 
     return vscode.Uri.file(this.context.asAbsolutePath(path.join('media', fileName)));
