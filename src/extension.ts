@@ -65,7 +65,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.searchSolutionTree', () => searchSolutionTree(provider, treeView)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.searchSolutionTree', () => filterSolutionTree(provider)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.clearSolutionTreeFilter', () => provider.setSolutionTreeFilter()),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
@@ -196,12 +197,10 @@ async function selectOpenedFile(
 
 interface SolutionSearchItem extends vscode.QuickPickItem {
   readonly node: TreeNode;
+  readonly path: readonly TreeNode[];
 }
 
-async function searchSolutionTree(
-  provider: DotnetTreeProvider,
-  treeView: vscode.TreeView<TreeNode>
-): Promise<void> {
+async function filterSolutionTree(provider: DotnetTreeProvider): Promise<void> {
   if (!provider.getSolution()) {
     await provider.refresh();
   }
@@ -211,84 +210,83 @@ async function searchSolutionTree(
     return;
   }
 
-  const quickPick = vscode.window.createQuickPick<SolutionSearchItem>();
+  const input = vscode.window.createInputBox();
   const cancellation = new vscode.CancellationTokenSource();
-  quickPick.title = 'Search Solution Tree';
-  quickPick.placeholder = 'Indexing solution tree…';
-  quickPick.matchOnDescription = true;
-  quickPick.matchOnDetail = true;
-  quickPick.busy = true;
+  input.title = 'Filter Solution Tree';
+  input.placeholder = 'Indexing solution tree…';
+  input.busy = true;
 
-  const picked = await new Promise<SolutionSearchItem | undefined>(resolve => {
-    let settled = false;
-    const finish = (item?: SolutionSearchItem) => {
-      if (settled) {
+  await new Promise<void>(resolve => {
+    let items: SolutionSearchItem[] = [];
+    const applyFilter = () => {
+      if (items.length === 0) {
         return;
       }
 
-      settled = true;
-      resolve(item);
-    };
-    const acceptSubscription = quickPick.onDidAccept(() => {
-      const item = quickPick.selectedItems[0];
-      if (item) {
-        finish(item);
-        quickPick.hide();
+      const query = input.value.trim().toLocaleLowerCase();
+      if (!query) {
+        provider.setSolutionTreeFilter();
+        return;
       }
-    });
-    const hideSubscription = quickPick.onDidHide(() => {
+
+      const visibleNodeIds = new Set<string>();
+      for (const item of items) {
+        const searchableText = [item.node.label, item.description, item.detail]
+          .filter(Boolean)
+          .join(' ')
+          .toLocaleLowerCase();
+        if (searchableText.includes(query)) {
+          for (const node of item.path) {
+            visibleNodeIds.add(provider.getNodeId(node));
+          }
+        }
+      }
+
+      provider.setSolutionTreeFilter(visibleNodeIds);
+    };
+    const valueSubscription = input.onDidChangeValue(applyFilter);
+    const acceptSubscription = input.onDidAccept(() => input.hide());
+    const hideSubscription = input.onDidHide(() => {
       cancellation.cancel();
-      finish();
+      valueSubscription.dispose();
+      acceptSubscription.dispose();
+      hideSubscription.dispose();
+      resolve();
     });
 
-    quickPick.show();
-    buildSolutionSearchItems(provider, cancellation.token).then(items => {
+    input.show();
+    buildSolutionSearchItems(provider, cancellation.token).then(indexedItems => {
       if (cancellation.token.isCancellationRequested) {
         return;
       }
 
-      quickPick.items = items;
-      quickPick.busy = false;
-      quickPick.placeholder = items.length > 0
-        ? 'Search project, folder, or file'
+      items = indexedItems;
+      input.busy = false;
+      input.placeholder = items.length > 0
+        ? 'Type to filter project, folder, or file'
         : 'No searchable items found in the solution tree';
+      applyFilter();
     }, error => {
       if (cancellation.token.isCancellationRequested) {
         return;
       }
 
       const message = error instanceof Error ? error.message : String(error);
-      quickPick.busy = false;
-      quickPick.placeholder = 'Unable to index the solution tree';
-      vscode.window.showErrorMessage(`Search Solution Tree failed: ${message}`);
-    }).finally(() => {
-      if (settled) {
-        acceptSubscription.dispose();
-        hideSubscription.dispose();
-      }
+      input.busy = false;
+      input.placeholder = 'Unable to index the solution tree';
+      vscode.window.showErrorMessage(`Filter Solution Tree failed: ${message}`);
     });
   });
 
   cancellation.dispose();
-  quickPick.dispose();
-
-  if (!picked) {
-    return;
-  }
-
-  if (picked.node.kind === 'file' && picked.node.resourcePath) {
-    await openItem(provider, treeView, picked.node);
-    return;
-  }
-
-  await revealWithScrollPadding(provider, treeView, picked.node);
+  input.dispose();
 }
 
 async function buildSolutionSearchItems(
   provider: DotnetTreeProvider,
   token: vscode.CancellationToken
 ): Promise<SolutionSearchItem[]> {
-  const roots = (await provider.getChildren()).filter(node => node.kind === 'solution');
+  const roots = (await provider.getSearchChildren()).filter(node => node.kind === 'solution');
   const items: SolutionSearchItem[] = [];
 
   for (const root of roots) {
@@ -305,7 +303,7 @@ async function buildSolutionSearchItems(
 async function collectSolutionSearchItems(
   provider: DotnetTreeProvider,
   node: TreeNode,
-  ancestors: string[],
+  ancestors: TreeNode[],
   items: SolutionSearchItem[],
   token: vscode.CancellationToken
 ): Promise<void> {
@@ -317,20 +315,20 @@ async function collectSolutionSearchItems(
     return;
   }
 
-  items.push(toSolutionSearchItem(node, ancestors));
+  const path = [...ancestors, node];
+  items.push(toSolutionSearchItem(node, path));
 
   if (node.kind === 'file') {
     return;
   }
 
-  const children = await provider.getChildren(node);
-  const nextAncestors = [...ancestors, node.label];
+  const children = await provider.getSearchChildren(node);
   for (const child of children) {
     if (token.isCancellationRequested) {
       return;
     }
 
-    await collectSolutionSearchItems(provider, child, nextAncestors, items, token);
+    await collectSolutionSearchItems(provider, child, path, items, token);
   }
 }
 
@@ -341,9 +339,9 @@ function isSearchableSolutionNode(node: TreeNode): boolean {
     || node.kind === 'file';
 }
 
-function toSolutionSearchItem(node: TreeNode, ancestors: string[]): SolutionSearchItem {
+function toSolutionSearchItem(node: TreeNode, path: readonly TreeNode[]): SolutionSearchItem {
   const projectName = node.project?.name;
-  const description = [...ancestors.slice(1), node.kind === 'project' ? undefined : projectName]
+  const description = [...path.slice(1, -1).map(ancestor => ancestor.label), node.kind === 'project' ? undefined : projectName]
     .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
     .join(' / ');
 
@@ -351,7 +349,8 @@ function toSolutionSearchItem(node: TreeNode, ancestors: string[]): SolutionSear
     label: `${searchIconFor(node)} ${node.label}`,
     description: description.length > 0 ? description : searchKindLabel(node),
     detail: searchDetailFor(node),
-    node
+    node,
+    path
   };
 }
 

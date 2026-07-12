@@ -79,15 +79,16 @@ Key files:
 
 ## Search Solution Tree
 
-- Added `Search Solution Tree` as a toolbar and command palette action.
-- The Quick Pick opens immediately and shows a busy state while the solution tree is indexed, so large solutions no longer make the toolbar click appear unresponsive.
-- Closing the Quick Pick cancels indexing, and indexing failures are reported instead of silently preventing the picker from opening.
-- The command builds a Quick Pick index from the current Solution tree provider instead of reparsing the workspace separately.
-- Search covers solution, project, folder, and file nodes; dependency/package nodes are intentionally omitted to keep navigation results focused.
-- Quick Pick matches label, tree breadcrumb, and filesystem detail.
-- Choosing a file opens it and reveals it in the Solution tree.
-- Choosing a solution, project, or folder reveals that node in the Solution tree.
-- The index respects current navigator settings such as hidden files/folders, project file visibility, and file nesting.
+- Added `Filter Solution Tree` as a toolbar and command palette action.
+- The input opens immediately and indexes in the background, so large solutions do not make the toolbar click appear unresponsive.
+- Typing filters the existing Explorer tree instead of presenting a separate list of search results.
+- Matching solution, project, folder, and file nodes remain visible together with every ancestor needed to preserve their tree context.
+- Matching uses labels, tree breadcrumbs, project names, and filesystem details. Dependencies/packages are intentionally omitted.
+- The filter persists after the input closes. A contextual `Clear Solution Tree Filter` toolbar action restores the complete tree.
+- A refresh clears the filter, and an empty result displays a message rather than making the view appear broken.
+- Closing during indexing cancels the work, and indexing failures are reported.
+- Indexing always reads the unfiltered provider tree, so repeated filters do not accidentally filter an already-pruned result set.
+- The index respects navigator settings such as hidden files/folders, project file visibility, and file nesting.
 
 Key files:
 - `src/extension.ts`

@@ -19,6 +19,7 @@
     "onView:dotnetSolutionNavigator",
     "onCommand:dotnetSolutionNavigator.refresh",
     "onCommand:dotnetSolutionNavigator.searchSolutionTree",
+    "onCommand:dotnetSolutionNavigator.clearSolutionTreeFilter",
     "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
     "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
@@ -59,8 +60,13 @@
       },
       {
         "command": "dotnetSolutionNavigator.searchSolutionTree",
-        "title": "Search Solution Tree",
+        "title": "Filter Solution Tree",
         "icon": "$(search)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.clearSolutionTreeFilter",
+        "title": "Clear Solution Tree Filter",
+        "icon": "$(close)"
       },
       {
         "command": "dotnetSolutionNavigator.showHistoryForSelection",
@@ -309,6 +315,11 @@
           "command": "dotnetSolutionNavigator.searchSolutionTree",
           "when": "view == dotnetSolutionNavigator",
           "group": "navigation@0.5"
+        },
+        {
+          "command": "dotnetSolutionNavigator.clearSolutionTreeFilter",
+          "when": "view == dotnetSolutionNavigator && dotnetSolutionNavigator.hasTreeFilter",
+          "group": "navigation@0.6"
         },
         {
           "command": "dotnetSolutionNavigator.runActiveConfig",
