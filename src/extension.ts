@@ -1,10 +1,16 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { addCodeItem, addExistingItem, addFile, addFolder } from './addCommands';
 import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner';
 import { openTerminalAt, runDotnetForProject } from './dotnetCli';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
-import { ProjectModel, RunConfig, TreeNode } from './models';
+import { formatSelection } from './format/formatSelection';
+import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
+import { GitOperationCancelledError, LineHistoryQuery, getLineHistory, lineHistoryLabel } from './git/lineHistory';
+import { LineHistoryPanel } from './git/lineHistoryPanel';
+import { mapWorktreeRangeToHead } from './git/lineMapping';
+import { ProjectModel, RunConfig, SolutionModel, TreeNode } from './models';
 import { isRunnableProject } from './projectCapabilities';
 import { ProcessManager } from './processManager';
 import * as runConfigStore from './runConfigStore';
@@ -40,7 +46,9 @@ export function activate(context: vscode.ExtensionContext): void {
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
     vscode.commands.registerCommand('dotnetSolutionNavigator.refresh', () => provider.refresh()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', openItem),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.selectSolution', () => provider.selectActiveSolution()),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
     vscode.commands.registerCommand('dotnetSolutionNavigator.runProject', (node: TreeNode) => runOrDebugProject(processManager, node, false)),
@@ -66,6 +74,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.copyPath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyFullPath)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.copyRelativePath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyRelativePath)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.revealInOs', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, revealInFileExplorer)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.addRunConfig', () => addRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectRunConfig', () => selectRunConfig(context, provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.newCompound', () => newCompound(context, provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.deleteCompound', () => deleteCompound(context, provider)),
@@ -75,10 +85,30 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildActiveConfig', () => withActiveConfig(context, provider, config => buildConfig(provider.getSolution()!, config, processManager))),
     vscode.commands.registerCommand('dotnetSolutionNavigator.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.showHistoryForSelection', () => showHistoryForSelection(context)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.formatSelection', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('Open a C# file before formatting a selection.');
+        return;
+      }
+      return formatSelection(editor).catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(message);
+      });
+    }),
     treeView.onDidChangeSelection(event => interaction.setSelection(event.selection)),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('dotnetSolutionNavigator')) {
         provider.refresh();
+      }
+    }),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      const follow = vscode.workspace
+        .getConfiguration('dotnetSolutionNavigator')
+        .get<boolean>('alwaysSelectOpenedFile', false);
+      if (follow && treeView.visible) {
+        selectOpenedFile(provider, treeView, false).catch(error => console.error(error));
       }
     }),
     vscode.commands.registerCommand('dotnetSolutionNavigator.setStartupProject', async (node: TreeNode) => {
@@ -103,12 +133,13 @@ export function deactivate(): void {
   activeProcessManager = undefined;
 }
 
-async function openItem(node: TreeNode): Promise<void> {
+async function openItem(provider: DotnetTreeProvider, treeView: vscode.TreeView<TreeNode>, node: TreeNode): Promise<void> {
   if (!node.resourcePath) {
     return;
   }
 
-  await vscode.window.showTextDocument(vscode.Uri.file(node.resourcePath), { preview: false });
+  await vscode.window.showTextDocument(vscode.Uri.file(node.resourcePath), { preview: false, preserveFocus: true });
+  await revealWithScrollPadding(provider, treeView, node);
 }
 
 async function openProjectFile(node: TreeNode): Promise<void> {
@@ -118,6 +149,169 @@ async function openProjectFile(node: TreeNode): Promise<void> {
   }
 
   await vscode.window.showTextDocument(vscode.Uri.file(project.path), { preview: false });
+}
+
+async function selectOpenedFile(
+  provider: DotnetTreeProvider,
+  treeView: vscode.TreeView<TreeNode>,
+  notifyNotFound: boolean
+): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    return;
+  }
+
+  const node = await provider.findNodeForFile(editor.document.uri.fsPath);
+  if (!node) {
+    if (notifyNotFound) {
+      vscode.window.showInformationMessage('File is not in the solution tree.');
+    }
+
+    return;
+  }
+
+  await treeView.reveal(node, { select: true, focus: false, expand: true });
+}
+
+async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    vscode.window.showInformationMessage('Open a file and select a code range first.');
+    return;
+  }
+
+  const selection = editor.selection;
+  if (selection.isEmpty) {
+    vscode.window.showInformationMessage('Select a code range first.');
+    return;
+  }
+
+  let startLine = selection.start.line + 1;
+  let endLine = selection.end.line + 1;
+  if (selection.end.character === 0 && endLine > startLine) {
+    endLine -= 1;
+  }
+
+  if (endLine < startLine) {
+    [startLine, endLine] = [endLine, startLine];
+  }
+
+  const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
+  if (!repoRoot) {
+    vscode.window.showInformationMessage('This file is not inside a Git repository.');
+    return;
+  }
+
+  const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
+  const query = await resolveLineHistoryQuery(repoRoot, relPath, startLine, endLine);
+  if (!query) {
+    vscode.window.showInformationMessage('This selected range has not been committed yet.');
+    return;
+  }
+
+  await runLineHistoryQuery(context, query);
+}
+
+async function resolveLineHistoryQuery(
+  repoRoot: string,
+  relPath: string,
+  startLine: number,
+  endLine: number
+): Promise<LineHistoryQuery | undefined> {
+  const dirty = await runGit(repoRoot, ['diff', '--quiet', '--', relPath]);
+  if (dirty.exitCode === 0) {
+    return { repoRoot, relPath, headStart: startLine, headEnd: endLine };
+  }
+
+  const diff = await runGit(repoRoot, ['diff', '--no-color', '-U0', '--', relPath]);
+  if (diff.exitCode !== 0) {
+    throw new Error(diff.stderr.trim() || 'git diff failed.');
+  }
+
+  const mapped = mapWorktreeRangeToHead(diff.stdout, startLine, endLine);
+  return mapped ? { repoRoot, relPath, headStart: mapped.start, headEnd: mapped.end } : undefined;
+}
+
+async function runLineHistoryQuery(context: vscode.ExtensionContext, query: LineHistoryQuery): Promise<void> {
+  const maxCommits = vscode.workspace
+    .getConfiguration('dotnetSolutionNavigator')
+    .get<number>('gitHistoryMaxCommits', 50);
+
+  try {
+    const entries = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      cancellable: true,
+      title: 'Loading line history'
+    }, (_progress, token) => getLineHistory(query, Math.max(1, maxCommits), token));
+
+    if (entries.length === 0) {
+      vscode.window.showInformationMessage('No commit touched this selected range.');
+      return;
+    }
+
+    LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri);
+  } catch (error) {
+    if (error instanceof GitOperationCancelledError) {
+      return;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.trim().length > 0) {
+      vscode.window.showErrorMessage(message);
+    }
+  }
+}
+
+async function revealWithScrollPadding(
+  provider: DotnetTreeProvider,
+  treeView: vscode.TreeView<TreeNode>,
+  node: TreeNode
+): Promise<void> {
+  const anchor = await findScrollPaddingAnchor(provider, node, 8);
+  if (anchor) {
+    await treeView.reveal(anchor, { select: false, focus: false, expand: false });
+  }
+
+  await treeView.reveal(node, { select: true, focus: true, expand: false });
+}
+
+async function findScrollPaddingAnchor(
+  provider: DotnetTreeProvider,
+  node: TreeNode,
+  offset: number
+): Promise<TreeNode | undefined> {
+  const parent = await provider.getParent(node);
+  if (!parent) {
+    return undefined;
+  }
+
+  const siblings = flattenVisibleNodes(await provider.getChildren(parent));
+  const index = siblings.findIndex(candidate => sameTreeResource(candidate, node));
+  if (index < 0) {
+    return undefined;
+  }
+
+  return siblings[Math.min(index + offset, siblings.length - 1)];
+}
+
+function flattenVisibleNodes(nodes: TreeNode[]): TreeNode[] {
+  const result: TreeNode[] = [];
+  for (const node of nodes) {
+    result.push(node);
+    if (node.children) {
+      result.push(...flattenVisibleNodes(node.children));
+    }
+  }
+
+  return result;
+}
+
+function sameTreeResource(a: TreeNode, b: TreeNode): boolean {
+  if (a.resourcePath && b.resourcePath) {
+    return path.resolve(a.resourcePath) === path.resolve(b.resourcePath);
+  }
+
+  return a.kind === b.kind && a.label === b.label && a.id === b.id && a.configId === b.configId;
 }
 
 async function runProjectCommand(processManager: ProcessManager, node: TreeNode, verb: 'build' | 'test' | 'clean'): Promise<void> {
@@ -277,34 +471,96 @@ async function selectRunConfig(context: vscode.ExtensionContext, provider: Dotne
   }
 
   const active = runConfigStore.getActive(solution, context);
-  const newCompoundLabel = '$(add) New Compound...';
-  const deleteCompoundLabel = '$(trash) Delete Compound...';
   const items = runConfigStore.listConfigs(solution, context).map(config => ({
     label: `${config.id === active?.id ? '$(check) ' : ''}${config.label}`,
     description: config.kind,
     id: config.id
   }));
 
+  if (items.length === 0) {
+    vscode.window.showInformationMessage('No run configurations. Use + to add one.');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(items, { title: 'Select Run Configuration' });
+
+  if (!picked) {
+    return;
+  }
+
+  await runConfigStore.setActive(context, picked.id);
+  await provider.refresh();
+}
+
+async function addRunConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider): Promise<void> {
+  const solution = provider.getSolution();
+  if (!solution) {
+    vscode.window.showInformationMessage('Open a .NET solution first.');
+    return;
+  }
+
+  const addConfigurationId = 'addConfiguration';
+  const newCompoundId = 'newCompound';
   const picked = await vscode.window.showQuickPick(
-    [...items, { label: newCompoundLabel, id: newCompoundLabel }, { label: deleteCompoundLabel, id: deleteCompoundLabel }],
-    { title: 'Select Run Configuration' }
+    [
+      { label: '$(add) Add Configuration...', id: addConfigurationId },
+      { label: '$(layers) New Compound...', id: newCompoundId }
+    ],
+    { title: 'Add Run Configuration' }
   );
 
   if (!picked) {
     return;
   }
 
-  if (picked.id === newCompoundLabel) {
+  if (picked.id === newCompoundId) {
     await newCompound(context, provider);
     return;
   }
 
-  if (picked.id === deleteCompoundLabel) {
-    await deleteCompound(context, provider);
+  await pickAddedSingleConfigs(context, provider);
+}
+
+async function pickAddedSingleConfigs(context: vscode.ExtensionContext, provider: DotnetTreeProvider): Promise<void> {
+  const solution = provider.getSolution();
+  if (!solution) {
     return;
   }
 
-  await runConfigStore.setActive(context, picked.id);
+  const addedIds = new Set(runConfigStore.getAddedSingleIds(context));
+  const items = runConfigStore.listSingles(solution).map(config => ({
+    label: config.label,
+    description: relativeProjectPath(solution, config.targets[0]?.projectPath),
+    id: config.id,
+    picked: addedIds.has(config.id)
+  }));
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Add Run Configurations',
+    canPickMany: true,
+    matchOnDescription: true
+  });
+
+  if (!picked) {
+    return;
+  }
+
+  const validIds = new Set(items.map(item => item.id));
+  await runConfigStore.setAddedSingleIds(context, picked.map(item => item.id).filter(id => validIds.has(id)));
+  await provider.refresh();
+}
+
+async function removeRunConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
+  if (!node.configId) {
+    return;
+  }
+
+  if (node.configId.startsWith('compound:')) {
+    await runConfigStore.deleteCompound(context, node.configId);
+  } else {
+    await runConfigStore.removeAddedSingle(context, node.configId);
+  }
+
   await provider.refresh();
 }
 
@@ -391,4 +647,12 @@ async function runConfigNode(
   if (config) {
     await runConfig(solution, config, { debug, processManager });
   }
+}
+
+function relativeProjectPath(solution: SolutionModel, projectPath: string | undefined): string | undefined {
+  if (!projectPath) {
+    return undefined;
+  }
+
+  return path.relative(solution.rootPath, projectPath).replace(/\\/g, '/');
 }

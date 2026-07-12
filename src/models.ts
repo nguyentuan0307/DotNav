@@ -14,6 +14,7 @@ export interface ProjectModel {
   readonly path: string;
   readonly directory: string;
   readonly relativePath: string;
+  readonly solutionFolder?: string[];
   readonly kind: ProjectKind;
   readonly rootNamespace?: string;
   readonly assemblyName?: string;
@@ -71,6 +72,7 @@ export type TreeNodeKind =
 export interface TreeNode {
   readonly kind: TreeNodeKind;
   readonly label: string;
+  readonly id?: string;
   readonly resourcePath?: string;
   readonly project?: ProjectModel;
   readonly configId?: string;
