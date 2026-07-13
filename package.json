@@ -264,6 +264,10 @@
         "icon": "$(add)"
       },
       {
+        "command": "dotnetSolutionNavigator.renameRunConfig",
+        "title": "Rename Configuration"
+      },
+      {
         "command": "dotnetSolutionNavigator.removeRunConfig",
         "title": "Remove Run Configuration",
         "icon": "$(close)"
@@ -579,6 +583,11 @@
           "command": "dotnetSolutionNavigator.setActiveConfig",
           "when": "view == dotnetSolutionNavigator.runConfigurations && viewItem =~ /runConfig/",
           "group": "cfg@1"
+        },
+        {
+          "command": "dotnetSolutionNavigator.renameRunConfig",
+          "when": "view == dotnetSolutionNavigator.runConfigurations && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
+          "group": "cfg@2"
         }
       ],
       "dotnetSolutionNavigator.add": [

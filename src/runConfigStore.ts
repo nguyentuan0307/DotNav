@@ -5,6 +5,7 @@ import { isRunnableProject } from './projectCapabilities';
 const compoundsKey = 'runCompounds';
 const addedSinglesKey = 'addedSingleConfigIds';
 const activeKey = 'activeRunConfigId';
+const customLabelsKey = 'runConfigCustomLabels';
 
 export function configLabelFor(project: ProjectModel, profile?: LaunchProfile): string {
   return `${project.name}: ${profile?.name ?? 'Default'}`;
@@ -36,12 +37,16 @@ export function getAddedSingleIds(context: vscode.ExtensionContext): string[] {
 }
 
 export function listConfigs(solution: SolutionModel, context: vscode.ExtensionContext): RunConfig[] {
+  const customLabels = context.workspaceState.get<Record<string, string>>(customLabelsKey, {});
   const singlesById = new Map(listSingles(solution).map(config => [config.id, config]));
   const singles = getAddedSingleIds(context)
     .map(id => singlesById.get(id))
     .filter((config): config is RunConfig => Boolean(config));
 
-  return [...singles, ...getCompounds(context)];
+  return [...singles, ...getCompounds(context)].map(config => ({
+    ...config,
+    label: customLabels[config.id] ?? config.label
+  }));
 }
 
 export function getActive(solution: SolutionModel, context: vscode.ExtensionContext): RunConfig | undefined {
@@ -66,6 +71,7 @@ export async function setAddedSingleIds(context: vscode.ExtensionContext, ids: s
 
 export async function removeAddedSingle(context: vscode.ExtensionContext, id: string): Promise<void> {
   await context.workspaceState.update(addedSinglesKey, getAddedSingleIds(context).filter(candidate => candidate !== id));
+  await removeCustomLabel(context, id);
   if (context.workspaceState.get<string>(activeKey) === id) {
     await context.workspaceState.update(activeKey, undefined);
   }
@@ -79,9 +85,21 @@ export async function saveCompound(context: vscode.ExtensionContext, config: Run
 
 export async function deleteCompound(context: vscode.ExtensionContext, id: string): Promise<void> {
   await context.workspaceState.update(compoundsKey, getCompounds(context).filter(config => config.id !== id));
+  await removeCustomLabel(context, id);
   if (context.workspaceState.get<string>(activeKey) === id) {
     await context.workspaceState.update(activeKey, undefined);
   }
+}
+
+export async function renameConfig(context: vscode.ExtensionContext, id: string, label: string): Promise<void> {
+  const customLabels = context.workspaceState.get<Record<string, string>>(customLabelsKey, {});
+  await context.workspaceState.update(customLabelsKey, { ...customLabels, [id]: label });
+}
+
+async function removeCustomLabel(context: vscode.ExtensionContext, id: string): Promise<void> {
+  const customLabels = { ...context.workspaceState.get<Record<string, string>>(customLabelsKey, {}) };
+  delete customLabels[id];
+  await context.workspaceState.update(customLabelsKey, customLabels);
 }
 
 function singleConfig(project: ProjectModel, profile?: LaunchProfile): RunConfig {

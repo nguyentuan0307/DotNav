@@ -109,6 +109,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.copyRelativePath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyRelativePath)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.revealInOs', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, revealInFileExplorer)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.addRunConfig', () => addRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.selectRunConfig', () => selectRunConfig(context, provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.newCompound', () => newCompound(context, provider)),
@@ -649,6 +650,32 @@ async function removeRunConfig(context: vscode.ExtensionContext, provider: Dotne
     await runConfigStore.removeAddedSingle(context, node.configId);
   }
 
+  await provider.refresh();
+}
+
+async function renameRunConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
+  const solution = provider.getSolution();
+  if (!solution || !node.configId) {
+    return;
+  }
+
+  const config = runConfigStore.listConfigs(solution, context).find(candidate => candidate.id === node.configId);
+  if (!config) {
+    return;
+  }
+
+  const label = await vscode.window.showInputBox({
+    title: 'Rename Run Configuration',
+    prompt: 'Display name',
+    value: config.label,
+    validateInput: value => value.trim().length > 0 ? undefined : 'Name is required.'
+  });
+
+  if (label === undefined) {
+    return;
+  }
+
+  await runConfigStore.renameConfig(context, config.id, label.trim());
   await provider.refresh();
 }
 

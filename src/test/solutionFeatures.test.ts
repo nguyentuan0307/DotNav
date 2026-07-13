@@ -62,3 +62,13 @@ test('uses automatic icons and project hover actions', () => {
     'dotnetSolutionNavigator.stopProject'
   ]);
 });
+
+test('contributes run configuration rename action', () => {
+  const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
+  assert.ok(commandIds.has('dotnetSolutionNavigator.renameRunConfig'));
+  assert.ok(manifest.contributes.menus['view/item/context'].some((item: { command: string; when: string }) =>
+    item.command === 'dotnetSolutionNavigator.renameRunConfig'
+      && item.when.includes('view == dotnetSolutionNavigator.runConfigurations')
+      && item.when.includes('viewItem =~ /runConfig/')
+  ));
+});
