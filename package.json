@@ -312,6 +312,10 @@
     ],
     "submenus": [
       {
+        "id": "dotnetSolutionNavigator.git",
+        "label": "Git"
+      },
+      {
         "id": "dotnetSolutionNavigator.add",
         "label": "Add"
       }
@@ -341,7 +345,7 @@
           "group": "z_dotnetNavigator@0"
         },
         {
-          "command": "dotnetSolutionNavigator.showHistoryForSelection",
+          "submenu": "dotnetSolutionNavigator.git",
           "when": "editorHasSelection",
           "group": "z_dotnetNavigator@1"
         }
@@ -588,6 +592,12 @@
           "command": "dotnetSolutionNavigator.renameRunConfig",
           "when": "view == dotnetSolutionNavigator.runConfigurations && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
           "group": "cfg@2"
+        }
+      ],
+      "dotnetSolutionNavigator.git": [
+        {
+          "command": "dotnetSolutionNavigator.showHistoryForSelection",
+          "group": "history@1"
         }
       ],
       "dotnetSolutionNavigator.add": [

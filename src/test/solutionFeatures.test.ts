@@ -72,3 +72,24 @@ test('contributes run configuration rename action', () => {
       && item.when.includes('viewItem =~ /runConfig/')
   ));
 });
+
+test('groups editor git actions under a submenu while keeping format visible', () => {
+  assert.ok(manifest.contributes.submenus.some((submenu: { id: string; label: string }) =>
+    submenu.id === 'dotnetSolutionNavigator.git' && submenu.label === 'Git'
+  ));
+
+  const editorContext = manifest.contributes.menus['editor/context'];
+  assert.ok(editorContext.some((item: { command?: string; submenu?: string }) =>
+    item.command === 'dotnetSolutionNavigator.formatSelection'
+  ));
+  assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string }) =>
+    item.submenu === 'dotnetSolutionNavigator.git' && item.when?.includes('editorHasSelection')
+  ));
+  assert.ok(!editorContext.some((item: { command?: string }) =>
+    item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
+  ));
+
+  assert.ok(manifest.contributes.menus['dotnetSolutionNavigator.git'].some((item: { command: string }) =>
+    item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
+  ));
+});
