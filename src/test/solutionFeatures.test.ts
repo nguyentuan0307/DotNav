@@ -83,11 +83,11 @@ test('groups editor git actions under a submenu while keeping format visible', (
   ));
 
   const editorContext = manifest.contributes.menus['editor/context'];
-  assert.ok(editorContext.some((item: { command?: string; submenu?: string }) =>
-    item.command === 'dotnetSolutionNavigator.formatSelection'
+  assert.ok(editorContext.some((item: { command?: string; submenu?: string; group?: string }) =>
+    item.command === 'dotnetSolutionNavigator.formatSelection' && item.group?.startsWith('6_dotnetNavigator')
   ));
-  assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string }) =>
-    item.submenu === 'dotnetSolutionNavigator.git' && item.when === undefined
+  assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string; group?: string }) =>
+    item.submenu === 'dotnetSolutionNavigator.git' && item.when === undefined && item.group?.startsWith('6_dotnetNavigator')
   ));
   assert.ok(!editorContext.some((item: { command?: string }) =>
     item.command === 'dotnetSolutionNavigator.showHistoryForSelection'

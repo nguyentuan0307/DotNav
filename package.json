@@ -354,11 +354,11 @@
         {
           "command": "dotnetSolutionNavigator.formatSelection",
           "when": "editorLangId == csharp",
-          "group": "z_dotnetNavigator@0"
+          "group": "6_dotnetNavigator@0"
         },
         {
           "submenu": "dotnetSolutionNavigator.git",
-          "group": "z_dotnetNavigator@1"
+          "group": "6_dotnetNavigator@1"
         }
       ],
       "view/title": [
