@@ -5,8 +5,9 @@ import { GitRepositoryService } from './gitRepositoryService';
 import { revisionUri } from './gitRevisionProvider';
 import { GitMutationRunner } from './gitMutationRunner';
 import { GitMutationRequest } from './gitPanelModels';
+import { GitReadChannel, GitRequestCoordinator, GitRequestIdentity } from './gitPanelCoordinator';
 
-interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; action?: string; kind?: string; operation?: string; parent?: number; offset?: number; x?: number; y?: number; filter?: GitLogFilter; }
+interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; action?: string; kind?: string; operation?: string; parent?: number; offset?: number; x?: number; y?: number; generation?: number; filter?: GitLogFilter; }
 
 export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewId = 'dotnetSolutionNavigator.gitLog';
@@ -14,6 +15,8 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private root?: string;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly mutations: GitMutationRunner;
+  private readonly requests = new GitRequestCoordinator();
+  private readonly readCancellations = new Map<GitReadChannel, vscode.CancellationTokenSource>();
   private autoFetchTimer?: NodeJS.Timeout;
 
   constructor(private readonly service: GitRepositoryService, private readonly extensionUri: vscode.Uri) {
@@ -33,15 +36,22 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     const repositories = await this.service.discoverRepositories();
     if (!this.root || !repositories.includes(this.root)) this.root = repositories[0];
     if (!this.root) return this.post({ type: 'state', repositories });
+    this.cancelReads();
+    this.requests.invalidate(this.root);
+    const read = this.beginRead('refresh', this.root);
     const [repository, log, uncommitted] = await Promise.all([
-      this.service.snapshot(this.root), this.service.log(this.root, 0, 200, {}), this.service.workingTreeFiles(this.root)
+      this.service.snapshot(this.root, read.source.token), this.service.log(this.root, 0, 200, {}, read.source.token), this.service.workingTreeFiles(this.root, read.source.token)
     ]);
-    this.post({ type: 'state', repositories, repository, log, uncommitted });
+    if (this.requests.isCurrent('refresh', read.identity, this.root)) {
+      this.post({ type: 'state', repositories, repository, log, uncommitted, generation: read.identity.generation, identity: read.identity });
+    }
+    this.finishRead('refresh', read.source);
   }
 
   dispose(): void {
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
     this.disposables.splice(0).forEach(item => item.dispose());
+    this.cancelReads();
   }
 
   configureAutoFetch(): void {
@@ -50,20 +60,31 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (!config.get<boolean>('autoFetch', true)) return;
     const minutes = config.get<number>('autoFetchMinutes', 20);
     this.autoFetchTimer = setInterval(() => {
-      if (this.root && this.view?.visible) this.mutations.run(this.root, { action: 'fetch' }).then(() => this.refresh(), console.error);
+      if (this.root && this.view?.visible && !this.mutations.isBusy(this.root)) this.runMutation({ action: 'fetch' }).catch(console.error);
     }, Math.max(1, minutes) * 60_000);
   }
 
   private async handle(message: WebviewMessage): Promise<void> {
     try {
       if (message.type === 'ready' || message.type === 'refresh') return await this.refresh();
-      if (message.type === 'selectRepo' && message.root) { this.root = message.root; return await this.refresh(); }
+      if (message.type === 'selectRepo' && message.root) { this.cancelReads(); this.root = message.root; return await this.refresh(); }
       if (!this.root) return;
       if (message.type === 'loadLog') {
-        return this.post({ type: 'log', log: await this.service.log(this.root, message.offset ?? 0, 200, message.filter ?? {}) });
+        const channel = `log:${message.offset ?? 0}`;
+        const read = this.beginRead(channel, this.root, message.generation);
+        try {
+          const log = await this.service.log(this.root, message.offset ?? 0, 200, message.filter ?? {}, read.source.token);
+          if (this.requests.isCurrent(channel, read.identity, this.root)) this.post({ type: 'log', log, identity: read.identity });
+        } finally { this.finishRead(channel, read.source); }
+        return;
       }
       if (message.type === 'detail' && message.hash) {
-        return this.post({ type: 'detail', detail: await this.service.commitDetail(this.root, message.hash, message.parent) });
+        const read = this.beginRead('detail', this.root, message.generation);
+        try {
+          const detail = await this.service.commitDetail(this.root, message.hash, message.parent, read.source.token);
+          if (this.requests.isCurrent('detail', read.identity, this.root)) this.post({ type: 'detail', detail, identity: read.identity });
+        } finally { this.finishRead('detail', read.source); }
+        return;
       }
       if (message.type === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent);
       if (message.type === 'workingDiff' && message.path) return await vscode.commands.executeCommand('git.openChange', vscode.Uri.file(path.join(this.root, message.path)));
@@ -83,25 +104,55 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
           if (unresolved.length) throw new Error(`Resolve these files before continuing: ${unresolved.map(file => file.path).join(', ')}`);
         }
         const request = await this.prepareMutation(message);
-        if (request && await this.mutations.run(this.root, request)) await this.refresh();
+        if (request) await this.runMutation(request);
       }
       if (message.type === 'context') {
         this.post({ type: 'contextMenu', actions: contextActions(message.kind), context: message });
       }
       if (message.type === 'contextAction' && message.action) await this.executeContextAction(message);
     } catch (error) {
+      if (error instanceof vscode.CancellationError) return;
       const text = error instanceof Error ? error.message : String(error);
       this.post({ type: 'error', message: text });
       if (message.action === 'push' && /rejected|non-fast-forward/i.test(text)) {
         const recovery = await vscode.window.showErrorMessage(text, 'Update Project');
         if (recovery === 'Update Project') {
           const request = await this.prepareMutation({ type: 'mutate', action: 'update' });
-          if (request && this.root && await this.mutations.run(this.root, request)) await this.refresh();
+          if (request) await this.runMutation(request);
         }
       } else {
         vscode.window.showErrorMessage(text);
       }
     }
+  }
+
+  private beginRead(channel: GitReadChannel, root: string, generation?: number): { identity: GitRequestIdentity; source: vscode.CancellationTokenSource } {
+    this.readCancellations.get(channel)?.cancel();
+    this.readCancellations.get(channel)?.dispose();
+    const source = new vscode.CancellationTokenSource();
+    this.readCancellations.set(channel, source);
+    return { identity: this.requests.begin(channel, root, generation), source };
+  }
+
+  private finishRead(channel: GitReadChannel, source: vscode.CancellationTokenSource): void {
+    if (this.readCancellations.get(channel) !== source) return;
+    this.readCancellations.delete(channel);
+    source.dispose();
+  }
+
+  private cancelReads(): void {
+    for (const source of this.readCancellations.values()) { source.cancel(); source.dispose(); }
+    this.readCancellations.clear();
+  }
+
+  private async runMutation(request: GitMutationRequest): Promise<void> {
+    if (!this.root) return;
+    const root = this.root;
+    this.cancelReads();
+    this.requests.invalidate(root);
+    this.post({ type: 'busy', busy: true, action: request.action, repositoryId: root });
+    try { if (await this.mutations.run(root, request) && this.root === root) await this.refresh(); }
+    finally { this.post({ type: 'busy', busy: false, repositoryId: root }); }
   }
 
   private async executeContextAction(message: WebviewMessage): Promise<void> {
@@ -169,7 +220,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return await vscode.env.clipboard.writeText(detail.message);
     }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action });
-    if (request && await this.mutations.run(this.root!, request)) await this.refresh();
+    if (request) await this.runMutation(request);
   }
 
   private async prepareMutation(message: WebviewMessage): Promise<GitMutationRequest | undefined> {
@@ -331,7 +382,7 @@ function renderHtml(webview: vscode.Webview): string {
 <section class="pane center"><div class="banner" id="banner"><b id="operation"></b><button data-conflict="continue">Continue</button><button data-conflict="abort">Abort</button><button data-conflict="skip">Skip</button></div><div class="filters"><input id="textFilter" placeholder="Message"><input id="authorFilter" placeholder="Author"><input id="pathFilter" placeholder="Path"><input id="sinceFilter" type="date" title="From date"><input id="untilFilter" type="date" title="To date"><input id="goto" placeholder="Hash / ref"><label><input type="checkbox" id="regex"> Regex</label><label><input type="checkbox" id="case"> Case</label><button id="clear">Clear</button></div><div class="header"><span>Graph</span><span>Subject</span><span>Author</span><span>Date</span></div><div class="row" id="uncommitted" style="display:none;position:relative"><span></span><strong>Uncommitted changes</strong><span></span><span></span></div><div class="viewport" id="viewport" tabindex="0"><svg class="graph-overlay" id="graphSvg" aria-hidden="true"></svg><div class="spacer" id="spacer"></div></div></section>
 <div class="split" data-side="right"></div><section class="pane right"><div class="heading">CHANGED FILES <button id="fileMode" title="Toggle tree or flat view">Tree</button><button id="collapseFiles" title="Collapse all folders">−</button><button id="expandFiles" title="Expand all folders">+</button><select id="parentMode" style="display:none" title="Merge comparison parent"></select></div><div id="files"></div><div class="detail" id="detail"><div class="empty">Select a commit</div></div></section></main><div class="context-menu" id="contextMenu" role="menu"></div>
 <script nonce="${nonce}">
-const vscode=acquireVsCodeApi(), ROW=28, PAGE=200, overscan=12, COL=16, PAD=8, LANE_COLORS=['#0085d9','#d9008f','#00d90a','#d98500','#a000d9','#00d9d9','#d94600','#7bd900'];let state={commits:[],commitIndexes:new Map(),total:0,loading:new Set(),selected:-1,selectedHashes:new Set(),detail:null,uncommitted:[],visibleFiles:[],visibleFilesWorking:false,fileFolders:new Set(),fileMode:localStorage.getItem('gitLog.fileMode')||'tree',fileCollapsed:new Set(JSON.parse(localStorage.getItem('gitLog.fileCollapsed')||'[]')),favorites:new Set(JSON.parse(localStorage.getItem('gitLog.favorites')||'[]')),collapsed:new Set(JSON.parse(localStorage.getItem('gitLog.collapsed')||'[]'))};
+const vscode=acquireVsCodeApi(), ROW=28, PAGE=200, overscan=12, COL=16, PAD=8, LANE_COLORS=['#0085d9','#d9008f','#00d90a','#d98500','#a000d9','#00d9d9','#d94600','#7bd900'];let state={commits:[],commitIndexes:new Map(),total:0,generation:0,busy:false,loading:new Set(),selected:-1,selectedHashes:new Set(),detail:null,uncommitted:[],visibleFiles:[],visibleFilesWorking:false,fileFolders:new Set(),fileMode:localStorage.getItem('gitLog.fileMode')||'tree',fileCollapsed:new Set(JSON.parse(localStorage.getItem('gitLog.fileCollapsed')||'[]')),favorites:new Set(JSON.parse(localStorage.getItem('gitLog.favorites')||'[]')),collapsed:new Set(JSON.parse(localStorage.getItem('gitLog.collapsed')||'[]'))};
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function send(type,data={}){vscode.postMessage({type,...data})}function date(ts){return new Date(ts*1000).toLocaleString()}
 function refItem(x,label=x.name,depth=0){return '<div class="item '+(x.current?'active':'')+'" style="padding-left:'+(8+depth*14)+'px" data-kind="'+x.kind+'" data-hash="'+x.hash+'" data-ref="'+esc(x.name)+'"><button style="border:0;background:transparent;height:auto;padding:0 5px 0 0" data-star="'+esc(x.name)+'" title="Favorite">'+(state.favorites.has(x.name)?'★':'☆')+'</button>'+esc(label)+'<span class="badge">'+(x.ahead?'↑'+x.ahead+' ':'')+(x.behind?'↓'+x.behind:'')+'</span></div>'}
@@ -339,14 +390,14 @@ function refTree(refs,kind,q,prefix='',depth=0){const folders=new Map(),leaves=[
 function renderBranches(){const q=$('branchSearch').value.toLowerCase(),r=state.repository;if(!r)return;const matching=r.refs.filter(x=>!q||x.name.toLowerCase().includes(q)),current=r.refs.find(x=>x.current),favorites=matching.filter(x=>state.favorites.has(x.name)&&!x.current);let html=current?'<div class="group">Current Branch</div>'+refItem(current):'';if(favorites.length)html+='<div class="group">Favorites</div>'+favorites.map(x=>refItem(x)).join('');for(const kind of ['local','remote','tag']){const refs=matching.filter(x=>x.kind===kind&&!x.current);if(refs.length)html+='<div class="group">'+kind+'</div>'+refTree(refs,kind,q)}html+='<div class="group">Stashes</div>'+r.stashes.filter(x=>!q||(x.ref+' '+x.message).toLowerCase().includes(q)).map(x=>'<div class="item" data-kind="stash" data-ref="'+esc(x.ref)+'" data-hash="'+x.hash+'">'+esc(x.ref+' '+x.message)+'</div>').join('');$('branches').innerHTML=html}
 function graphX(column){return PAD+column*COL+COL/2}function graphY(index,scrollTop){return index*ROW+ROW/2-scrollTop}function graphPath(x1,y1,x2,y2,stub=false){if(x1===x2||stub)return'M '+x1+' '+y1+' L '+x2+' '+y2;const bend=y2-Math.sign(y2-y1||1)*ROW*.65;return'M '+x1+' '+y1+' C '+x1+' '+bend+', '+x2+' '+(y1+ROW*.35)+', '+x2+' '+y2}
 function renderGraph(start,end){const vp=$('viewport'),svg=$('graphSvg'),visible=[];state.commitIndexes.clear();let maxColumn=0;state.commits.forEach((commit,index)=>{if(!commit)return;state.commitIndexes.set(commit.hash,index);if(commit.lane)maxColumn=Math.max(maxColumn,commit.lane.column,...commit.lane.lines.map(line=>line.toColumn))});for(let i=start;i<end;i++){const c=state.commits[i];if(c?.lane)visible.push([i,c])}const width=(maxColumn+1)*COL+PAD*2;document.documentElement.style.setProperty('--graph-width',Math.max(56,width)+'px');svg.setAttribute('width',String(width));svg.setAttribute('height',String(vp.clientHeight));svg.setAttribute('viewBox','0 0 '+width+' '+vp.clientHeight);let paths='',nodes='';for(const [index,c] of visible){const lane=c.lane,x=graphX(lane.column),y=graphY(index,vp.scrollTop),color=LANE_COLORS[lane.color%LANE_COLORS.length];for(const line of lane.lines){const targetIndex=state.commitIndexes.get(line.toCommit),stub=targetIndex===undefined,toY=stub?y+ROW*.75:graphY(targetIndex,vp.scrollTop),toX=graphX(line.toColumn);paths+='<path d="'+graphPath(x,y,toX,toY,stub)+'" fill="none" stroke="'+color+'" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" '+(stub?'stroke-dasharray="4 2" opacity=".55"':'')+'/>'}const merge=c.parents.length>1;nodes+=merge?'<circle cx="'+x+'" cy="'+y+'" r="4.6" fill="'+color+'"/><circle cx="'+x+'" cy="'+y+'" r="2.4" fill="var(--vscode-panel-background)"/><circle cx="'+x+'" cy="'+y+'" r="1.5" fill="'+color+'"/>':'<circle cx="'+x+'" cy="'+y+'" r="3.6" fill="'+color+'"/>';if(c.refs.some(ref=>ref.includes('HEAD')))nodes+='<circle cx="'+x+'" cy="'+y+'" r="6.4" fill="none" stroke="'+color+'" stroke-width="1" opacity=".3"/>'}svg.innerHTML=paths+nodes}
-function renderRows(){const vp=$('viewport'),start=Math.max(0,Math.floor(vp.scrollTop/ROW)-overscan),end=Math.min(state.total,Math.ceil((vp.scrollTop+vp.clientHeight)/ROW)+overscan);$('spacer').style.height=(state.total*ROW)+'px';$('spacer').innerHTML=Array.from({length:Math.max(0,end-start)},(_,i)=>{const n=start+i,c=state.commits[n];if(!c)return '<div class="row" style="top:'+(n*ROW)+'px"><span></span><span>Loading…</span></div>';const refs=c.refs.length?'<span class="refs">'+esc(c.refs[0].replace('refs/heads/','').replace('refs/remotes/','').replace('tag: refs/tags/',''))+'</span>':'';return '<div class="row '+(n===state.selected?'selected ':'')+(state.selectedHashes.has(c.hash)?'multi':'')+'" data-index="'+n+'" style="top:'+(n*ROW)+'px"><span></span><span>'+esc(c.subject)+refs+'</span><span>'+esc(c.author)+'</span><span>'+date(c.authorTimestamp)+'</span></div>'}).join('');renderGraph(start,end);for(let page=Math.floor(start/PAGE)*PAGE;page<end;page+=PAGE)if(!state.commits[page]&&!state.loading.has(page)){state.loading.add(page);send('loadLog',{offset:page,filter:filter()})}}
+function renderRows(){const vp=$('viewport'),start=Math.max(0,Math.floor(vp.scrollTop/ROW)-overscan),end=Math.min(state.total,Math.ceil((vp.scrollTop+vp.clientHeight)/ROW)+overscan);$('spacer').style.height=(state.total*ROW)+'px';$('spacer').innerHTML=Array.from({length:Math.max(0,end-start)},(_,i)=>{const n=start+i,c=state.commits[n];if(!c)return '<div class="row" style="top:'+(n*ROW)+'px"><span></span><span>Loading…</span></div>';const refs=c.refs.length?'<span class="refs">'+esc(c.refs[0].replace('refs/heads/','').replace('refs/remotes/','').replace('tag: refs/tags/',''))+'</span>':'';return '<div class="row '+(n===state.selected?'selected ':'')+(state.selectedHashes.has(c.hash)?'multi':'')+'" data-index="'+n+'" style="top:'+(n*ROW)+'px"><span></span><span>'+esc(c.subject)+refs+'</span><span>'+esc(c.author)+'</span><span>'+date(c.authorTimestamp)+'</span></div>'}).join('');renderGraph(start,end);for(let page=Math.floor(start/PAGE)*PAGE;page<end;page+=PAGE)if(!state.commits[page]&&!state.loading.has(page)){state.loading.add(page);send('loadLog',{offset:page,generation:state.generation,filter:filter()})}}
 function fileRow(f,depth=0,working=false){return '<div class="file" style="padding-left:'+(8+depth*14)+'px" data-path="'+esc(f.path)+'" '+(working?'data-working="true"':'')+'><b>'+esc(f.status)+'</b><span>'+esc(state.fileMode==='flat'?f.path:f.path.split('/').pop())+'</span><span class="stat">+'+f.additions+' -'+f.deletions+'</span></div>'}
 function fileTree(files){const root={folders:new Map(),files:[]};for(const file of files){let node=root;const parts=file.path.split('/');for(const folder of parts.slice(0,-1)){if(!node.folders.has(folder))node.folders.set(folder,{folders:new Map(),files:[]});node=node.folders.get(folder)}node.files.push(file)}return root}
 function renderFileNode(node,prefix='',depth=0,working=false){let html='';for(const [name,child] of [...node.folders].sort(([a],[b])=>a.localeCompare(b))){const key=prefix?prefix+'/'+name:name,closed=state.fileCollapsed.has(key);state.fileFolders.add(key);html+='<div class="item folder" style="padding-left:'+(8+depth*14)+'px" data-file-folder="'+esc(key)+'">'+(closed?'▸':'▾')+' '+esc(name)+'</div>';if(!closed)html+=renderFileNode(child,key,depth+1,working)}html+=node.files.sort((a,b)=>a.path.localeCompare(b.path)).map(f=>fileRow(f,depth,working)).join('');return html}
 function renderFiles(files,working=false){state.visibleFiles=files;state.visibleFilesWorking=working;state.fileFolders.clear();if(state.fileMode==='flat'){$('files').innerHTML=files.map(f=>fileRow(f,0,working)).join('');return}$('files').innerHTML=renderFileNode(fileTree(files),'',0,working)}
 function renderDetail(){const d=state.detail;if(!d)return;$('detail').innerHTML='<div class="message">'+esc(d.message)+'</div><div class="meta">'+esc(d.hash)+'<br>'+esc(d.author+' <'+d.authorEmail+'> · '+date(d.authorTimestamp))+'<br>Parents: '+d.parents.map(p=>'<button data-parent="'+p+'">'+esc(p.slice(0,8))+'</button>').join(' ')+'</div>';const parent=$('parentMode');parent.style.display=d.parents.length>1?'inline-block':'none';parent.innerHTML=d.parents.map((p,i)=>'<option value="'+(i+1)+'">Parent '+(i+1)+'</option>').join('')+(d.parents.length>1?'<option value="combined">Combined</option>':'');renderFiles(d.files)}
 function filter(){return{text:$('textFilter').value||undefined,author:$('authorFilter').value||undefined,path:$('pathFilter').value||undefined,since:$('sinceFilter').value||undefined,until:$('untilFilter').value||undefined,refs:state.selectedRef?[state.selectedRef]:undefined,regex:$('regex').checked,matchCase:$('case').checked}}
-function loadFiltered(){state.commits=[];state.total=0;state.loading.clear();state.loading.add(0);send('loadLog',{offset:0,filter:filter()})}let timer;for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).oninput=()=>{clearTimeout(timer);timer=setTimeout(loadFiltered,250)};$('regex').onchange=$('case').onchange=loadFiltered;$('clear').onclick=()=>{for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).value='';state.selectedRef=undefined;$('regex').checked=$('case').checked=false;loadFiltered()};
+function loadFiltered(){state.generation++;state.commits=[];state.total=0;state.loading.clear();state.loading.add(0);send('loadLog',{offset:0,generation:state.generation,filter:filter()})}let timer;for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).oninput=()=>{clearTimeout(timer);timer=setTimeout(loadFiltered,250)};$('regex').onchange=$('case').onchange=loadFiltered;$('clear').onclick=()=>{for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).value='';state.selectedRef=undefined;$('regex').checked=$('case').checked=false;loadFiltered()};
 $('viewport').onscroll=renderRows;$('viewport').onclick=e=>{const row=e.target.closest('.row');if(!row)return;state.selected=Number(row.dataset.index);const hash=state.commits[state.selected].hash;if(e.ctrlKey||e.metaKey){state.selectedHashes.has(hash)?state.selectedHashes.delete(hash):state.selectedHashes.add(hash)}else{state.selectedHashes.clear();state.selectedHashes.add(hash)}send('detail',{hash});renderRows()};$('viewport').oncontextmenu=e=>{e.preventDefault();const row=e.target.closest('.row');if(row){const c=state.commits[Number(row.dataset.index)],hashes=[...state.selectedHashes];send('context',{x:e.clientX,y:e.clientY,kind:hashes.length>1?'commits':'commit',hash:c.hash,ref:c.hash,hashes})}};$('viewport').onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();state.selected=Math.max(0,Math.min(state.commits.length-1,state.selected+(e.key==='ArrowDown'?1:-1)));send('detail',{hash:state.commits[state.selected].hash});$('viewport').scrollTop=Math.max(0,state.selected*ROW-$('viewport').clientHeight/2);renderRows()}if(e.key==='Enter'&&state.detail?.files[0])send('diff',{hash:state.detail.hash,path:state.detail.files[0].path})};
 $('files').ondblclick=e=>{const f=e.target.closest('.file');if(!f)return;f.dataset.working?send('workingDiff',{path:f.dataset.path}):state.detail&&send('diff',{hash:state.detail.hash,path:f.dataset.path,parent:Number($('parentMode').value)||1})};$('files').oncontextmenu=e=>{e.preventDefault();const f=e.target.closest('.file');if(f)send('context',{x:e.clientX,y:e.clientY,kind:f.dataset.working?'workingFile':'commitFile',hash:state.detail?.hash,path:f.dataset.path,parent:Number($('parentMode').value)||1})};$('branchSearch').oninput=renderBranches;$('branches').onclick=e=>{const item=e.target.closest('.item');if(!item)return;if(item.dataset.ref){state.selectedRef=item.dataset.ref;loadFiltered()}else if(item.dataset.hash)send('detail',{hash:item.dataset.hash})};$('branches').oncontextmenu=e=>{e.preventDefault();const item=e.target.closest('.item');if(item)send('context',{x:e.clientX,y:e.clientY,kind:item.dataset.kind,ref:item.dataset.ref,hash:item.dataset.hash})};$('goto').onkeydown=e=>{if(e.key==='Enter'&&e.target.value)send('detail',{hash:e.target.value})};$('refresh').onclick=()=>send('refresh');for(const b of document.querySelectorAll('[data-action]'))b.onclick=()=>send('mutate',{action:b.dataset.action});for(const b of document.querySelectorAll('[data-conflict]'))b.onclick=()=>send('mutate',{action:b.dataset.conflict,operation:state.repository?.operation});$('repo').onchange=()=>send('selectRepo',{root:$('repo').value});
 $('files').addEventListener('click',e=>{const f=e.target.closest('.file[data-conflict]');if(f)send('openConflict',{path:f.dataset.path})});

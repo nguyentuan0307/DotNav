@@ -1,11 +1,19 @@
 import * as vscode from 'vscode';
 import { GitMutationRequest } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
+import { RepositoryMutationQueue } from './gitPanelCoordinator';
 
 export class GitMutationRunner {
+  private readonly queue = new RepositoryMutationQueue();
   constructor(private readonly service: GitRepositoryService) {}
 
+  isBusy(root: string): boolean { return this.queue.isBusy(root); }
+
   async run(root: string, request: GitMutationRequest): Promise<boolean> {
+    return this.queue.enqueue(root, () => this.runExclusive(root, request));
+  }
+
+  private async runExclusive(root: string, request: GitMutationRequest): Promise<boolean> {
     if ((historyRewriteActions.has(request.action) || request.action === 'update' && request.options?.strategy === 'reset') && await this.isProtected(root)) {
       throw new Error('This operation is blocked because the current branch matches a protected branch pattern.');
     }

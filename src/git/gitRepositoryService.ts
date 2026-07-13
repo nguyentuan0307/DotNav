@@ -25,11 +25,11 @@ export class GitRepositoryService {
     return [...repositories].sort();
   }
 
-  async snapshot(root: string): Promise<GitRepositorySnapshot> {
+  async snapshot(root: string, token?: vscode.CancellationToken): Promise<GitRepositorySnapshot> {
     const [status, refs, stashes] = await Promise.all([
-      this.git(root, ['status', '--porcelain=v2', '--branch', '-z']),
-      this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags']),
-      this.git(root, ['stash', 'list', '--format=%gd%x00%H%x00%gs%x00%ct%x00'])
+      this.git(root, ['status', '--porcelain=v2', '--branch', '-z'], token),
+      this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags'], token),
+      this.git(root, ['stash', 'list', '--format=%gd%x00%H%x00%gs%x00%ct%x00'], token)
     ]);
     const statusFields = status.stdout.split('\0');
     const branchHead = readStatusHeader(statusFields, '# branch.head ') || 'HEAD';
@@ -51,7 +51,7 @@ export class GitRepositoryService {
     };
   }
 
-  async log(root: string, offset: number, limit: number, filter: GitLogFilter): Promise<GitLogPage> {
+  async log(root: string, offset: number, limit: number, filter: GitLogFilter, token?: vscode.CancellationToken): Promise<GitLogPage> {
     let effectiveFilter = filter;
     let revisions = filter.refs?.length ? filter.refs : ['--all'];
     if (filter.text && /^[0-9a-f]{4,40}$/i.test(filter.text)) {
@@ -64,8 +64,8 @@ export class GitRepositoryService {
     const shared = buildFilterArgs(effectiveFilter);
     const tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
     const [records, count] = await Promise.all([
-      this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit}`, ...shared, ...tail]),
-      this.git(root, ['rev-list', '--count', ...shared, ...tail])
+      this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit}`, ...shared, ...tail], token),
+      this.git(root, ['rev-list', '--count', ...shared, ...tail], token)
     ]);
     const parsed = parseLog(records.stdout);
     const graphKey = `${root}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
@@ -79,8 +79,8 @@ export class GitRepositoryService {
     return { commits, offset, total, hasMore: offset + commits.length < total };
   }
 
-  async commitDetail(root: string, hash: string, parent?: number): Promise<GitCommitDetail> {
-    const meta = await this.git(root, ['show', '-s', `--format=${logPrettyFormat}%x1f%B%x1f%cn%x1f%ce%x1f%ct`, hash]);
+  async commitDetail(root: string, hash: string, parent?: number, token?: vscode.CancellationToken): Promise<GitCommitDetail> {
+    const meta = await this.git(root, ['show', '-s', `--format=${logPrettyFormat}%x1f%B%x1f%cn%x1f%ce%x1f%ct`, hash], token);
     const commit = parseLog(meta.stdout)[0];
     if (!commit) throw new Error(`Commit ${hash} was not found.`);
     const fields = meta.stdout.split('\x1f');
@@ -146,8 +146,8 @@ export class GitRepositoryService {
     if (result.exitCode !== 0) throw new GitCommandError(['apply', '--reverse'], result.stderr, result.exitCode);
   }
 
-  async workingTreeFiles(root: string): Promise<GitFileChange[]> {
-    const result = await this.git(root, ['status', '--porcelain=v1', '-z']);
+  async workingTreeFiles(root: string, token?: vscode.CancellationToken): Promise<GitFileChange[]> {
+    const result = await this.git(root, ['status', '--porcelain=v1', '-z'], token);
     return parseWorkingTreeStatus(result.stdout);
   }
 
