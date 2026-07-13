@@ -41,7 +41,7 @@
   ],
   "extensionDependencies": [
     "ms-dotnettools.csharp",
-    "tuna-ex.gitnav"
+    "tuna-ex.gitnav-workflows"
   ],
   "activationEvents": [
     "onStartupFinished",

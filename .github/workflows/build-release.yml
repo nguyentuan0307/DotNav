@@ -56,7 +56,7 @@ jobs:
               TAG_VERSION="${RELEASE_REF#dotnav-v}"
               ;;
             gitnav-v*)
-              WORKSPACE="gitnav"
+              WORKSPACE="extensions/gitnav"
               PACKAGE_PATH="extensions/gitnav"
               TAG_VERSION="${RELEASE_REF#gitnav-v}"
               ;;

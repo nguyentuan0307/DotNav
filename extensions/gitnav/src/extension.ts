@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('gitnav.compareFileWithBranch', () => compareFileWithBranch(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.openSettings', () =>
-      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.gitnav')),
+      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.gitnav-workflows')),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('gitnav')) {
         gitLogProvider.configureAutoFetch();

@@ -112,7 +112,7 @@ test('contributes run configuration rename action', () => {
 });
 
 test('keeps Git contributions in GitNav and installs it with DotNav', () => {
-  assert.ok(dotnavManifest.extensionDependencies.includes('tuna-ex.gitnav'));
+  assert.ok(dotnavManifest.extensionDependencies.includes('tuna-ex.gitnav-workflows'));
   assert.ok(!dotnavManifest.contributes.commands.some((item: { command: string }) =>
     item.command.startsWith('gitnav.') || item.command.includes('HistoryForSelection') || item.command.includes('WithBranch')));
   assert.ok(gitnavManifest.contributes.commands.every((item: { command: string }) =>

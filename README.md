@@ -8,7 +8,7 @@ DotNav Workspace is the monorepo for two focused Visual Studio Code extensions:
 | Extension | Marketplace ID | Purpose |
 | --- | --- | --- |
 | **DotNav: .NET Solution Explorer** | `tuna-ex.dotnav` | Solution navigation, builds, run configurations, debugging, project operations, and C# formatting |
-| **GitNav: Git History & Workflows** | `tuna-ex.gitnav` | Git Log, branch and commit workflows, comparisons, line history, and guarded mutations |
+| **GitNav: Git History & Workflows** | `tuna-ex.gitnav-workflows` | Git Log, branch and commit workflows, comparisons, line history, and guarded mutations |
 
 Installing DotNav automatically installs GitNav, so .NET users receive the complete experience. GitNav can also be installed independently in any Git repository without requiring .NET or C#.
 
@@ -35,7 +35,7 @@ Generated VSIX files are written to `dist/`. To work on one extension only:
 
 ```console
 npm run test --workspace dotnav
-npm run test --workspace gitnav
+npm run test --workspace extensions/gitnav
 ```
 
 ## Releases

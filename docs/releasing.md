@@ -7,7 +7,7 @@ The two extensions are versioned independently by Release Please and packaged by
 | Component | Marketplace ID | Tag format | Asset format |
 | --- | --- | --- | --- |
 | DotNav | `tuna-ex.dotnav` | `dotnav-v0.2.0` | `dotnav-0.2.0.vsix` |
-| GitNav | `tuna-ex.gitnav` | `gitnav-v0.1.0` | `gitnav-0.1.0.vsix` |
+| GitNav | `tuna-ex.gitnav-workflows` | `gitnav-v0.1.0` | `gitnav-0.1.0.vsix` |
 
 ## Normal release flow
 
@@ -19,7 +19,7 @@ The two extensions are versioned independently by Release Please and packaged by
 6. The release workflow tests the complete monorepo, packages the tagged component, and attaches its VSIX.
 7. Upload the VSIX to the matching Visual Studio Marketplace listing.
 
-When releasing both extensions for the first time, merge and publish **GitNav before DotNav** because DotNav declares `tuna-ex.gitnav` as an extension dependency.
+When releasing both extensions for the first time, merge and publish **GitNav before DotNav** because DotNav declares `tuna-ex.gitnav-workflows` as an extension dependency.
 
 Use conventional commit prefixes to control semantic versioning:
 

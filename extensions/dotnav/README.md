@@ -16,7 +16,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 - Format C# selections with Roslyn plus configurable readability passes.
 - Reveal the active editor file, filter the solution tree, and customize project icons.
 
-DotNav depends on [GitNav](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav), which is installed automatically and supplies the integrated Git Log, comparison, and history workflows.
+DotNav depends on [GitNav](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows), which is installed automatically and supplies the integrated Git Log, comparison, and history workflows.
 
 ## Installation
 
@@ -29,7 +29,7 @@ code --install-extension tuna-ex.dotnav
 - Visual Studio Code 1.92 or newer
 - A .NET SDK available on `PATH`
 - Microsoft C# (`ms-dotnettools.csharp`), installed automatically
-- GitNav (`tuna-ex.gitnav`), installed automatically
+- GitNav (`tuna-ex.gitnav-workflows`), installed automatically
 
 ## Getting started
 

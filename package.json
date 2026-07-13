@@ -9,7 +9,7 @@
     "compile": "npm run compile --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "package:dotnav": "npm run package:vsix --workspace dotnav -- --out ../../dist/dotnav.vsix",
-    "package:gitnav": "npm run package:vsix --workspace gitnav -- --out ../../dist/gitnav.vsix",
+    "package:gitnav": "npm run package:vsix --workspace extensions/gitnav -- --out ../../dist/gitnav.vsix",
     "package:all": "npm run package:dotnav && npm run package:gitnav"
   },
   "devDependencies": {
