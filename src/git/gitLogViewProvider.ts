@@ -124,15 +124,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         return this.post({ type: 'compareFiles', files, from: message.hashes[0], to: message.hashes[1] });
       }
       if (message.type === 'mutate' && message.action) {
+        const mutationRoot = this.root;
         if (message.action === 'continue') {
           const unresolved = (await this.service.workingTreeFiles(this.root)).filter(file => file.conflict);
           if (unresolved.length) throw new Error(`Resolve these files before continuing: ${unresolved.map(file => file.path).join(', ')}`);
         }
         const request = await this.prepareMutation(message);
-        if (request) await this.runMutation(request);
+        if (request) await this.runMutation(request, mutationRoot);
       }
       if (message.type === 'context') {
-        this.post({ type: 'contextMenu', actions: contextActions(message.kind), context: message });
+        this.post({ type: 'contextMenu', actions: contextActions(message.kind), context: { ...message, root: this.root } });
       }
       if (message.type === 'contextAction' && message.action) await this.executeContextAction(message);
     } catch (error) {
@@ -170,8 +171,9 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.readCancellations.clear();
   }
 
-  private async runMutation(request: GitMutationRequest): Promise<void> {
+  private async runMutation(request: GitMutationRequest, expectedRoot?: string): Promise<void> {
     if (!this.root) return;
+    if (expectedRoot && this.root !== expectedRoot) throw new Error('The active repository changed while this action was open. Review the action and try again.');
     const root = this.root;
     this.cancelReads();
     this.requests.invalidate(root);
@@ -245,7 +247,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return await vscode.env.clipboard.writeText(detail.message);
     }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action });
-    if (request) await this.runMutation(request);
+    if (request) await this.runMutation(request, message.root);
   }
 
   private async prepareMutation(message: WebviewMessage): Promise<GitMutationRequest | undefined> {

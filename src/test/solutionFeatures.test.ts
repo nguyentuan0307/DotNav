@@ -139,6 +139,7 @@ test('renders Git Log context actions inside the webview', () => {
   assert.match(source, /class="toast" id="toast"/);
   assert.match(source, /conflicts\.length\+' unresolved'/);
   assert.match(source, /data-conflict="skip"/);
+  assert.match(source, /active repository changed while this action was open/i);
 });
 
 test('renders changed files as a recursive collapsible tree', () => {
