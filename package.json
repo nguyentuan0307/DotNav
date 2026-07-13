@@ -2,7 +2,7 @@
   "name": "rider-like-solution-navigator",
   "displayName": "Rider-like Solution Navigator",
   "description": "A Rider-inspired .NET solution explorer for Visual Studio Code.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "tuna-ex",
   "icon": "media/icon.png",
   "license": "MIT",
