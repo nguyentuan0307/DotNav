@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.1.1...gitnav-v0.2.0) (2026-07-13)
+
+
+### Features
+
+* **gitnav:** resize commit columns ([0c4eea8](https://github.com/nguyentuan0307/DotNav/commit/0c4eea8f88ca140f6de369a1a4cb3b07f2dc35d8))
+
+
+### Bug Fixes
+
+* **gitnav:** move quick actions left ([57388b3](https://github.com/nguyentuan0307/DotNav/commit/57388b32bb61abe5e4b380a704e116e10ae88903))
+
 ## [0.1.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.1.0...gitnav-v0.1.1) (2026-07-13)
 
 
