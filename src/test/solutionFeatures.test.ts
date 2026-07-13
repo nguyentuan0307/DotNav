@@ -227,7 +227,7 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
 
 test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
-  const template = /function renderHtml[\s\S]*?return `([\s\S]*?)`;\n}/.exec(source)?.[1];
+  const template = /function renderHtml[\s\S]*?return `([\s\S]*?)`;\r?\n\s*}/.exec(source)?.[1];
   assert.ok(template);
   const html = new Function('nonce', 'webview', `return \`${template}\`;`)('test-nonce', { cspSource: 'test-csp' }) as string;
   const script = /<script nonce="test-nonce">([\s\S]*?)<\/script>/.exec(html)?.[1];

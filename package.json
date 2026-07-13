@@ -3,7 +3,24 @@
   "displayName": "Rider-like Solution Navigator",
   "description": "A Rider-inspired .NET solution explorer for Visual Studio Code.",
   "version": "0.0.1",
-  "publisher": "local-dev",
+  "publisher": "tuna-ex",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nguyentuan0307/CodexProject.git"
+  },
+  "homepage": "https://github.com/nguyentuan0307/CodexProject#readme",
+  "bugs": {
+    "url": "https://github.com/nguyentuan0307/CodexProject/issues"
+  },
+  "keywords": [
+    "dotnet",
+    "csharp",
+    "solution",
+    "solution explorer",
+    "rider"
+  ],
   "engines": {
     "vscode": "^1.92.0"
   },
@@ -783,8 +800,15 @@
         },
         "dotnetSolutionNavigator.gitLog.protectedBranches": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["main", "master", "develop", "release/*"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master",
+            "develop",
+            "release/*"
+          ],
           "description": "Branch name patterns on which history-rewriting Git Log actions are blocked."
         },
         "dotnetSolutionNavigator.gitLog.autoFetch": {
@@ -816,7 +840,11 @@
         },
         "dotnetSolutionNavigator.format.leadingCommaWrapStyle": {
           "type": "string",
-          "enum": ["wrapIfLong", "chopAlways", "keep"],
+          "enum": [
+            "wrapIfLong",
+            "chopAlways",
+            "keep"
+          ],
           "default": "wrapIfLong",
           "description": "Controls wrapping of single-line C# parameter and argument lists; existing multiline leading commas are always normalized."
         },
@@ -868,11 +896,14 @@
     "compile": "tsc -p ./",
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "package:vsix": "vsce package",
+    "publish:marketplace": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.5.4"
   }
 }

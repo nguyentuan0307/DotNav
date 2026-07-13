@@ -1,8 +1,16 @@
 .git/**
+.github/**
+.gitignore
 .claude/**
+.vscode/**
 .vscode-test/**
+.release-please-manifest.json
+release-please-config.json
 node_modules/**
 src/**
+out/test/**
+out/**/*.map
+media/icon.svg
 *.vsix
 tsconfig.json
 package-lock.json

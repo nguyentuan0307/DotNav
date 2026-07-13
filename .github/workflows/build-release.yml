@@ -1,0 +1,68 @@
+name: Build Release Asset
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: GitHub release tag to package
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Existing release tag to package, for example v0.0.2
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-asset-${{ inputs.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate release version
+        id: metadata
+        env:
+          RELEASE_REF: ${{ inputs.ref }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$RELEASE_REF" != "v$VERSION" ]; then
+            echo "Release tag $RELEASE_REF does not match package version $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "vsix=rider-like-solution-navigator-$VERSION.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Package VSIX
+        run: npm run package:vsix -- --out "${{ steps.metadata.outputs.vsix }}"
+
+      - name: Attach VSIX to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REF: ${{ inputs.ref }}
+          VSIX_PATH: ${{ steps.metadata.outputs.vsix }}
+        run: gh release upload "$RELEASE_REF" "$VSIX_PATH" --clobber
