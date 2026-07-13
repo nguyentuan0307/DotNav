@@ -25,6 +25,8 @@
     "onCommand:dotnetSolutionNavigator.cleanSolution",
     "onCommand:dotnetSolutionNavigator.openWorkspaceFolder",
     "onCommand:dotnetSolutionNavigator.showHistoryForSelection",
+    "onCommand:dotnetSolutionNavigator.compareFileWithBranch",
+    "onCommand:dotnetSolutionNavigator.compareSelectionWithBranch",
     "onCommand:dotnetSolutionNavigator.formatSelection"
   ],
   "main": "./out/extension.js",
@@ -81,6 +83,16 @@
         "command": "dotnetSolutionNavigator.showHistoryForSelection",
         "title": "Show History for Selection",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.compareFileWithBranch",
+        "title": "Compare File With Branch...",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "dotnetSolutionNavigator.compareSelectionWithBranch",
+        "title": "Compare Selection With Branch...",
+        "icon": "$(git-compare)"
       },
       {
         "command": "dotnetSolutionNavigator.formatSelection",
@@ -595,6 +607,15 @@
         }
       ],
       "dotnetSolutionNavigator.git": [
+        {
+          "command": "dotnetSolutionNavigator.compareFileWithBranch",
+          "group": "compare@1"
+        },
+        {
+          "command": "dotnetSolutionNavigator.compareSelectionWithBranch",
+          "when": "editorHasSelection",
+          "group": "compare@2"
+        },
         {
           "command": "dotnetSolutionNavigator.showHistoryForSelection",
           "group": "history@1"

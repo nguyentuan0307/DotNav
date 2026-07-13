@@ -74,6 +74,10 @@ test('contributes run configuration rename action', () => {
 });
 
 test('groups editor git actions under a submenu while keeping format visible', () => {
+  const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
+  assert.ok(commandIds.has('dotnetSolutionNavigator.compareFileWithBranch'));
+  assert.ok(commandIds.has('dotnetSolutionNavigator.compareSelectionWithBranch'));
+
   assert.ok(manifest.contributes.submenus.some((submenu: { id: string; label: string }) =>
     submenu.id === 'dotnetSolutionNavigator.git' && submenu.label === 'Git'
   ));
@@ -89,7 +93,14 @@ test('groups editor git actions under a submenu while keeping format visible', (
     item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
   ));
 
-  assert.ok(manifest.contributes.menus['dotnetSolutionNavigator.git'].some((item: { command: string }) =>
+  const gitMenu = manifest.contributes.menus['dotnetSolutionNavigator.git'];
+  assert.ok(gitMenu.some((item: { command: string }) =>
+    item.command === 'dotnetSolutionNavigator.compareFileWithBranch'
+  ));
+  assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
+    item.command === 'dotnetSolutionNavigator.compareSelectionWithBranch' && item.when?.includes('editorHasSelection')
+  ));
+  assert.ok(gitMenu.some((item: { command: string }) =>
     item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
   ));
 });

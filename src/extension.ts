@@ -6,6 +6,7 @@ import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForSol
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
 import { formatSelection } from './format/formatSelection';
+import { BranchCompareDocumentProvider, compareFileWithBranch, compareSelectionWithBranch } from './git/branchCompare';
 import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
 import { GitOperationCancelledError, LineHistoryQuery, getLineHistory, lineHistoryLabel } from './git/lineHistory';
 import { LineHistoryPanel } from './git/lineHistoryPanel';
@@ -22,6 +23,7 @@ let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
+  const branchCompareProvider = new BranchCompareDocumentProvider();
   const processManager = new ProcessManager();
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
@@ -64,6 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     treeView,
     runConfigTreeView,
+    vscode.workspace.registerTextDocumentContentProvider('dotnet-navigator-compare', branchCompareProvider),
     processManager,
     ...statusItems,
     provider.onDidChangeTreeData(refreshStatusBar),
@@ -121,6 +124,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.showHistoryForSelection', () => showHistoryForSelection(context)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.compareFileWithBranch', () => compareFileWithBranch(branchCompareProvider)),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.formatSelection', () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
