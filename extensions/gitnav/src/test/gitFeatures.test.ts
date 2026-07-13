@@ -191,8 +191,11 @@ test('renders Git Log context actions inside the webview', () => {
   assert.match(source, /m\.type==='busy'/);
   assert.match(source, /class="column-resizer" data-resize="graph"/);
   assert.match(source, /gitLog\.columnWidths/);
+  assert.match(source, /id="toggleColumns"/);
+  assert.match(source, /gitLog\.visibleColumns/);
+  assert.match(source, /Keep at least one column visible/);
   assert.match(source, /setPointerCapture/);
-  assert.match(source, /--graph-min-width/);
+  assert.match(source, /Math\.max\(28/);
   assert.match(source, /class="toast" id="toast"/);
   assert.match(source, /conflicts\.length\+' unresolved'/);
   assert.match(source, /data-conflict="skip"/);
@@ -266,6 +269,10 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /aria-label="Push"/);
   assert.doesNotMatch(source, />Fetch<\/button>/);
   assert.doesNotMatch(source, />New Branch<\/button>/);
+  assert.match(source, /Update from Origin/);
+  assert.match(source, /updateBranchFromOrigin/);
+  assert.match(source, /Update Current Branch/);
+  assert.match(source, /contextActions\(message\.kind, message\.current === true\)/);
 });
 
 test('keeps embedded Git Log webview JavaScript syntactically valid', () => {

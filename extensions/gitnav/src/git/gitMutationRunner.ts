@@ -107,6 +107,7 @@ export class GitMutationRunner {
         return ['tag', '-d', ref];
       }
       case 'pushBranch': return ['push', '-u', String(request.options?.remote ?? 'origin'), ref];
+      case 'updateBranchFromOrigin': return ['fetch', String(request.options?.remote ?? 'origin'), `${String(request.options?.remoteBranch)}:${ref}`];
       case 'pullInto': return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase', String(request.options?.remote), String(request.options?.branch)];
       case 'dropCommit': return ['rebase', '--onto', `${ref}^`, ref, 'HEAD'];
       case 'rollbackFile': return ['restore', '--staged', '--worktree', '--', String(request.path)];
