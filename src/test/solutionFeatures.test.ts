@@ -178,11 +178,34 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /recovery\.actions/);
   assert.match(source, /id="toastClose"/);
   assert.match(source, /m\.repositoryId!==state\.repository\.root/);
-  assert.match(source, /repositoryStatus\(state\.repository\)/);
+  assert.match(source, /function renderStatusBadges\(/);
+  assert.match(source, /id="repoBadges"/);
   assert.match(source, /state\.selectedRef===x\.name\?'viewing'/);
   assert.match(source, /\.item\.viewing/);
-  assert.match(source, /Viewing: /);
+  assert.match(source, /class="filter-chips"/);
   assert.match(source, /state\.selectedRef=item\.dataset\.ref;renderBranches\(\)/);
+});
+
+test('renders advanced Git Log UX and interactive rebase preview', () => {
+  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  assert.match(source, /data-empty-action="refresh"/);
+  assert.doesNotMatch(source, /id="historyMap"/);
+  assert.doesNotMatch(source, /function renderHistoryMap\(/);
+  assert.match(source, /function renderInlineDiff\(/);
+  assert.match(source, /Interactive Rebase Preview/);
+  assert.match(source, /Allow Published Rebase/);
+  assert.match(source, /Create Backup & Rebase/);
+  assert.doesNotMatch(source, /<span id="status">/);
+  assert.match(source, /class="quick-actions"/);
+  assert.match(source, /quick-actions button svg/);
+  assert.match(source, /class="filter-primary"/);
+  assert.match(source, /class="filter-fields"/);
+  assert.match(source, /class="filter-options"/);
+  assert.match(source, /aria-expanded="false"/);
+  assert.match(source, /aria-label="Fetch"/);
+  assert.match(source, /aria-label="Push"/);
+  assert.doesNotMatch(source, />Fetch<\/button>/);
+  assert.doesNotMatch(source, />New Branch<\/button>/);
 });
 
 test('keeps embedded Git Log webview JavaScript syntactically valid', () => {

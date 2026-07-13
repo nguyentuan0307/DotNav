@@ -89,6 +89,8 @@ npx --yes @vscode/vsce package --allow-missing-repository
 
 ## Known Gaps and Recommended Next Work
 
+Git Log follow-up: inline diff is intentionally read-only. Add `Stage Hunk` and `Revert Hunk` only after a dedicated patch-boundary safety design and integration tests; do not infer permission from the current preview UI.
+
 Priority order:
 
 1. Add support for multiple selections/multi-cursor. The command currently uses only `editor.selection`, not all `editor.selections`. Normalize and merge overlapping full-line ranges, then submit non-overlapping replacements in original-document coordinates.

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { runGit } from './gitCli';
-import { GitCommitDetail, GitCommitSummary, GitFileChange, GitGraphSnapshot, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
+import { GitCommitDetail, GitCommitSummary, GitFileChange, GitGraphSnapshot, GitInlineDiff, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
 import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from './gitPanelParsers';
 import { computeGraphLayout } from './gitGraphLayout';
 import { BoundedCache } from './boundedCache';
@@ -13,6 +13,7 @@ export class GitCommandError extends Error {
 }
 
 export class GitRepositoryService {
+  private readonly lastFetched = new Map<string, number>();
   private readonly graphSnapshots = new Map<string, GitGraphSnapshot>();
   private readonly logCache = new BoundedCache<GitLogPage>(30);
   private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
@@ -48,6 +49,7 @@ export class GitRepositoryService {
       ahead: Number(match?.[1]) || 0,
       behind: Number(match?.[2]) || 0,
       changedCount: statusFields.filter(value => /^(1|2|u|\?) /.test(value)).length,
+      lastFetchedAt: this.lastFetched.get(root),
       operation: await detectOperation(root),
       refs: parseRefs(refs.stdout, branchHead),
       stashes: parseStashes(stashes.stdout)
@@ -91,7 +93,7 @@ export class GitRepositoryService {
     const cacheKey = `${root}\0${hash}\0${parent ?? 1}`;
     const cached = this.detailCache.get(cacheKey);
     if (cached) return cached;
-    const meta = await this.git(root, ['show', '-s', `--format=${logPrettyFormat}%x1f%B%x1f%cn%x1f%ce%x1f%ct`, hash], token);
+    const meta = await this.git(root, ['show', '-s', `--format=${logPrettyFormat}%x1f%B%x1f%cn%x1f%ce%x1f%ct%x1f%G?%x1f%GS`, hash], token);
     const commit = parseLog(meta.stdout)[0];
     if (!commit) throw new Error(`Commit ${hash} was not found.`);
     const fields = meta.stdout.split('\x1f');
@@ -105,11 +107,37 @@ export class GitRepositoryService {
       committer: fields[9] || commit.author,
       committerEmail: fields[10] || commit.authorEmail,
       committerTimestamp: Number(fields[11]) || commit.authorTimestamp,
+      signature: signatureState(fields[12]),
+      signatureSigner: fields[13]?.replace(/\x1e|\r?\n$/g, '') || undefined,
       files
     };
     this.detailCache.set(cacheKey, detail);
     return detail;
   }
+
+  async inlineDiff(root: string, hash: string | undefined, filePath: string, parent = 1): Promise<GitInlineDiff> {
+    if (!hash) {
+      const result = await this.git(root, ['diff', '--no-ext-diff', '--unified=4', '--', filePath]);
+      return { path: filePath, from: 'index', to: 'working tree', patch: result.stdout, workingTree: true };
+    }
+    const detail = await this.commitDetail(root, hash, parent);
+    const from = detail.parents[parent - 1] ?? emptyTreeHash;
+    const result = await this.git(root, ['diff', '--no-ext-diff', '--unified=4', from, hash, '--', filePath]);
+    return { path: filePath, from, to: hash, patch: result.stdout, workingTree: false };
+  }
+
+  async publishedCommits(root: string, hashes: string[]): Promise<string[]> {
+    const snapshot = await this.snapshot(root);
+    if (!snapshot.upstream) return [];
+    const published: string[] = [];
+    for (const hash of hashes) {
+      const result = await runGit(root, ['merge-base', '--is-ancestor', hash, snapshot.upstream]);
+      if (result.exitCode === 0) published.push(hash);
+    }
+    return published;
+  }
+
+  markFetched(root: string): void { this.lastFetched.set(root, Date.now()); }
 
   async filesBetween(root: string, from: string, to: string): Promise<GitFileChange[]> {
     const [names, numbers] = await Promise.all([
@@ -177,6 +205,13 @@ export class GitRepositoryService {
     this.detailCache.deletePrefix(prefix);
     for (const key of this.graphSnapshots.keys()) if (key.startsWith(prefix)) this.graphSnapshots.delete(key);
   }
+}
+
+function signatureState(value?: string): GitCommitDetail['signature'] {
+  if (!value || value === 'N') return 'unsigned';
+  if (value === 'G' || value === 'U' || value === 'X' || value === 'Y') return 'good';
+  if (value === 'B' || value === 'E' || value === 'R') return 'bad';
+  return 'unknown';
 }
 
 const emptyTreeHash = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';

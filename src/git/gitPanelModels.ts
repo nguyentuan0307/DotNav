@@ -48,7 +48,25 @@ export interface GitCommitDetail extends GitCommitSummary {
   readonly committer: string;
   readonly committerEmail: string;
   readonly committerTimestamp: number;
+  readonly signature: 'good' | 'bad' | 'unknown' | 'unsigned';
+  readonly signatureSigner?: string;
   readonly files: GitFileChange[];
+}
+
+export type GitRebaseAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
+export interface GitRebasePlanItem {
+  readonly action: GitRebaseAction;
+  readonly hash: string;
+  readonly subject: string;
+  readonly message?: string;
+}
+
+export interface GitInlineDiff {
+  readonly path: string;
+  readonly from: string;
+  readonly to: string;
+  readonly patch: string;
+  readonly workingTree: boolean;
 }
 
 export interface GitRepositorySnapshot {
@@ -60,6 +78,7 @@ export interface GitRepositorySnapshot {
   readonly ahead: number;
   readonly behind: number;
   readonly changedCount: number;
+  readonly lastFetchedAt?: number;
   readonly operation?: GitOperationState;
   readonly refs: GitRefInfo[];
   readonly stashes: GitStashInfo[];

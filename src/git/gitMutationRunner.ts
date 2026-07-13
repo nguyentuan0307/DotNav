@@ -5,6 +5,8 @@ import { RepositoryMutationQueue } from './gitPanelCoordinator';
 import { matchingProtectedBranchPattern } from './gitBranchProtection';
 import { isActionAllowedDuringOperation, operationArguments } from './gitOperationFlow';
 import { runGit } from './gitCli';
+import { runInteractiveRebase } from './gitInteractiveRebase';
+import { GitRebasePlanItem } from './gitPanelModels';
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
@@ -25,7 +27,7 @@ export class GitMutationRunner {
     if ((historyRewriteActions.has(request.action) || request.action === 'update' && request.options?.strategy === 'reset') && protectedPattern) {
       throw new Error(`This operation is blocked because the current branch matches protected pattern "${protectedPattern}".`);
     }
-    if (destructiveActions.has(request.action) && !await confirmDestructive(request)) return false;
+    if (destructiveActions.has(request.action) && !await confirmDestructive(root, request, this.service)) return false;
     const args = await this.argumentsFor(root, request);
     if (!args) return false;
     return vscode.window.withProgress({
@@ -34,6 +36,7 @@ export class GitMutationRunner {
       cancellable: true
     }, async (_progress, token) => {
       await this.service.git(root, args, token);
+      if (request.action === 'fetch' || request.action === 'update') this.service.markFetched(root);
       this.service.invalidateCaches(root);
       await vscode.commands.executeCommand('git.refresh');
       return true;
@@ -78,6 +81,11 @@ export class GitMutationRunner {
       case 'deleteRemote': return ['push', String(request.options?.remote), '--delete', ref];
       case 'merge': return ['merge', ...(request.options?.noFf ? ['--no-ff'] : []), ...(request.options?.squash ? ['--squash'] : []), ref];
       case 'rebase': return ['rebase', ref];
+      case 'interactiveRebase': {
+        const plan = JSON.parse(String(request.options?.plan ?? '[]')) as GitRebasePlanItem[];
+        await runInteractiveRebase(root, String(request.options?.base), plan);
+        return ['status', '--short'];
+      }
       case 'cherryPick': return ['cherry-pick', ...(request.options?.noCommit ? ['--no-commit'] : []), ...(request.hashes ?? [ref])];
       case 'revert': return ['revert', ...(request.hashes ?? [ref])];
       case 'undoCommit': return ['reset', '--soft', 'HEAD^'];
@@ -159,10 +167,10 @@ export class GitMutationRunner {
   }
 }
 
-const destructiveActions = new Set(['deleteRemote', 'stashDrop', 'rollbackFile', 'getFile', 'undoCommit', 'reset', 'dropCommit']);
-const historyRewriteActions = new Set(['undoCommit', 'reset', 'dropCommit']);
+const destructiveActions = new Set(['deleteRemote', 'deleteBranch', 'deleteTag', 'stashDrop', 'rollbackFile', 'getFile', 'undoCommit', 'reset', 'dropCommit', 'abort']);
+const historyRewriteActions = new Set(['undoCommit', 'reset', 'dropCommit', 'interactiveRebase']);
 
-async function confirmDestructive(request: GitMutationRequest): Promise<boolean> {
+async function confirmDestructive(root: string, request: GitMutationRequest, service: GitRepositoryService): Promise<boolean> {
   const detail: Record<string, string> = {
     deleteRemote: `Remote branch ${request.ref} will be deleted for every collaborator.`,
     stashDrop: `${request.ref} will be permanently removed.`,
@@ -170,9 +178,22 @@ async function confirmDestructive(request: GitMutationRequest): Promise<boolean>
     getFile: `${request.path} in the working tree will be overwritten.`,
     undoCommit: 'The HEAD commit will be removed and its changes moved to the index.',
     reset: `The current branch will be reset to ${request.ref}. Hard mode permanently discards local changes.`
-    ,dropCommit: `Commit ${request.ref} will be removed by rewriting branch history. A force push may be required.`
+    ,dropCommit: `Commit ${request.ref} will be removed by rewriting branch history. A force push may be required.`,
+    deleteBranch: `Local branch ${request.ref} will be deleted${request.options?.force ? ' even if it is not merged' : ''}.`,
+    deleteTag: `Tag ${request.ref} will be deleted${request.options?.remote ? ' locally and from '+request.options.remote : ' locally'}.`,
+    abort: `The current ${String(request.options?.operation ?? 'Git operation').toLowerCase()} will be aborted and its in-progress changes discarded.`
   };
-  return await vscode.window.showWarningMessage(detail[request.action], { modal: true }, 'Continue') === 'Continue';
+  const canBackup = ['reset', 'dropCommit', 'undoCommit'].includes(request.action);
+  const choice = await vscode.window.showWarningMessage(
+    `Preview: ${detail[request.action]}`,
+    { modal: true }, 'Continue', ...(canBackup ? ['Create Backup & Continue'] : [])
+  );
+  if (choice === 'Create Backup & Continue') {
+    const snapshot = await service.snapshot(root);
+    const name = `backup/${snapshot.head}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await service.git(root, ['branch', name, 'HEAD']);
+  }
+  return choice === 'Continue' || choice === 'Create Backup & Continue';
 }
 
 function labelFor(action: string): string { return action.replace(/([A-Z])/g, ' $1').toLowerCase(); }

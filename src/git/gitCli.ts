@@ -15,10 +15,11 @@ export async function runGit(
   cwd: string,
   args: string[],
   token?: vscode.CancellationToken,
-  stdin?: string
+  stdin?: string,
+  env?: NodeJS.ProcessEnv
 ): Promise<GitResult> {
   return new Promise(resolve => {
-    const child = spawn('git', args, { cwd, shell: false });
+    const child = spawn('git', args, { cwd, shell: false, env: env ? { ...process.env, ...env } : undefined });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
