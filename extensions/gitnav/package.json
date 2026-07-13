@@ -2,7 +2,7 @@
   "name": "gitnav-workflows",
   "displayName": "GitNav: Git History & Workflows",
   "description": "Visual Git history, branch workflows, comparisons, conflict recovery, and guarded Git operations for Visual Studio Code.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",

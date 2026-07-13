@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.2.0...gitnav-v0.3.0) (2026-07-13)
+
+
+### Features
+
+* **gitnav:** customize log columns ([7352954](https://github.com/nguyentuan0307/DotNav/commit/7352954ffee90f9541f3e81a92247e543bdbe730))
+* **gitnav:** customize log columns ([5fe084d](https://github.com/nguyentuan0307/DotNav/commit/5fe084dd1d8b26e9dc04c8bb684a4c8ec7f1f6c5))
+
 ## [0.2.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.1.1...gitnav-v0.2.0) (2026-07-13)
 
 
