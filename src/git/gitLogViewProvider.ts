@@ -17,6 +17,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private root?: string;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly mutations: GitMutationRunner;
+  private readonly output = vscode.window.createOutputChannel('Git Log');
   private readonly requests = new GitRequestCoordinator();
   private readonly readCancellations = new Map<GitReadChannel, vscode.CancellationTokenSource>();
   private readonly mutationBusy = new MutationBusyTracker();
@@ -32,9 +33,11 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.logDiagnostic('Webview resolved; registering message listener.');
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
-    view.webview.html = renderHtml(view.webview);
     this.disposables.push(view.webview.onDidReceiveMessage(message => this.handle(message)));
+    view.webview.html = renderHtml(view.webview);
+    this.logDiagnostic('Webview HTML loaded; waiting for ready message.');
     this.configureAutoFetch();
     this.configureGitWatcher();
   }
@@ -45,9 +48,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private async refreshCore(): Promise<void> {
     if (!this.view) return;
+    const startedAt = Date.now();
+    this.logDiagnostic('Refresh started: discovering repositories.');
     const repositories = await this.service.discoverRepositories();
+    this.logDiagnostic(`Repository discovery completed (${repositories.length}) in ${Date.now() - startedAt} ms.`);
     if (!this.root || !repositories.includes(this.root)) this.root = repositories[0];
-    if (!this.root) return this.post({ type: 'state', repositories });
+    if (!this.root) {
+      this.logDiagnostic('No Git repository found; posting empty state.');
+      return this.post({ type: 'state', repositories });
+    }
+    this.logDiagnostic(`Loading repository: ${this.root}`);
     this.cancelReads();
     this.requests.invalidate(this.root);
     const read = this.beginRead('refresh', this.root);
@@ -57,6 +67,9 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       ]);
       if (this.requests.isCurrent('refresh', read.identity, this.root)) {
         this.post({ type: 'state', repositories, repository, log, uncommitted, generation: read.identity.generation, identity: read.identity });
+        this.logDiagnostic(`State posted: ${repository.refs.length} refs, ${log.commits.length}/${log.total} commits, ${uncommitted.length} working tree files (${Date.now() - startedAt} ms).`);
+      } else {
+        this.logDiagnostic(`Refresh ${read.identity.requestId} completed stale; state was not posted.`);
       }
     } finally {
       this.finishRead('refresh', read.source);
@@ -67,6 +80,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
     if (this.externalRefreshTimer) clearTimeout(this.externalRefreshTimer);
     this.gitWatcher?.dispose();
+    this.output.dispose();
     this.disposables.splice(0).forEach(item => item.dispose());
     this.cancelReads();
   }
@@ -101,6 +115,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   private async handle(message: WebviewMessage): Promise<void> {
+    if (message.type === 'ready' || message.type === 'refresh') this.logDiagnostic(`Received webview message: ${message.type}.`);
     try {
       if (message.type === 'ready' || message.type === 'refresh') return await this.refresh();
       if (message.type === 'selectRepo' && message.root) { this.cancelReads(); this.root = message.root; return await this.refresh(); }
@@ -148,8 +163,12 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
       if (message.type === 'contextAction' && message.action) await this.executeContextAction(message);
     } catch (error) {
-      if (error instanceof vscode.CancellationError) return;
+      if (error instanceof vscode.CancellationError) {
+        this.logDiagnostic(`Request cancelled: ${message.type}.`);
+        return;
+      }
       const text = error instanceof Error ? error.message : String(error);
+      this.logDiagnostic(`Request failed (${message.type}): ${error instanceof Error ? error.stack ?? text : text}`);
       const recovery = classifyGitError(text);
       this.post(recovery ? { type: 'recovery', recovery, operation: 'CHERRY-PICKING' } : { type: 'error', message: text });
       if (message.action === 'push' && /rejected|non-fast-forward/i.test(text)) {
@@ -381,6 +400,10 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   private post(message: unknown): void { this.view?.webview.postMessage(message); }
+
+  private logDiagnostic(message: string): void {
+    this.output.appendLine(`[${new Date().toISOString()}] ${message}`);
+  }
 }
 
 function validateRefName(value: string): string | undefined {

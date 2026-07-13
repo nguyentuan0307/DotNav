@@ -184,3 +184,17 @@ test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
   assert.ok(script);
   assert.doesNotThrow(() => new Function(script));
 });
+
+test('subscribes to Git Log messages before loading webview HTML', () => {
+  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const resolver = source.slice(source.indexOf('resolveWebviewView('), source.indexOf('async refresh()'));
+  assert.ok(resolver.indexOf('onDidReceiveMessage') < resolver.indexOf('webview.html = renderHtml'));
+});
+
+test('exposes Git Log initialization diagnostics in an output channel', () => {
+  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  assert.match(source, /createOutputChannel\('Git Log'\)/);
+  assert.match(source, /Received webview message:/);
+  assert.match(source, /Repository discovery completed/);
+  assert.match(source, /State posted:/);
+});
