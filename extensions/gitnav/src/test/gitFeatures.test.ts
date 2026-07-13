@@ -256,6 +256,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.doesNotMatch(source, /<span id="status">/);
   assert.match(source, /class="quick-actions"/);
   assert.match(source, /quick-actions button svg/);
+  assert.match(source, /\.quick-actions\{grid-column:1;grid-row:1/);
+  assert.match(source, /\.branches\{grid-column:2;grid-row:1/);
   assert.match(source, /class="filter-primary"/);
   assert.match(source, /class="filter-fields"/);
   assert.match(source, /class="filter-options"/);
