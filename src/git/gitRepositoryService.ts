@@ -96,6 +96,27 @@ export class GitRepositoryService {
     return parseNameStatusZ(names.stdout).map(file => ({ ...file, ...(stats.get(file.path) ?? { additions: 0, deletions: 0 }) }));
   }
 
+  async filesAgainstWorkingTree(root: string, ref: string): Promise<GitFileChange[]> {
+    const result = await this.git(root, ['diff', '--name-status', '-z', '--find-renames', ref]);
+    return parseNameStatusZ(result.stdout);
+  }
+
+  async stashFiles(root: string, ref: string): Promise<GitFileChange[]> {
+    const result = await this.git(root, ['stash', 'show', '--name-status', '-z', '--include-untracked', ref]);
+    return parseNameStatusZ(result.stdout);
+  }
+
+  async remoteWebUrl(root: string, hash: string): Promise<string | undefined> {
+    const result = await runGit(root, ['remote', 'get-url', 'origin']);
+    if (result.exitCode !== 0) return undefined;
+    const normalized = result.stdout.trim()
+      .replace(/^git@([^:]+):/, 'https://$1/')
+      .replace(/^ssh:\/\/git@([^/]+)\//, 'https://$1/')
+      .replace(/\.git$/, '');
+    return /^https?:\/\/(github\.com|gitlab\.[^/]+|[^/]*gitlab[^/]*)\//i.test(normalized)
+      ? `${normalized}/commit/${hash}` : undefined;
+  }
+
   async workingTreeFiles(root: string): Promise<GitFileChange[]> {
     const result = await this.git(root, ['status', '--porcelain=v1', '-z']);
     return parseWorkingTreeStatus(result.stdout);

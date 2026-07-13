@@ -115,6 +115,25 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.post({ type: 'compareFiles', files, from: message.hashes[0], to: message.hashes[1] });
       return;
     }
+    if (selected.action === 'compareCurrent' && message.ref) {
+      const files = await this.service.filesBetween(this.root!, 'HEAD', message.ref);
+      this.post({ type: 'compareFiles', files, from: 'HEAD', to: message.ref });
+      return;
+    }
+    if (selected.action === 'workingDiff' && message.ref) {
+      this.post({ type: 'compareFiles', files: await this.service.filesAgainstWorkingTree(this.root!, message.ref), from: message.ref, to: 'working tree' });
+      return;
+    }
+    if (selected.action === 'stashDiff' && message.ref) {
+      this.post({ type: 'compareFiles', files: await this.service.stashFiles(this.root!, message.ref), from: `${message.ref}^`, to: message.ref });
+      return;
+    }
+    if (selected.action === 'openWeb' && message.hash) {
+      const url = await this.service.remoteWebUrl(this.root!, message.hash);
+      if (!url) throw new Error('The origin remote is not a supported GitHub or GitLab URL.');
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+      return;
+    }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action: selected.action });
     if (request && await this.mutations.run(this.root!, request)) await this.refresh();
   }
@@ -128,6 +147,14 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (action === 'createBranch') {
       const name = await vscode.window.showInputBox({ title: 'New Branch', prompt: 'Branch name', validateInput: validateRefName });
       return name ? { action, ref: message.ref, options: { name, checkout: true } } : undefined;
+    }
+    if (action === 'renameBranch') {
+      const name = await vscode.window.showInputBox({ title: `Rename ${message.ref}`, prompt: 'New branch name', value: message.ref, validateInput: validateRefName });
+      return name ? { action, ref: message.ref, options: { name } } : undefined;
+    }
+    if (action === 'checkoutUpdate') {
+      const strategy = await vscode.window.showQuickPick([{ label: 'Merge', rebase: false }, { label: 'Rebase', rebase: true }], { title: `Checkout and Update ${message.ref}` });
+      return strategy ? { action, ref: message.ref, options: { rebase: strategy.rebase, remote: message.kind === 'remote' } } : undefined;
     }
     if (action === 'update') {
       const strategy = await vscode.window.showQuickPick([
@@ -166,6 +193,25 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const choice = await vscode.window.showWarningMessage(`Delete local branch ${message.ref}?`, { modal: true }, 'Delete', 'Force Delete');
       return choice ? { action, ref: message.ref, options: { force: choice === 'Force Delete' } } : undefined;
     }
+    if (action === 'pullInto') {
+      const [remote, ...branchParts] = (message.ref ?? '').split('/');
+      const strategy = await vscode.window.showQuickPick([{ label: 'Merge', rebase: false }, { label: 'Rebase', rebase: true }], { title: `Pull ${message.ref} into Current` });
+      return strategy && branchParts.length ? { action, options: { remote, branch: branchParts.join('/'), rebase: strategy.rebase } } : undefined;
+    }
+    if (action === 'stashBranch') {
+      const name = await vscode.window.showInputBox({ title: `Create Branch from ${message.ref}`, prompt: 'Branch name', validateInput: validateRefName });
+      return name ? { action, ref: message.ref, options: { name } } : undefined;
+    }
+    if (action === 'deleteTag') {
+      const mode = await vscode.window.showQuickPick([
+        { label: 'Delete Local Tag', remote: '' }, { label: 'Delete Local and origin Tag', remote: 'origin' }
+      ], { title: `Delete Tag ${message.ref}` });
+      return mode ? { action, ref: message.ref, options: mode.remote ? { remote: mode.remote } : undefined } : undefined;
+    }
+    if (action === 'checkout' && (message.kind === 'tag' || message.kind === 'commit')) {
+      const confirmed = await vscode.window.showWarningMessage(`Checkout ${message.ref ?? message.hash} in detached HEAD state?`, { modal: true }, 'Checkout Detached');
+      return confirmed ? { action, ref: message.ref ?? message.hash, options: { detached: true } } : undefined;
+    }
     if (action === 'reset') {
       const mode = await vscode.window.showQuickPick(['soft', 'mixed', 'hard', 'keep'], { title: `Reset Current Branch to ${message.hash}` });
       return mode ? { action, ref: message.hash, options: { mode } } : undefined;
@@ -200,19 +246,21 @@ function validateRefName(value: string): string | undefined {
 
 function contextActions(kind?: string): Array<{ label: string; action: string }> {
   if (kind === 'local') return [
-    { label: 'Checkout', action: 'checkout' }, { label: 'New Branch from Selected...', action: 'createBranch' },
+    { label: 'Checkout', action: 'checkout' }, { label: 'Checkout and Update', action: 'checkoutUpdate' }, { label: 'New Branch from Selected...', action: 'createBranch' }, { label: 'Rename...', action: 'renameBranch' },
+    { label: 'Compare with Current', action: 'compareCurrent' }, { label: 'Show Diff with Working Tree', action: 'workingDiff' },
     { label: 'Merge into Current', action: 'merge' }, { label: 'Rebase Current onto Selected', action: 'rebase' },
-    { label: 'Push', action: 'pushBranch' }, { label: 'Delete Branch', action: 'deleteBranch' }, { label: 'Copy Branch Name', action: 'copy' }
+    { label: 'Checkout and Rebase onto Current', action: 'checkoutRebase' }, { label: 'Push', action: 'pushBranch' }, { label: 'Delete Branch', action: 'deleteBranch' }, { label: 'Copy Branch Name', action: 'copy' }
   ];
   if (kind === 'remote') return [
-    { label: 'Checkout Tracking Branch', action: 'checkoutRemote' }, { label: 'Merge into Current', action: 'merge' },
-    { label: 'Rebase Current onto Selected', action: 'rebase' }, { label: 'Delete on Remote', action: 'deleteRemote' }, { label: 'Copy Branch Name', action: 'copy' }
+    { label: 'Checkout Tracking Branch', action: 'checkoutRemote' }, { label: 'Checkout and Update', action: 'checkoutUpdate' }, { label: 'New Branch from Selected...', action: 'createBranch' },
+    { label: 'Compare with Current', action: 'compareCurrent' }, { label: 'Show Diff with Working Tree', action: 'workingDiff' }, { label: 'Merge into Current', action: 'merge' },
+    { label: 'Rebase Current onto Selected', action: 'rebase' }, { label: 'Pull into Current', action: 'pullInto' }, { label: 'Delete on Remote', action: 'deleteRemote' }, { label: 'Copy Branch Name', action: 'copy' }
   ];
   if (kind === 'tag') return [{ label: 'Checkout Revision', action: 'checkout' }, { label: 'New Branch from Tag...', action: 'createBranch' }, { label: 'Delete Tag', action: 'deleteTag' }, { label: 'Copy Tag Name', action: 'copy' }];
-  if (kind === 'stash') return [{ label: 'Apply', action: 'stashApply' }, { label: 'Pop', action: 'stashPop' }, { label: 'Drop', action: 'stashDrop' }];
+  if (kind === 'stash') return [{ label: 'Apply', action: 'stashApply' }, { label: 'Pop', action: 'stashPop' }, { label: 'Drop', action: 'stashDrop' }, { label: 'Show Diff', action: 'stashDiff' }, { label: 'Create Branch from Stash', action: 'stashBranch' }];
   if (kind === 'commit') return [
     { label: 'Checkout Revision', action: 'checkout' }, { label: 'New Branch here...', action: 'createBranch' }, { label: 'New Tag here...', action: 'tag' },
-    { label: 'Cherry-Pick', action: 'cherryPick' }, { label: 'Revert Commit', action: 'revert' }, { label: 'Reset Current Branch to Here...', action: 'reset' }, { label: 'Copy Revision Number', action: 'copy' }
+    { label: 'Cherry-Pick', action: 'cherryPick' }, { label: 'Revert Commit', action: 'revert' }, { label: 'Drop Commit', action: 'dropCommit' }, { label: 'Reset Current Branch to Here...', action: 'reset' }, { label: 'Open on GitHub/GitLab', action: 'openWeb' }, { label: 'Copy Revision Number', action: 'copy' }
   ];
   if (kind === 'commits') return [{ label: 'Compare Versions', action: 'compare' }, { label: 'Cherry-Pick in Selected Order', action: 'cherryPick' }, { label: 'Revert in Selected Order', action: 'revert' }];
   if (kind === 'commitFile') return [

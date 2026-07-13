@@ -38,8 +38,21 @@ export class GitMutationRunner {
         return ['pull', request.options?.strategy === 'rebase' ? '--rebase' : '--no-rebase'];
       }
       case 'push': return ['push', ...(request.options?.forceLease ? ['--force-with-lease'] : []), ...(request.options?.tags ? ['--tags'] : [])];
-      case 'checkout': return this.checkoutArgs(root, ref);
+      case 'checkout': return this.checkoutArgs(root, ref, request.options?.detached === true);
+      case 'checkoutUpdate': {
+        const checkout = request.options?.remote ? ['switch', '--track', ref] : await this.checkoutArgs(root, ref);
+        if (!checkout) return undefined;
+        await this.service.git(root, checkout);
+        return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase'];
+      }
       case 'checkoutRemote': return ['switch', '--track', ref];
+      case 'checkoutRebase': {
+        const oldHead = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
+        const checkout = await this.checkoutArgs(root, ref);
+        if (!checkout) return undefined;
+        await this.service.git(root, checkout);
+        return ['rebase', oldHead];
+      }
       case 'createBranch': return request.options?.checkout === false
         ? ['branch', String(request.options?.name), ref || 'HEAD']
         : ['switch', '-c', String(request.options?.name), ref || 'HEAD'];
@@ -58,8 +71,16 @@ export class GitMutationRunner {
       case 'stashDrop': return ['stash', 'drop', ref];
       case 'stashBranch': return ['stash', 'branch', String(request.options?.name), ref];
       case 'tag': return ['tag', ...(request.options?.message ? ['-a', '-m', String(request.options.message)] : []), String(request.options?.name), ref];
-      case 'deleteTag': return ['tag', '-d', ref];
+      case 'deleteTag': {
+        if (request.options?.remote) {
+          await this.service.git(root, ['tag', '-d', ref]);
+          return ['push', String(request.options.remote), `:refs/tags/${ref}`];
+        }
+        return ['tag', '-d', ref];
+      }
       case 'pushBranch': return ['push', '-u', String(request.options?.remote ?? 'origin'), ref];
+      case 'pullInto': return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase', String(request.options?.remote), String(request.options?.branch)];
+      case 'dropCommit': return ['rebase', '--onto', `${ref}^`, ref, 'HEAD'];
       case 'rollbackFile': return ['restore', '--staged', '--worktree', '--', String(request.path)];
       case 'getFile': return ['restore', '--source', ref, '--', String(request.path)];
       case 'continue': return operationCommand(request.options?.operation, '--continue');
@@ -76,22 +97,23 @@ export class GitMutationRunner {
     return patterns.some(pattern => new RegExp(`^${pattern.split('*').map(escapeRegex).join('.*')}$`).test(branch));
   }
 
-  private async checkoutArgs(root: string, ref: string): Promise<string[] | undefined> {
+  private async checkoutArgs(root: string, ref: string, detached = false): Promise<string[] | undefined> {
+    const base = ['switch', ...(detached ? ['--detach'] : []), ref];
     const snapshot = await this.service.snapshot(root);
-    if (!snapshot.changedCount) return ['switch', ref];
+    if (!snapshot.changedCount) return base;
     const choice = await vscode.window.showWarningMessage(
       `Checkout ${ref} while ${snapshot.changedCount} working tree file(s) have changes. Discarding may permanently lose work.`,
       { modal: true }, 'Stash & Checkout', 'Discard Changes & Checkout'
     );
     if (choice === 'Stash & Checkout') {
       await this.service.git(root, ['stash', 'push', '--include-untracked', '-m', `Auto stash before checkout ${ref}`]);
-      return ['switch', ref];
+      return base;
     }
-    return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ref] : undefined;
+    return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ref] : undefined;
   }
 }
 
-const destructiveActions = new Set(['deleteRemote', 'stashDrop', 'rollbackFile', 'getFile', 'undoCommit', 'reset']);
+const destructiveActions = new Set(['deleteRemote', 'stashDrop', 'rollbackFile', 'getFile', 'undoCommit', 'reset', 'dropCommit']);
 const historyRewriteActions = new Set(['undoCommit', 'reset', 'dropCommit']);
 
 async function confirmDestructive(request: GitMutationRequest): Promise<boolean> {
@@ -102,6 +124,7 @@ async function confirmDestructive(request: GitMutationRequest): Promise<boolean>
     getFile: `${request.path} in the working tree will be overwritten.`,
     undoCommit: 'The HEAD commit will be removed and its changes moved to the index.',
     reset: `The current branch will be reset to ${request.ref}. Hard mode permanently discards local changes.`
+    ,dropCommit: `Commit ${request.ref} will be removed by rewriting branch history. A force push may be required.`
   };
   return await vscode.window.showWarningMessage(detail[request.action], { modal: true }, 'Continue') === 'Continue';
 }
