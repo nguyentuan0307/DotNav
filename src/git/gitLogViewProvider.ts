@@ -89,7 +89,15 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       this.post({ type: 'error', message: text });
-      vscode.window.showErrorMessage(text);
+      if (message.action === 'push' && /rejected|non-fast-forward/i.test(text)) {
+        const recovery = await vscode.window.showErrorMessage(text, 'Update Project');
+        if (recovery === 'Update Project') {
+          const request = await this.prepareMutation({ type: 'mutate', action: 'update' });
+          if (request && this.root && await this.mutations.run(this.root, request)) await this.refresh();
+        }
+      } else {
+        vscode.window.showErrorMessage(text);
+      }
     }
   }
 
@@ -125,8 +133,12 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     if (selected.action === 'compareCurrent' && message.ref) {
-      const files = await this.service.filesBetween(this.root!, 'HEAD', message.ref);
-      this.post({ type: 'compareFiles', files, from: 'HEAD', to: message.ref });
+      const [onlyCurrent, onlySelected, files] = await Promise.all([
+        this.service.commitsInRange(this.root!, `${message.ref}..HEAD`),
+        this.service.commitsInRange(this.root!, `HEAD..${message.ref}`),
+        this.service.filesBetween(this.root!, 'HEAD', message.ref)
+      ]);
+      this.post({ type: 'compareFiles', files, from: 'HEAD', to: message.ref, onlyCurrent, onlySelected });
       return;
     }
     if (selected.action === 'workingDiff' && message.ref) {
@@ -142,6 +154,18 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (!url) throw new Error('The origin remote is not a supported GitHub or GitLab URL.');
       await vscode.env.openExternal(vscode.Uri.parse(url));
       return;
+    }
+    if (selected.action === 'showRepository' && message.hash) {
+      const file = await vscode.window.showQuickPick(await this.service.repositoryFiles(this.root!, message.hash), {
+        title: `Repository at ${message.hash.slice(0, 8)}`, placeHolder: 'Select a file to open read-only'
+      });
+      if (file) await vscode.window.showTextDocument(revisionUri(this.root!, message.hash, file), { preview: true });
+      return;
+    }
+    if (selected.action === 'copyShort' && message.hash) return await vscode.env.clipboard.writeText(message.hash.slice(0, 8));
+    if (selected.action === 'copyMessage' && message.hash) {
+      const detail = await this.service.commitDetail(this.root!, message.hash);
+      return await vscode.env.clipboard.writeText(detail.message);
     }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action: selected.action });
     if (request && await this.mutations.run(this.root!, request)) await this.refresh();
@@ -181,11 +205,14 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     if (action === 'push') {
       const snapshot = await this.service.snapshot(this.root!);
+      const outgoing = snapshot.upstream ? await this.service.commitsInRange(this.root!, `${snapshot.upstream}..HEAD`, 50) : [];
       const forceLease = await vscode.window.showQuickPick([
-        { label: 'Push', value: false, description: snapshot.upstream ?? 'Configured upstream' },
+        { label: 'Push', value: false, description: `${snapshot.upstream ?? 'Configured upstream'} · ${outgoing.length} outgoing commit(s)`, detail: outgoing.slice(0, 5).map(commit => `${commit.shortHash} ${commit.subject}`).join('\n') },
         { label: 'Force with Lease', value: true, description: 'Rewrites the remote only if it has not changed' }
       ], { title: 'Push Current Branch' });
-      return forceLease ? { action, options: { forceLease: forceLease.value } } : undefined;
+      if (!forceLease) return undefined;
+      const tags = await vscode.window.showQuickPick([{ label: 'Branch only', value: false }, { label: 'Include tags', value: true }], { title: 'Push Tags' });
+      return tags ? { action, options: { forceLease: forceLease.value, tags: tags.value } } : undefined;
     }
     if (action === 'merge') {
       const mode = await vscode.window.showQuickPick([
@@ -227,7 +254,14 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     if (action === 'tag') {
       const name = await vscode.window.showInputBox({ title: 'New Tag', prompt: 'Tag name', validateInput: validateRefName });
-      return name ? { action, ref: message.hash, options: { name } } : undefined;
+      if (!name) return undefined;
+      const tagMessage = await vscode.window.showInputBox({ title: `Tag ${name}`, prompt: 'Annotation message (leave empty for lightweight tag)' });
+      return tagMessage === undefined ? undefined : { action, ref: message.hash, options: { name, message: tagMessage } };
+    }
+    if (action === 'undoCommit') {
+      const head = (await this.service.git(this.root!, ['rev-parse', 'HEAD'])).stdout.trim();
+      if (head !== message.hash) throw new Error('Undo Commit is available only for the current HEAD commit.');
+      return { action, hash: message.hash };
     }
     return { action, ref: message.ref ?? message.hash, hash: message.hash, hashes: message.hashes, path: message.path, options: message.operation ? { operation: message.operation } : undefined };
   }
@@ -269,7 +303,9 @@ function contextActions(kind?: string): Array<{ label: string; action: string }>
   if (kind === 'stash') return [{ label: 'Apply', action: 'stashApply' }, { label: 'Pop', action: 'stashPop' }, { label: 'Drop', action: 'stashDrop' }, { label: 'Show Diff', action: 'stashDiff' }, { label: 'Create Branch from Stash', action: 'stashBranch' }];
   if (kind === 'commit') return [
     { label: 'Checkout Revision', action: 'checkout' }, { label: 'New Branch here...', action: 'createBranch' }, { label: 'New Tag here...', action: 'tag' },
-    { label: 'Cherry-Pick', action: 'cherryPick' }, { label: 'Revert Commit', action: 'revert' }, { label: 'Drop Commit', action: 'dropCommit' }, { label: 'Reset Current Branch to Here...', action: 'reset' }, { label: 'Open on GitHub/GitLab', action: 'openWeb' }, { label: 'Copy Revision Number', action: 'copy' }
+    { label: 'Cherry-Pick', action: 'cherryPick' }, { label: 'Revert Commit', action: 'revert' }, { label: 'Undo Commit', action: 'undoCommit' }, { label: 'Drop Commit', action: 'dropCommit' }, { label: 'Reset Current Branch to Here...', action: 'reset' },
+    { label: 'Show Repository at Revision', action: 'showRepository' }, { label: 'Open on GitHub/GitLab', action: 'openWeb' },
+    { label: 'Copy Revision Number', action: 'copy' }, { label: 'Copy Short Hash', action: 'copyShort' }, { label: 'Copy Message', action: 'copyMessage' }
   ];
   if (kind === 'commits') return [{ label: 'Compare Versions', action: 'compare' }, { label: 'Cherry-Pick in Selected Order', action: 'cherryPick' }, { label: 'Revert in Selected Order', action: 'revert' }];
   if (kind === 'commitFile') return [
@@ -314,6 +350,6 @@ $('uncommitted').onclick=()=>{renderFiles(state.uncommitted,true);$('detail').in
 $('fileMode').textContent=state.fileMode==='tree'?'Tree':'Flat';$('fileMode').onclick=()=>{state.fileMode=state.fileMode==='tree'?'flat':'tree';localStorage.setItem('gitLog.fileMode',state.fileMode);$('fileMode').textContent=state.fileMode==='tree'?'Tree':'Flat';if(state.detail)renderFiles(state.detail.files)};$('parentMode').onchange=e=>{if(state.detail)send('detail',{hash:state.detail.hash,parent:e.target.value==='combined'?0:Number(e.target.value)})};
 $('viewOptions').onclick=()=>{const compact=document.body.classList.toggle('compact');localStorage.setItem('gitLog.compact',String(compact));document.querySelectorAll('.header span:nth-child(3),.row span:nth-child(3)').forEach(x=>x.style.display=compact?'none':'')};
 for(const split of document.querySelectorAll('.split'))split.onmousedown=e=>{const side=split.dataset.side,start=e.clientX,layout=$('layout'),initial=side==='left'?layout.children[0].offsetWidth:layout.children[4].offsetWidth;document.onmousemove=m=>{const value=Math.max(140,initial+(side==='left'?m.clientX-start:start-m.clientX));layout.style.setProperty('--'+side,value+'px');localStorage.setItem('gitLog.'+side,value)};document.onmouseup=()=>document.onmousemove=document.onmouseup=null};for(const side of ['left','right']){const v=localStorage.getItem('gitLog.'+side);if(v)$('layout').style.setProperty('--'+side,v+'px')}
-window.onmessage=e=>{const m=e.data;if(m.type==='state'){state={...state,...m,commits:m.log?.commits??[],total:m.log?.total??0};state.commits.length=state.total;$('repo').innerHTML=m.repositories.map(r=>'<option '+(r===m.repository?.root?'selected':'')+'>'+esc(r)+'</option>').join('');const r=m.repository;$('status').textContent=r?r.head+'  ↑'+r.ahead+' ↓'+r.behind+'  '+r.changedCount+' changed':'';$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';renderBranches();renderRows();if(r?.operation){$('files').innerHTML=state.uncommitted.filter(f=>f.conflict).map(f=>'<div class="file" data-conflict="true" data-path="'+esc(f.path)+'"><b>!</b><span>'+esc(f.path)+'</span></div>').join('')}}else if(m.type==='log'){state.total=m.log.total;if(state.commits.length!==state.total)state.commits.length=state.total;state.commits.splice(m.log.offset,m.log.commits.length,...m.log.commits);state.loading.delete(m.log.offset);renderRows()}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}else if(m.type==='compareFiles'){$('files').innerHTML=m.files.map(f=>'<div class="file"><b>'+esc(f.status)+'</b><span>'+esc(f.path)+'</span></div>').join('')}};send('ready');
+window.onmessage=e=>{const m=e.data;if(m.type==='state'){state={...state,...m,commits:m.log?.commits??[],total:m.log?.total??0};state.commits.length=state.total;$('repo').style.display=m.repositories.length>1?'block':'none';$('repo').innerHTML=m.repositories.map(r=>'<option '+(r===m.repository?.root?'selected':'')+'>'+esc(r)+'</option>').join('');const r=m.repository;$('status').textContent=r?r.head+'  ↑'+r.ahead+' ↓'+r.behind+'  '+r.changedCount+' changed':'';$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';renderBranches();renderRows();if(r?.operation){$('files').innerHTML=state.uncommitted.filter(f=>f.conflict).map(f=>'<div class="file" data-conflict="true" data-path="'+esc(f.path)+'"><b>!</b><span>'+esc(f.path)+'</span></div>').join('')}}else if(m.type==='log'){state.total=m.log.total;if(state.commits.length!==state.total)state.commits.length=state.total;state.commits.splice(m.log.offset,m.log.commits.length,...m.log.commits);state.loading.delete(m.log.offset);renderRows()}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}else if(m.type==='compareFiles'){renderFiles(m.files);$('detail').innerHTML='<div class="message">'+esc(m.from)+' ↔ '+esc(m.to)+'</div><div class="meta">'+(m.onlyCurrent?m.onlyCurrent.length+' commit(s) only in current<br>'+m.onlySelected.length+' commit(s) only in selected<br>':'')+m.files.length+' changed file(s)</div>'}};send('ready');
 </script></body></html>`;
 }

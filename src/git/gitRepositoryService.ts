@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { runGit } from './gitCli';
-import { GitCommitDetail, GitFileChange, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
+import { GitCommitDetail, GitCommitSummary, GitFileChange, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
 import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from './gitPanelParsers';
 
 export class GitCommandError extends Error {
@@ -117,6 +117,16 @@ export class GitRepositoryService {
       .replace(/\.git$/, '');
     return /^https?:\/\/(github\.com|gitlab\.[^/]+|[^/]*gitlab[^/]*)\//i.test(normalized)
       ? `${normalized}/commit/${hash}` : undefined;
+  }
+
+  async commitsInRange(root: string, range: string, limit = 100): Promise<GitCommitSummary[]> {
+    const result = await this.git(root, ['log', `--max-count=${limit}`, `--format=${logPrettyFormat}`, range]);
+    return parseLog(result.stdout);
+  }
+
+  async repositoryFiles(root: string, ref: string): Promise<string[]> {
+    const result = await this.git(root, ['ls-tree', '-r', '--name-only', '-z', ref]);
+    return result.stdout.split('\0').filter(Boolean);
   }
 
   async reverseFileChange(root: string, hash: string, filePath: string): Promise<void> {
