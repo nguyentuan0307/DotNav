@@ -180,7 +180,10 @@ test('renders changed files as a recursive collapsible tree', () => {
 
 test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
-  const script = /<script nonce="\$\{nonce\}">([\s\S]*?)<\/script>/.exec(source)?.[1];
+  const template = /function renderHtml[\s\S]*?return `([\s\S]*?)`;\n}/.exec(source)?.[1];
+  assert.ok(template);
+  const html = new Function('nonce', 'webview', `return \`${template}\`;`)('test-nonce', { cspSource: 'test-csp' }) as string;
+  const script = /<script nonce="test-nonce">([\s\S]*?)<\/script>/.exec(html)?.[1];
   assert.ok(script);
   assert.doesNotThrow(() => new Function(script));
 });
