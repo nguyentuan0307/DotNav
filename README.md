@@ -7,8 +7,8 @@ DotNav Workspace is the monorepo for two focused Visual Studio Code extensions:
 
 | Extension | Visual Studio Marketplace | Releases | Purpose |
 | --- | --- | --- | --- |
-| [**DotNav: .NET Solution Explorer**](extensions/dotnav/README.md) | [![DotNav Marketplace version](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.dotnav?style=flat-square&label=Install)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.dotnav) | [Download VSIX](https://github.com/nguyentuan0307/DotNav/releases) | Solution navigation, builds, run configurations, debugging, project operations, and C# formatting |
-| [**GitNav: Git History & Workflows**](extensions/gitnav/README.md) | [![GitNav Marketplace version](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.gitnav-workflows?style=flat-square&label=Install)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows) | [Download VSIX](https://github.com/nguyentuan0307/DotNav/releases) | Git Log, branch and commit workflows, comparisons, line history, and guarded mutations |
+| [**DotNav: .NET Solution Explorer**](extensions/dotnav/README.md) | [![Install DotNav](https://img.shields.io/badge/Marketplace-Install-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.dotnav) | [Download VSIX](https://github.com/nguyentuan0307/DotNav/releases) | Solution navigation, builds, run configurations, debugging, project operations, and C# formatting |
+| [**GitNav: Git History & Workflows**](extensions/gitnav/README.md) | [![Install GitNav](https://img.shields.io/badge/Marketplace-Install-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows) | [Download VSIX](https://github.com/nguyentuan0307/DotNav/releases) | Git Log, branch and commit workflows, comparisons, line history, and guarded mutations |
 
 Installing DotNav automatically installs GitNav, so .NET users receive the complete experience. GitNav can also be installed independently in any Git repository without requiring .NET or C#.
 

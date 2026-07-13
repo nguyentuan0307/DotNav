@@ -1,7 +1,7 @@
 # GitNav: Git History & Workflows
 
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.gitnav-workflows?style=flat-square&label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/tuna-ex.gitnav-workflows?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows)
+[![Install from Visual Studio Marketplace](https://img.shields.io/badge/Marketplace-Install-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows)
+[![Download VSIX from GitHub Releases](https://img.shields.io/badge/GitHub%20Releases-VSIX-181717?style=flat-square&logo=github)](https://github.com/nguyentuan0307/DotNav/releases)
 
 GitNav adds visual repository history and guarded Git workflows to Visual Studio Code. It works independently in any Git repository and does not require .NET or C#.
 
