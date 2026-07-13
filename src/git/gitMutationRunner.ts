@@ -28,6 +28,7 @@ export class GitMutationRunner {
       cancellable: true
     }, async (_progress, token) => {
       await this.service.git(root, args, token);
+      this.service.invalidateCaches(root);
       await vscode.commands.executeCommand('git.refresh');
       return true;
     });

@@ -18,6 +18,9 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private readonly requests = new GitRequestCoordinator();
   private readonly readCancellations = new Map<GitReadChannel, vscode.CancellationTokenSource>();
   private autoFetchTimer?: NodeJS.Timeout;
+  private externalRefreshTimer?: NodeJS.Timeout;
+  private gitWatcher?: vscode.FileSystemWatcher;
+  private lastInternalMutationAt = 0;
 
   constructor(private readonly service: GitRepositoryService, private readonly extensionUri: vscode.Uri) {
     this.mutations = new GitMutationRunner(service);
@@ -29,6 +32,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     view.webview.html = renderHtml(view.webview);
     this.disposables.push(view.webview.onDidReceiveMessage(message => this.handle(message)));
     this.configureAutoFetch();
+    this.configureGitWatcher();
   }
 
   async refresh(): Promise<void> {
@@ -50,6 +54,8 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   dispose(): void {
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
+    if (this.externalRefreshTimer) clearTimeout(this.externalRefreshTimer);
+    this.gitWatcher?.dispose();
     this.disposables.splice(0).forEach(item => item.dispose());
     this.cancelReads();
   }
@@ -62,6 +68,25 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.autoFetchTimer = setInterval(() => {
       if (this.root && this.view?.visible && !this.mutations.isBusy(this.root)) this.runMutation({ action: 'fetch' }).catch(console.error);
     }, Math.max(1, minutes) * 60_000);
+  }
+
+  private configureGitWatcher(): void {
+    if (this.gitWatcher) return;
+    this.gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,refs/**,MERGE_HEAD,REBASE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD}');
+    const schedule = () => this.scheduleExternalRefresh();
+    this.gitWatcher.onDidCreate(schedule);
+    this.gitWatcher.onDidChange(schedule);
+    this.gitWatcher.onDidDelete(schedule);
+  }
+
+  private scheduleExternalRefresh(): void {
+    if (this.externalRefreshTimer) clearTimeout(this.externalRefreshTimer);
+    this.externalRefreshTimer = setTimeout(() => {
+      this.externalRefreshTimer = undefined;
+      if (!this.root || !this.view?.visible || this.mutations.isBusy(this.root) || Date.now() - this.lastInternalMutationAt < 1200) return;
+      this.service.invalidateCaches(this.root);
+      this.refresh().catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
+    }, 350);
   }
 
   private async handle(message: WebviewMessage): Promise<void> {
@@ -152,7 +177,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.requests.invalidate(root);
     this.post({ type: 'busy', busy: true, action: request.action, repositoryId: root });
     try { if (await this.mutations.run(root, request) && this.root === root) await this.refresh(); }
-    finally { this.post({ type: 'busy', busy: false, repositoryId: root }); }
+    finally { this.lastInternalMutationAt = Date.now(); this.post({ type: 'busy', busy: false, repositoryId: root }); }
   }
 
   private async executeContextAction(message: WebviewMessage): Promise<void> {

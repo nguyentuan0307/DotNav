@@ -4,6 +4,7 @@ import { runGit } from './gitCli';
 import { GitCommitDetail, GitCommitSummary, GitFileChange, GitGraphSnapshot, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
 import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from './gitPanelParsers';
 import { computeGraphLayout } from './gitGraphLayout';
+import { BoundedCache } from './boundedCache';
 
 export class GitCommandError extends Error {
   constructor(readonly args: string[], readonly stderr: string, readonly exitCode: number) {
@@ -13,6 +14,8 @@ export class GitCommandError extends Error {
 
 export class GitRepositoryService {
   private readonly graphSnapshots = new Map<string, GitGraphSnapshot>();
+  private readonly logCache = new BoundedCache<GitLogPage>(30);
+  private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
   async discoverRepositories(): Promise<string[]> {
     const roots = vscode.workspace.workspaceFolders ?? [];
     const repositories = new Set<string>();
@@ -63,6 +66,9 @@ export class GitRepositoryService {
     }
     const shared = buildFilterArgs(effectiveFilter);
     const tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
+    const cacheKey = `${root}\0${offset}\0${limit}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
+    const cached = this.logCache.get(cacheKey);
+    if (cached) return cached;
     const [records, count] = await Promise.all([
       this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit}`, ...shared, ...tail], token),
       this.git(root, ['rev-list', '--count', ...shared, ...tail], token)
@@ -76,10 +82,15 @@ export class GitRepositoryService {
     this.graphSnapshots.set(`${graphKey}\0${offset + parsed.length}`, layout.snapshot);
     const commits = parsed.map(commit => ({ ...commit, lane: layout.lanes[commit.hash] }));
     const total = Number(count.stdout.trim()) || 0;
-    return { commits, offset, total, hasMore: offset + commits.length < total };
+    const page = { commits, offset, total, hasMore: offset + commits.length < total };
+    this.logCache.set(cacheKey, page);
+    return page;
   }
 
   async commitDetail(root: string, hash: string, parent?: number, token?: vscode.CancellationToken): Promise<GitCommitDetail> {
+    const cacheKey = `${root}\0${hash}\0${parent ?? 1}`;
+    const cached = this.detailCache.get(cacheKey);
+    if (cached) return cached;
     const meta = await this.git(root, ['show', '-s', `--format=${logPrettyFormat}%x1f%B%x1f%cn%x1f%ce%x1f%ct`, hash], token);
     const commit = parseLog(meta.stdout)[0];
     if (!commit) throw new Error(`Commit ${hash} was not found.`);
@@ -88,7 +99,7 @@ export class GitRepositoryService {
     const files = parent === 0 && commit.parents.length > 1
       ? mergeFileChanges((await Promise.all(commit.parents.map(value => this.filesBetween(root, value, hash)))).flat())
       : await this.filesBetween(root, commit.parents.length ? base : emptyTreeHash, hash);
-    return {
+    const detail = {
       ...commit,
       message: fields[8]?.replace(/\x1e|\r?\n$/g, '') || commit.subject,
       committer: fields[9] || commit.author,
@@ -96,6 +107,8 @@ export class GitRepositoryService {
       committerTimestamp: Number(fields[11]) || commit.authorTimestamp,
       files
     };
+    this.detailCache.set(cacheKey, detail);
+    return detail;
   }
 
   async filesBetween(root: string, from: string, to: string): Promise<GitFileChange[]> {
@@ -156,6 +169,13 @@ export class GitRepositoryService {
     if (result.exitCode !== 0 && !result.cancelled) throw new GitCommandError(args, result.stderr, result.exitCode);
     if (result.cancelled) throw new vscode.CancellationError();
     return result;
+  }
+
+  invalidateCaches(root: string): void {
+    const prefix = `${root}\0`;
+    this.logCache.deletePrefix(prefix);
+    this.detailCache.deletePrefix(prefix);
+    for (const key of this.graphSnapshots.keys()) if (key.startsWith(prefix)) this.graphSnapshots.delete(key);
   }
 }
 
