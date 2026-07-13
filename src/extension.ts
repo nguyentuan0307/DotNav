@@ -2,7 +2,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { addCodeItem, addExistingItem, addFile, addFolder } from './addCommands';
 import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner';
-import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForSolution } from './dotnetCli';
+import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForProjects, runDotnetForSolution } from './dotnetCli';
+import { projectsUnderFolder } from './folderBuild';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
 import { formatSelection } from './format/formatSelection';
@@ -88,6 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnetSolutionNavigator.openSolutionFile', () => openSolutionFile(provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.openSolutionTerminal', () => openSolutionTerminal(provider)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
+    vscode.commands.registerCommand('dotnetSolutionNavigator.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node)),
     vscode.commands.registerCommand('dotnetSolutionNavigator.rebuildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'rebuild')),
     vscode.commands.registerCommand('dotnetSolutionNavigator.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
     vscode.commands.registerCommand('dotnetSolutionNavigator.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
@@ -396,6 +398,22 @@ async function runProjectCommand(processManager: ProcessManager, node: TreeNode,
   }
 
   await runDotnetForProject(project, verb, processManager);
+}
+
+async function buildFolderProjects(provider: DotnetTreeProvider, processManager: ProcessManager, node: TreeNode): Promise<void> {
+  if (node.kind !== 'folder' || !node.resourcePath) return;
+  if (!provider.getSolution()) await provider.refresh();
+  const solution = provider.getSolution();
+  if (!solution) {
+    vscode.window.showInformationMessage('Open a .NET workspace before building folder projects.');
+    return;
+  }
+  const projects = projectsUnderFolder(solution, node.resourcePath);
+  if (!projects.length) {
+    vscode.window.showInformationMessage(`No .csproj files were found under ${node.label}.`);
+    return;
+  }
+  await runDotnetForProjects(projects, node.resourcePath, processManager);
 }
 
 async function runSolutionCommand(

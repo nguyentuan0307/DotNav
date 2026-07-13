@@ -21,6 +21,7 @@
     "onCommand:dotnetSolutionNavigator.refresh",
     "onCommand:dotnetSolutionNavigator.searchSolutionTree",
     "onCommand:dotnetSolutionNavigator.buildSolution",
+    "onCommand:dotnetSolutionNavigator.buildFolderProjects",
     "onCommand:dotnetSolutionNavigator.rebuildSolution",
     "onCommand:dotnetSolutionNavigator.cleanSolution",
     "onCommand:dotnetSolutionNavigator.openWorkspaceFolder",
@@ -133,6 +134,11 @@
       {
         "command": "dotnetSolutionNavigator.buildProject",
         "title": "Build"
+      },
+      {
+        "command": "dotnetSolutionNavigator.buildFolderProjects",
+        "title": "Build Projects in Folder",
+        "icon": "$(tools)"
       },
       {
         "command": "dotnetSolutionNavigator.rebuildProject",
@@ -556,6 +562,11 @@
         {
           "command": "dotnetSolutionNavigator.buildProject",
           "when": "view == dotnetSolutionNavigator && viewItem =~ /project/",
+          "group": "2_build@1"
+        },
+        {
+          "command": "dotnetSolutionNavigator.buildFolderProjects",
+          "when": "view == dotnetSolutionNavigator && viewItem =~ /folder/",
           "group": "2_build@1"
         },
         {

@@ -148,6 +148,69 @@ export async function runDotnetForSolution(
   });
 }
 
+export async function runDotnetForProjects(
+  projects: ProjectModel[],
+  folderPath: string,
+  processManager: ProcessManager
+): Promise<void> {
+  const busy = projects.find(project => processManager.getProjectPhase(project));
+  if (busy) {
+    vscode.window.showInformationMessage(`${busy.name} already has an active operation.`);
+    return;
+  }
+  const configuration = vscode.workspace
+    .getConfiguration('dotnetSolutionNavigator')
+    .get<string>('buildConfiguration', 'Debug');
+  const timeoutMs = Math.max(1, vscode.workspace
+    .getConfiguration('dotnetSolutionNavigator')
+    .get<number>('buildTimeoutSeconds', 600)) * 1000;
+  const folderName = path.basename(folderPath);
+
+  await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    cancellable: true,
+    title: `Build ${folderName} (${projects.length} projects)`
+  }, async (progress, token) => {
+    for (let index = 0; index < projects.length; index++) {
+      if (token.isCancellationRequested) return;
+      const project = projects[index];
+      progress.report({ message: `${index + 1}/${projects.length} ${project.name}` });
+      const task = new vscode.Task(
+        { type: 'dotnet', task: 'build-folder', project: project.path, folder: folderPath },
+        vscode.TaskScope.Workspace,
+        `build ${project.name}`,
+        '.NET Navigator',
+        new vscode.ProcessExecution('dotnet', ['build', project.path, '--configuration', configuration], { cwd: project.directory }),
+        ['$msCompile']
+      );
+      let execution: vscode.TaskExecution;
+      try { execution = await vscode.tasks.executeTask(task); }
+      catch (error) {
+        vscode.window.showErrorMessage(`Could not build ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      const binding = processManager.trackTask(project, 'build', execution);
+      const cancellation = token.onCancellationRequested(() => { void processManager.stopRun(binding.runId); });
+      try {
+        const exitCode = await processManager.waitForTask(execution, timeoutMs);
+        if (token.isCancellationRequested) return;
+        if (exitCode !== 0) {
+          vscode.window.showErrorMessage(`Build stopped: ${project.name} failed (${index + 1}/${projects.length}).`);
+          return;
+        }
+      } catch (error) {
+        processManager.terminateTimedOutTask(binding.runId, binding.targetId, execution, {
+          code: 'build-timeout', message: `Build timed out for ${project.name}.`,
+          cause: error instanceof Error ? error.message : String(error)
+        });
+        vscode.window.showErrorMessage(`Build timed out for ${project.name}.`);
+        return;
+      } finally { cancellation.dispose(); }
+    }
+    vscode.window.showInformationMessage(`Build succeeded for ${projects.length} project${projects.length === 1 ? '' : 's'} under ${folderName}.`);
+  });
+}
+
 function solutionTaskTarget(solution: SolutionModel): ProjectModel {
   return {
     name: path.basename(solution.path!),

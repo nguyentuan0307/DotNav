@@ -19,6 +19,14 @@ test('contributes solution build commands and context actions', () => {
   }
 });
 
+test('contributes recursive folder project build action', () => {
+  const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
+  assert.ok(commandIds.has('dotnetSolutionNavigator.buildFolderProjects'));
+  assert.ok(manifest.activationEvents.includes('onCommand:dotnetSolutionNavigator.buildFolderProjects'));
+  assert.ok(manifest.contributes.menus['view/item/context'].some((item: { command: string; when: string }) =>
+    item.command === 'dotnetSolutionNavigator.buildFolderProjects' && item.when.includes('viewItem =~ /folder/')));
+});
+
 test('contributes a welcome view with recovery actions', () => {
   const welcome = manifest.contributes.viewsWelcome.find((item: { view: string; contents: string }) => item.view === 'dotnetSolutionNavigator');
   assert.ok(welcome);
