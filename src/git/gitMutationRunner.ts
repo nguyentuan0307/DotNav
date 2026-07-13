@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { GitMutationRequest } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
 import { RepositoryMutationQueue } from './gitPanelCoordinator';
+import { matchingProtectedBranchPattern } from './gitBranchProtection';
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
@@ -14,8 +15,9 @@ export class GitMutationRunner {
   }
 
   private async runExclusive(root: string, request: GitMutationRequest): Promise<boolean> {
-    if ((historyRewriteActions.has(request.action) || request.action === 'update' && request.options?.strategy === 'reset') && await this.isProtected(root)) {
-      throw new Error('This operation is blocked because the current branch matches a protected branch pattern.');
+    const protectedPattern = await this.protectedPattern(root);
+    if ((historyRewriteActions.has(request.action) || request.action === 'update' && request.options?.strategy === 'reset') && protectedPattern) {
+      throw new Error(`This operation is blocked because the current branch matches protected pattern "${protectedPattern}".`);
     }
     if (destructiveActions.has(request.action) && !await confirmDestructive(request)) return false;
     const args = await this.argumentsFor(root, request);
@@ -48,12 +50,12 @@ export class GitMutationRunner {
       case 'push': return ['push', ...(request.options?.forceLease ? ['--force-with-lease'] : []), ...(request.options?.tags ? ['--tags'] : [])];
       case 'checkout': return this.checkoutArgs(root, ref, request.options?.detached === true);
       case 'checkoutUpdate': {
-        const checkout = request.options?.remote ? ['switch', '--track', ref] : await this.checkoutArgs(root, ref);
+        const checkout = request.options?.remote ? await this.remoteCheckoutArgs(root, ref) : await this.checkoutArgs(root, ref);
         if (!checkout) return undefined;
         await this.service.git(root, checkout);
         return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase'];
       }
-      case 'checkoutRemote': return ['switch', '--track', ref];
+      case 'checkoutRemote': return this.remoteCheckoutArgs(root, ref);
       case 'checkoutRebase': {
         const oldHead = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
         const checkout = await this.checkoutArgs(root, ref);
@@ -102,26 +104,43 @@ export class GitMutationRunner {
     }
   }
 
-  private async isProtected(root: string): Promise<boolean> {
+  private async protectedPattern(root: string): Promise<string | undefined> {
     const branch = (await this.service.snapshot(root)).head;
     const patterns = vscode.workspace.getConfiguration('dotnetSolutionNavigator.gitLog')
       .get<string[]>('protectedBranches', ['main', 'master', 'develop', 'release/*']);
-    return patterns.some(pattern => new RegExp(`^${pattern.split('*').map(escapeRegex).join('.*')}$`).test(branch));
+    return matchingProtectedBranchPattern(branch, patterns);
   }
 
-  private async checkoutArgs(root: string, ref: string, detached = false): Promise<string[] | undefined> {
-    const base = ['switch', ...(detached ? ['--detach'] : []), ref];
+  private async checkoutArgs(root: string, ref: string, detached = false, track = false): Promise<string[] | undefined> {
+    const base = ['switch', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref];
     const snapshot = await this.service.snapshot(root);
+    if (snapshot.operation) throw new Error(`Checkout is blocked while the repository is ${snapshot.operation}. Continue or abort that operation first.`);
+    if (!detached && snapshot.head === ref) {
+      void vscode.window.showInformationMessage(`${ref} is already checked out.`);
+      return undefined;
+    }
     if (!snapshot.changedCount) return base;
     const choice = await vscode.window.showWarningMessage(
       `Checkout ${ref} while ${snapshot.changedCount} working tree file(s) have changes. Discarding may permanently lose work.`,
-      { modal: true }, 'Stash & Checkout', 'Discard Changes & Checkout'
+      { modal: true }, 'Stash & Checkout', 'Move Changes to New Branch', 'Discard Changes & Checkout'
     );
     if (choice === 'Stash & Checkout') {
       await this.service.git(root, ['stash', 'push', '--include-untracked', '-m', `Auto stash before checkout ${ref}`]);
       return base;
     }
-    return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ref] : undefined;
+    if (choice === 'Move Changes to New Branch') {
+      const name = await vscode.window.showInputBox({ title: 'Move Changes to New Branch', prompt: 'New branch name', validateInput: validateBranchName });
+      return name ? ['switch', '-c', name] : undefined;
+    }
+    return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref] : undefined;
+  }
+
+  private async remoteCheckoutArgs(root: string, ref: string): Promise<string[] | undefined> {
+    const snapshot = await this.service.snapshot(root);
+    const remoteSeparator = ref.indexOf('/');
+    const localName = remoteSeparator >= 0 ? ref.slice(remoteSeparator + 1) : ref;
+    const localExists = snapshot.refs.some(item => item.kind === 'local' && item.name === localName);
+    return this.checkoutArgs(root, localExists ? localName : ref, false, !localExists);
   }
 }
 
@@ -150,4 +169,4 @@ function operationCommand(operation: boolean | string | undefined, flag: string)
 }
 
 function labelFor(action: string): string { return action.replace(/([A-Z])/g, ' $1').toLowerCase(); }
-function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function validateBranchName(value: string): string | undefined { return value && !/[~^:?*[\\\s]|\.\.|@\{|\/$/.test(value) ? undefined : 'Enter a valid Git branch name.'; }
