@@ -35,4 +35,4 @@ jobs:
         run: npm test
 
       - name: Validate VSIX packaging
-        run: npm run package:vsix -- --out rider-like-solution-navigator-ci.vsix
+        run: npm run package:vsix -- --out dotnav-ci.vsix

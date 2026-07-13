@@ -55,7 +55,7 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "vsix=rider-like-solution-navigator-$VERSION.vsix" >> "$GITHUB_OUTPUT"
+          echo "vsix=dotnav-$VERSION.vsix" >> "$GITHUB_OUTPUT"
 
       - name: Package VSIX
         run: npm run package:vsix -- --out "${{ steps.metadata.outputs.vsix }}"

@@ -7,7 +7,7 @@ Read this file first when reopening the repository or starting a new Codex task.
 
 ## Product
 
-`Rider-like Solution Navigator` is a VS Code extension for .NET development. Its implemented areas are:
+`DotNav: .NET Solution Explorer` is a VS Code extension for .NET development. Its implemented areas are:
 
 - Rider-style solution/project/file tree, logical solution folders, dependencies, file nesting, search, and reveal-active-file behavior.
 - Separate native Solution and Run Configurations views with compact toolbars, project hover actions, lifecycle-aware icons/descriptions, workflow-grouped context menus, and an adaptive `auto` icon mode.
@@ -71,13 +71,12 @@ All names are prefixed with `dotnetSolutionNavigator.`:
 
 ## Verification Baseline
 
-At this checkpoint:
+Current verification baseline:
 
-- `npm test`: 137/137 tests passed.
-- VSIX packaging succeeded.
-- Packaged artifact: `D:\VibingCode\CodexProject\rider-like-solution-navigator-0.0.1.vsix`.
-- Latest formatter checkpoint commit: `1dab400 fix: format strict selection fragments safely`.
-- Worktree was clean immediately after that commit; check `git status --short` on reopening because this document may be a newer change.
+- `npm test`: 181/181 tests passed on 2026-07-13.
+- VSIX packaging succeeds with the Marketplace metadata validator.
+- Release artifacts are published as `dotnav-<version>.vsix` on GitHub Releases.
+- Run `git status --short` and `npm test` before starting new work because this document may lag behind the latest commit.
 
 Standard verification commands:
 

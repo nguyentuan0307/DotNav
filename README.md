@@ -1,52 +1,99 @@
-# Rider-like Solution Navigator
+# DotNav: .NET Solution Explorer
 
-A small VS Code extension MVP that adds a Rider-inspired `.NET` activity bar view.
+[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.rider-like-solution-navigator?style=flat-square&label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/tuna-ex.rider-like-solution-navigator?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator)
+[![CI](https://img.shields.io/github/actions/workflow/status/nguyentuan0307/DotNav/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/nguyentuan0307/DotNav/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-> Continuing development? Start with `docs/CURRENT_STATE.md` for the current implementation, formatter behavior, verification baseline, known gaps, and recommended next work. The full feature history is in `docs/implemented-features.md`.
+DotNav brings solution-first .NET development to Visual Studio Code. Navigate large solutions, manage run configurations, inspect Git history, and apply consistent C# formatting without leaving your editor.
 
-## Features
+## Highlights
 
-- Finds `.sln`, `.slnx`, and standalone `.csproj` files.
-- Renders projects in a dedicated solution tree.
-- Hides noisy folders such as `bin`, `obj`, `.vs`, `.vscode`, `node_modules`, `TestResults`.
-- Shows root-level projects directly and only groups common containers such as `src` and `tests`.
-- Includes Docker Compose `.dcproj` projects from solution files.
-- Shows project references and NuGet packages.
-- Adds project context actions for build, run, test, clean, set startup project, and open terminal.
-- Runs and debugs projects through VS Code's .NET debugger API, including `launchSettings.json` profile selection.
-- Shows run/debug actions only for runnable projects such as Web, Console, or projects with launch profiles.
-- Configures and runs multiple startup projects without writing `.vscode/launch.json`.
-- Tracks launched debug sessions and managed dotnet tasks so project-level `Stop` and toolbar `Stop All` can shut them down.
-- Adds a Rider-style status bar run selector with Build, Run, Debug, and Stop All controls.
-- Stops tracked sessions and tasks when the extension is deactivated.
-- Provides configurable icon modes and Rider-style folder mappings for common .NET folders.
-- Nests related files such as `appsettings.Development.json`, generated C# files, Razor code-behind, and XAML code-behind under their parent files.
-- Adds a Rider-style `Add` submenu on projects and folders for new classes, interfaces, records, enums, files, folders, and existing items.
-- Adds Rider-style file and folder actions for rename, move, and delete.
-- Supports Explorer-style `F2` rename, `Delete`, drag-and-drop moves, and automatic tree refresh for file changes.
-- Generates C# namespaces from `RootNamespace` and the target folder path.
-- Uses the active VS Code file icon theme for project files, source files, and folders.
-- Uses dedicated project icons for Web, Library, Test, Console, Docker, and unknown project types.
-- Lets folder clicks expand/collapse the tree instead of opening the OS file explorer.
-- Lets project clicks expand/collapse the tree; use the context menu to open the project file.
-- Adds a view-title toggle for showing or hiding project files such as `.csproj`.
+### Solution navigation
 
-## Try It
+- Discover `.sln`, `.slnx`, and standalone project files automatically.
+- Browse logical solution folders, projects, dependencies, NuGet packages, and nested files in a dedicated activity bar view.
+- Filter the solution tree, reveal the active editor file, and hide generated or noisy folders.
+- Use project-aware icons for web, console, library, test, Docker, and other project types.
 
-1. Run `npm install`.
-2. Run `npm run compile`.
-3. Open this folder in VS Code.
-4. Press `F5` to launch the Extension Development Host.
-5. Open a .NET solution folder in the Extension Development Host.
+### Build, run, and debug
 
-## Settings
+- Build, rebuild, clean, test, run, or debug a project directly from the solution tree.
+- Use `launchSettings.json` profiles and VS Code's .NET debugger integration.
+- Create single-project or compound run configurations without maintaining `.vscode/launch.json`.
+- Track active processes with project-level stop actions and a global **Stop All** command.
 
-- `dotnetSolutionNavigator.hiddenFolders`
-- `dotnetSolutionNavigator.hiddenFiles`
-- `dotnetSolutionNavigator.showDependencies`
-- `dotnetSolutionNavigator.showProjectFiles`
-- `dotnetSolutionNavigator.buildBeforeRun`
-- `dotnetSolutionNavigator.buildConfiguration`
-- `dotnetSolutionNavigator.iconMode`
-- `dotnetSolutionNavigator.enableFileNesting`
-- `dotnetSolutionNavigator.fileNestingRules`
+### Git workflows
+
+- Explore branches, tags, commits, changed files, and repository history in the Git Log panel.
+- Compare files or selections with another branch and inspect line history from the editor.
+- Perform guarded Git operations with conflict recovery and configurable protected-branch rules.
+
+### C# productivity
+
+- Add classes, interfaces, records, enums, files, and folders with namespace-aware templates.
+- Rename, move, delete, and drag files directly in the solution tree.
+- Format C# selections with Roslyn plus configurable wrapping, indentation, fluent-chain, and blank-line passes.
+
+## Installation
+
+Install **DotNav: .NET Solution Explorer** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator), or run:
+
+```console
+code --install-extension tuna-ex.rider-like-solution-navigator
+```
+
+VS Code checks Marketplace-installed extensions for updates automatically. A manual VSIX installation does not auto-update unless VS Code's VSIX auto-update option is enabled.
+
+## Requirements
+
+- Visual Studio Code 1.92 or newer
+- A .NET SDK available on `PATH`
+- The Microsoft C# extension (`ms-dotnettools.csharp`), installed automatically as a dependency
+- Git available on `PATH` for Git Log and comparison features
+
+## Getting started
+
+1. Open a folder containing a `.sln`, `.slnx`, `.csproj`, `.fsproj`, `.vbproj`, or `.dcproj` file.
+2. Select the **.NET** icon in the Activity Bar.
+3. Choose a solution if the workspace contains more than one.
+4. Use the tree and its context menus to navigate, build, run, debug, or manage project files.
+5. Open **Git Log** from the Panel area when you need repository history and branch workflows.
+
+## Configuration
+
+Open **Settings** and search for `DotNav` to customize the extension. Common settings include:
+
+| Setting | Purpose |
+| --- | --- |
+| `dotnetSolutionNavigator.hiddenFolders` | Folder names excluded from the solution tree |
+| `dotnetSolutionNavigator.hiddenFiles` | File globs excluded from the solution tree |
+| `dotnetSolutionNavigator.showDependencies` | Show project and NuGet dependencies |
+| `dotnetSolutionNavigator.showProjectFiles` | Show project files inside project nodes |
+| `dotnetSolutionNavigator.buildBeforeRun` | Build before run or debug |
+| `dotnetSolutionNavigator.buildConfiguration` | Select `Debug` or `Release` builds |
+| `dotnetSolutionNavigator.iconMode` | Choose automatic, themed, Rider-style, or minimal icons |
+| `dotnetSolutionNavigator.enableFileNesting` | Group related files under their parent |
+| `dotnetSolutionNavigator.alwaysSelectOpenedFile` | Reveal the active editor file automatically |
+| `dotnetSolutionNavigator.gitLog.protectedBranches` | Block history-rewriting actions on matching branches |
+| `dotnetSolutionNavigator.gitLog.autoFetch` | Fetch while the Git Log view is active |
+| `dotnetSolutionNavigator.format.*` | Configure C# formatting passes |
+
+## Development
+
+```console
+npm install
+npm test
+```
+
+Press `F5` in VS Code to launch an Extension Development Host. Release and packaging details are documented in [docs/releasing.md](docs/releasing.md).
+
+For the implementation overview and current engineering notes, see [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md).
+
+## Feedback and support
+
+Found a bug or have a feature request? [Open an issue](https://github.com/nguyentuan0307/DotNav/issues) with reproduction steps, your operating system, VS Code version, and relevant output logs.
+
+## License
+
+DotNav is available under the [MIT License](LICENSE). Third-party attributions are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

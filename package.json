@@ -1,30 +1,42 @@
 {
   "name": "rider-like-solution-navigator",
-  "displayName": "Rider-like Solution Navigator",
-  "description": "A Rider-inspired .NET solution explorer for Visual Studio Code.",
+  "displayName": "DotNav: .NET Solution Explorer",
+  "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
   "version": "0.1.0",
   "publisher": "tuna-ex",
+  "author": "Tuan Nguyen",
   "icon": "media/icon.png",
   "license": "MIT",
+  "galleryBanner": {
+    "color": "#512BD4",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nguyentuan0307/CodexProject.git"
+    "url": "https://github.com/nguyentuan0307/DotNav.git"
   },
-  "homepage": "https://github.com/nguyentuan0307/CodexProject#readme",
+  "homepage": "https://github.com/nguyentuan0307/DotNav#readme",
   "bugs": {
-    "url": "https://github.com/nguyentuan0307/CodexProject/issues"
+    "url": "https://github.com/nguyentuan0307/DotNav/issues"
   },
   "keywords": [
+    "dotnav",
     "dotnet",
     "csharp",
     "solution",
     "solution explorer",
-    "rider"
+    "msbuild",
+    "git",
+    "run configurations"
   ],
   "engines": {
     "vscode": "^1.92.0"
   },
   "categories": [
+    "Programming Languages",
+    "Debuggers",
+    "Formatters",
+    "SCM Providers",
     "Other"
   ],
   "extensionDependencies": [
@@ -695,7 +707,7 @@
       ]
     },
     "configuration": {
-      "title": ".NET Solution Navigator",
+      "title": "DotNav",
       "properties": {
         "dotnetSolutionNavigator.hiddenFolders": {
           "type": "array",

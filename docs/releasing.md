@@ -1,4 +1,4 @@
-# Releasing
+# Releasing DotNav
 
 Releases are managed by Release Please and GitHub Actions.
 
@@ -13,7 +13,7 @@ In **Settings > Actions > General > Workflow permissions**, select **Read and wr
 3. Release Please creates or updates a Release PR containing the next version and changelog.
 4. Review and merge the Release PR when the changes are ready to ship.
 5. Release Please creates the version tag and GitHub Release.
-6. The release workflow tests and packages that exact tag, then attaches the VSIX to the GitHub Release.
+6. The release workflow tests and packages that exact tag as `dotnav-<version>.vsix`, then attaches it to the GitHub Release.
 7. Download the VSIX asset from the GitHub Release and upload it on the Visual Studio Marketplace publisher management page.
 
 Use these commit prefixes to control semantic versioning:

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Rider-like Solution Navigator are documented here.
+All notable changes to DotNav are documented here.
 
 ## [0.1.0](https://github.com/nguyentuan0307/CodexProject/compare/v0.0.1...v0.1.0) (2026-07-13)
 
