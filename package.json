@@ -358,7 +358,6 @@
         },
         {
           "submenu": "dotnetSolutionNavigator.git",
-          "when": "editorHasSelection",
           "group": "z_dotnetNavigator@1"
         }
       ],
@@ -618,6 +617,7 @@
         },
         {
           "command": "dotnetSolutionNavigator.showHistoryForSelection",
+          "when": "editorHasSelection",
           "group": "history@1"
         }
       ],

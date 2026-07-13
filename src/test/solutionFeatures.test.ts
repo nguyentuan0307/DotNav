@@ -87,7 +87,7 @@ test('groups editor git actions under a submenu while keeping format visible', (
     item.command === 'dotnetSolutionNavigator.formatSelection'
   ));
   assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string }) =>
-    item.submenu === 'dotnetSolutionNavigator.git' && item.when?.includes('editorHasSelection')
+    item.submenu === 'dotnetSolutionNavigator.git' && item.when === undefined
   ));
   assert.ok(!editorContext.some((item: { command?: string }) =>
     item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
@@ -100,7 +100,7 @@ test('groups editor git actions under a submenu while keeping format visible', (
   assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
     item.command === 'dotnetSolutionNavigator.compareSelectionWithBranch' && item.when?.includes('editorHasSelection')
   ));
-  assert.ok(gitMenu.some((item: { command: string }) =>
-    item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
+  assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
+    item.command === 'dotnetSolutionNavigator.showHistoryForSelection' && item.when?.includes('editorHasSelection')
   ));
 });
