@@ -447,8 +447,8 @@ export class ProcessManager implements vscode.Disposable {
   }
 
   private trackNextDebugSession(debugSession: vscode.DebugSession): void {
-    const runId = debugSession.configuration.dotnetSolutionNavigatorRunId;
-    const targetId = debugSession.configuration.dotnetSolutionNavigatorTargetId;
+    const runId = debugSession.configuration.dotnavRunId;
+    const targetId = debugSession.configuration.dotnavTargetId;
     if (typeof runId === 'string' && typeof targetId === 'string') {
       const key = debugTargetKey(runId, targetId);
       if (this.lateDebugTombstones.has(key)) {
@@ -766,7 +766,7 @@ export class ProcessManager implements vscode.Disposable {
 
   private async forceKillTrackedTask(session: RunSessionState, target: RunTargetState): Promise<void> {
     if (!vscode.workspace
-      .getConfiguration('dotnetSolutionNavigator')
+      .getConfiguration('dotnav')
       .get<boolean>('forceKillTaskOnStopTimeout', true)) {
       return;
     }

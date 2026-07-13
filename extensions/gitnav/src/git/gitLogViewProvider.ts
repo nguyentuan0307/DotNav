@@ -12,7 +12,7 @@ import { MutationBusyTracker, runMutationLifecycle } from './gitMutationLifecycl
 interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; action?: string; kind?: string; operation?: string; parent?: number; offset?: number; x?: number; y?: number; requestId?: number; generation?: number; filter?: GitLogFilter; plan?: GitRebasePlanItem[]; allowPublished?: boolean; }
 
 export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  static readonly viewId = 'dotnetSolutionNavigator.gitLog';
+  static readonly viewId = 'gitnav.gitLog';
   private view?: vscode.WebviewView;
   private root?: string;
   private readonly disposables: vscode.Disposable[] = [];
@@ -88,7 +88,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   configureAutoFetch(): void {
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
-    const config = vscode.workspace.getConfiguration('dotnetSolutionNavigator.gitLog');
+    const config = vscode.workspace.getConfiguration('gitnav');
     if (!config.get<boolean>('autoFetch', true)) return;
     const minutes = config.get<number>('autoFetchMinutes', 20);
     this.autoFetchTimer = setInterval(() => {

@@ -219,8 +219,8 @@ test('matches debug sessions by run identity and confirms stop on termination', 
   const debugSession = {
     id: 'debug-1',
     configuration: {
-      dotnetSolutionNavigatorRunId: session.runId,
-      dotnetSolutionNavigatorTargetId: targetId
+      dotnavRunId: session.runId,
+      dotnavTargetId: targetId
     }
   };
   debugStarted.fire(debugSession);
@@ -255,8 +255,8 @@ test('finishes a stopped pending debug target when start is rejected', async () 
   const lateSession = {
     id: 'late-after-stop',
     configuration: {
-      dotnetSolutionNavigatorRunId: session.runId,
-      dotnetSolutionNavigatorTargetId: targetId
+      dotnavRunId: session.runId,
+      dotnavTargetId: targetId
     }
   };
   debugStarted.fire(lateSession);
@@ -284,8 +284,8 @@ test('stops a late debug session after the start request timed out', async () =>
   const lateSession = {
     id: 'late-debug',
     configuration: {
-      dotnetSolutionNavigatorRunId: session.runId,
-      dotnetSolutionNavigatorTargetId: targetId
+      dotnavRunId: session.runId,
+      dotnavTargetId: targetId
     }
   };
   debugStarted.fire(lateSession);
@@ -306,8 +306,8 @@ test('handles a debug session that starts and terminates in the same turn', asyn
   const debugSession = {
     id: 'instant-debug',
     configuration: {
-      dotnetSolutionNavigatorRunId: session.runId,
-      dotnetSolutionNavigatorTargetId: targetId
+      dotnavRunId: session.runId,
+      dotnavTargetId: targetId
     }
   };
 
@@ -331,8 +331,8 @@ test('keeps a debug session busy and retryable when stopDebugging rejects', asyn
   const debugSession = {
     id: 'rejecting-debug',
     configuration: {
-      dotnetSolutionNavigatorRunId: session.runId,
-      dotnetSolutionNavigatorTargetId: targetId
+      dotnavRunId: session.runId,
+      dotnavTargetId: targetId
     }
   };
   debugStarted.fire(debugSession);

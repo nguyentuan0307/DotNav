@@ -7,7 +7,12 @@ Read this file first when reopening the repository or starting a new Codex task.
 
 ## Product
 
-`DotNav: .NET Solution Explorer` is a VS Code extension for .NET development. Its implemented areas are:
+The repository is an npm workspace containing two VS Code extensions:
+
+- `extensions/dotnav`: `DotNav: .NET Solution Explorer` for .NET development.
+- `extensions/gitnav`: `GitNav: Git History & Workflows`, usable independently in any Git repository.
+
+DotNav depends on GitNav, so installing DotNav provides the complete .NET and Git experience without duplicating Git code. Implemented areas are:
 
 - Rider-style solution/project/file tree, logical solution folders, dependencies, file nesting, search, and reveal-active-file behavior.
 - Separate native Solution and Run Configurations views with compact toolbars, project hover actions, lifecycle-aware icons/descriptions, workflow-grouped context menus, and an adaptive `auto` icon mode.
@@ -27,7 +32,7 @@ See [implemented-features.md](implemented-features.md) for behavior and key file
 
 ## C# Formatter: Current Behavior
 
-Command: `dotnetSolutionNavigator.formatSelection` (`Format Selection`).
+Command: `dotnav.formatSelection` (`Format Selection`).
 
 - With a non-empty selection, only the selected full lines are replaced by default.
 - With no selection, the whole document is formatted.
@@ -46,17 +51,17 @@ Command: `dotnetSolutionNavigator.formatSelection` (`Format Selection`).
 
 Formatter pipeline entry points:
 
-- `src/format/formatSelection.ts` — command orchestration and range replacement.
-- `src/format/roslynFormat.ts` — scoped Roslyn formatting.
-- `src/format/editorConfig.ts` — `.editorconfig` lookup and `max_line_length` resolution.
-- `src/format/csharpLexer.ts` — code/string/comment classification.
-- `src/format/passes/` — indentation, lists, fluent-chain, and blank-line passes.
-- `src/test/formatCompatibility.test.ts` — broad compatibility/property matrix.
-- `src/test/formatPasses.test.ts` — direct formatter regressions and reported examples.
+- `extensions/dotnav/src/format/formatSelection.ts` — command orchestration and range replacement.
+- `extensions/dotnav/src/format/roslynFormat.ts` — scoped Roslyn formatting.
+- `extensions/dotnav/src/format/editorConfig.ts` — `.editorconfig` lookup and `max_line_length` resolution.
+- `extensions/dotnav/src/format/csharpLexer.ts` — code/string/comment classification.
+- `extensions/dotnav/src/format/passes/` — indentation, lists, fluent-chain, and blank-line passes.
+- `extensions/dotnav/src/test/formatCompatibility.test.ts` — broad compatibility/property matrix.
+- `extensions/dotnav/src/test/formatPasses.test.ts` — direct formatter regressions and reported examples.
 
 ## Formatter Settings
 
-All names are prefixed with `dotnetSolutionNavigator.`:
+All names are prefixed with `dotnav.`:
 
 | Setting | Default | Purpose |
 | --- | ---: | --- |
@@ -73,9 +78,9 @@ All names are prefixed with `dotnetSolutionNavigator.`:
 
 Current verification baseline:
 
-- `npm test`: 181/181 tests passed on 2026-07-13.
-- VSIX packaging succeeds with the Marketplace metadata validator.
-- Release artifacts are published as `dotnav-<version>.vsix` on GitHub Releases.
+- `npm test` runs the DotNav and GitNav suites independently.
+- `npm run package:all` validates both Marketplace packages.
+- Release artifacts are published as `dotnav-<version>.vsix` and `gitnav-<version>.vsix`.
 - Run `git status --short` and `npm test` before starting new work because this document may lag behind the latest commit.
 
 Standard verification commands:

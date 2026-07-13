@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GitRepositoryService } from './gitRepositoryService';
 
-export const gitRevisionScheme = 'dotnet-navigator-git';
+export const gitRevisionScheme = 'gitnav-revision';
 
 export class GitRevisionProvider implements vscode.TextDocumentContentProvider {
   constructor(private readonly service: GitRepositoryService) {}

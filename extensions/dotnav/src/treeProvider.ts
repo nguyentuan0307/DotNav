@@ -87,7 +87,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     if (node.kind === 'file') {
       item.command = {
-        command: 'dotnetSolutionNavigator.openItem',
+        command: 'dotnav.openItem',
         title: 'Open',
         arguments: [node]
       };
@@ -95,7 +95,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     if (node.kind === 'runConfig') {
       item.command = {
-        command: 'dotnetSolutionNavigator.setActiveConfig',
+        command: 'dotnav.setActiveConfig',
         title: 'Set as Active',
         arguments: [node]
       };
@@ -136,7 +136,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         return nodes;
       }
 
-      if (vscode.workspace.getConfiguration('dotnetSolutionNavigator').get<boolean>('showDependencies', true)) {
+      if (vscode.workspace.getConfiguration('dotnav').get<boolean>('showDependencies', true)) {
         nodes.push(this.dependenciesNode(node.project));
       }
 
@@ -697,7 +697,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   private iconFor(node: TreeNode): vscode.ThemeIcon | vscode.Uri | undefined {
     const iconMode = vscode.workspace
-      .getConfiguration('dotnetSolutionNavigator')
+      .getConfiguration('dotnav')
       .get<string>('iconMode', 'auto');
 
     if (iconMode === 'theme' && (node.kind === 'folder' || node.kind === 'file')) {

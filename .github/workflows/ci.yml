@@ -35,4 +35,6 @@ jobs:
         run: npm test
 
       - name: Validate VSIX packaging
-        run: npm run package:vsix -- --out dotnav-ci.vsix
+        run: |
+          mkdir -p dist
+          npm run package:all

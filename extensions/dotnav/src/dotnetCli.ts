@@ -51,7 +51,7 @@ export async function runDotnetForProject(
       void processManager.stopRun(binding.runId);
     });
     const timeoutMs = Math.max(1, vscode.workspace
-      .getConfiguration('dotnetSolutionNavigator')
+      .getConfiguration('dotnav')
       .get<number>('buildTimeoutSeconds', 600)) * 1000;
     try {
       await processManager.waitForTask(execution, timeoutMs);
@@ -86,7 +86,7 @@ export async function runDotnetForSolution(
   }
 
   const configuration = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<string>('buildConfiguration', 'Debug');
   const args = operation === 'rebuild'
     ? ['build', solutionPath, '--configuration', configuration, '--no-incremental']
@@ -122,7 +122,7 @@ export async function runDotnetForSolution(
       void processManager.stopRun(binding.runId);
     });
     const timeoutMs = Math.max(1, vscode.workspace
-      .getConfiguration('dotnetSolutionNavigator')
+      .getConfiguration('dotnav')
       .get<number>('buildTimeoutSeconds', 600)) * 1000;
     try {
       const exitCode = await processManager.waitForTask(execution, timeoutMs);
@@ -159,10 +159,10 @@ export async function runDotnetForProjects(
     return;
   }
   const configuration = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<string>('buildConfiguration', 'Debug');
   const timeoutMs = Math.max(1, vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<number>('buildTimeoutSeconds', 600)) * 1000;
   const folderName = path.basename(folderPath);
 

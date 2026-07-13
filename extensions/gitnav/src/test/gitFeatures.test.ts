@@ -3,14 +3,43 @@ import { readFileSync } from 'fs';
 import * as path from 'path';
 import test from 'node:test';
 
-const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+const gitnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+const dotnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', '..', 'dotnav', 'package.json'), 'utf8'));
+const manifest = {
+  activationEvents: [...dotnavManifest.activationEvents, ...gitnavManifest.activationEvents],
+  contributes: {
+    commands: [...dotnavManifest.contributes.commands, ...gitnavManifest.contributes.commands],
+    submenus: [...dotnavManifest.contributes.submenus, ...gitnavManifest.contributes.submenus],
+    viewsContainers: { ...dotnavManifest.contributes.viewsContainers, ...gitnavManifest.contributes.viewsContainers },
+    views: { ...dotnavManifest.contributes.views, ...gitnavManifest.contributes.views },
+    viewsWelcome: dotnavManifest.contributes.viewsWelcome,
+    menus: {
+      ...dotnavManifest.contributes.menus,
+      ...gitnavManifest.contributes.menus,
+      'editor/context': [
+        ...dotnavManifest.contributes.menus['editor/context'],
+        ...gitnavManifest.contributes.menus['editor/context']
+      ],
+      'view/title': [
+        ...dotnavManifest.contributes.menus['view/title'],
+        ...gitnavManifest.contributes.menus['view/title']
+      ]
+    },
+    configuration: {
+      properties: {
+        ...dotnavManifest.contributes.configuration.properties,
+        ...gitnavManifest.contributes.configuration.properties
+      }
+    }
+  }
+};
 
 test('contributes solution build commands and context actions', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
   for (const command of [
-    'dotnetSolutionNavigator.buildSolution',
-    'dotnetSolutionNavigator.rebuildSolution',
-    'dotnetSolutionNavigator.cleanSolution'
+    'dotnav.buildSolution',
+    'dotnav.rebuildSolution',
+    'dotnav.cleanSolution'
   ]) {
     assert.ok(commandIds.has(command), `missing command ${command}`);
     assert.ok(manifest.contributes.menus['view/item/context'].some((item: { command: string; when: string }) =>
@@ -21,44 +50,44 @@ test('contributes solution build commands and context actions', () => {
 
 test('contributes recursive folder project build action', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
-  assert.ok(commandIds.has('dotnetSolutionNavigator.buildFolderProjects'));
-  assert.ok(manifest.activationEvents.includes('onCommand:dotnetSolutionNavigator.buildFolderProjects'));
+  assert.ok(commandIds.has('dotnav.buildFolderProjects'));
+  assert.ok(manifest.activationEvents.includes('onCommand:dotnav.buildFolderProjects'));
   assert.ok(manifest.contributes.menus['view/item/context'].some((item: { command: string; when: string }) =>
-    item.command === 'dotnetSolutionNavigator.buildFolderProjects'
+    item.command === 'dotnav.buildFolderProjects'
       && item.when.includes('viewItem =~ /folder|solutionFolder/')));
 });
 
 test('contributes a welcome view with recovery actions', () => {
-  const welcome = manifest.contributes.viewsWelcome.find((item: { view: string; contents: string }) => item.view === 'dotnetSolutionNavigator');
+  const welcome = manifest.contributes.viewsWelcome.find((item: { view: string; contents: string }) => item.view === 'dotnav');
   assert.ok(welcome);
-  assert.match(welcome.contents, /dotnetSolutionNavigator\.openWorkspaceFolder/);
-  assert.match(welcome.contents, /dotnetSolutionNavigator\.selectSolution/);
+  assert.match(welcome.contents, /dotnav\.openWorkspaceFolder/);
+  assert.match(welcome.contents, /dotnav\.selectSolution/);
 });
 
 test('separates solution and run configuration views', () => {
-  const views = manifest.contributes.views.dotnetSolutionNavigatorContainer;
+  const views = manifest.contributes.views.dotnavContainer;
   assert.deepEqual(
     views.map((view: { id: string }) => view.id),
-    ['dotnetSolutionNavigator', 'dotnetSolutionNavigator.runConfigurations']
+    ['dotnav', 'dotnav.runConfigurations']
   );
 
   const titleItems = manifest.contributes.menus['view/title'];
   const solutionNavigation = titleItems
-    .filter((item: { when: string; group: string }) => item.when.includes('view == dotnetSolutionNavigator') && !item.when.includes('.runConfigurations') && item.group.startsWith('navigation'))
+    .filter((item: { when: string; group: string }) => item.when.includes('view == dotnav') && !item.when.includes('.runConfigurations') && item.group.startsWith('navigation'))
     .map((item: { command: string }) => item.command);
-  assert.ok(!solutionNavigation.includes('dotnetSolutionNavigator.runActiveConfig'));
-  assert.ok(!solutionNavigation.includes('dotnetSolutionNavigator.debugActiveConfig'));
+  assert.ok(!solutionNavigation.includes('dotnav.runActiveConfig'));
+  assert.ok(!solutionNavigation.includes('dotnav.debugActiveConfig'));
 
   const runViewCommands = titleItems
-    .filter((item: { when: string }) => item.when.includes('dotnetSolutionNavigator.runConfigurations'))
+    .filter((item: { when: string }) => item.when.includes('dotnav.runConfigurations'))
     .map((item: { command: string }) => item.command);
-  assert.ok(runViewCommands.includes('dotnetSolutionNavigator.addRunConfig'));
-  assert.ok(runViewCommands.includes('dotnetSolutionNavigator.runActiveConfig'));
-  assert.ok(runViewCommands.includes('dotnetSolutionNavigator.debugActiveConfig'));
+  assert.ok(runViewCommands.includes('dotnav.addRunConfig'));
+  assert.ok(runViewCommands.includes('dotnav.runActiveConfig'));
+  assert.ok(runViewCommands.includes('dotnav.debugActiveConfig'));
 });
 
 test('uses automatic icons and project hover actions', () => {
-  const iconMode = manifest.contributes.configuration.properties['dotnetSolutionNavigator.iconMode'];
+  const iconMode = manifest.contributes.configuration.properties['dotnav.iconMode'];
   assert.equal(iconMode.default, 'auto');
   assert.ok(iconMode.enum.includes('auto'));
 
@@ -66,68 +95,76 @@ test('uses automatic icons and project hover actions', () => {
     .filter((item: { group: string; when: string }) => item.group.startsWith('inline') && item.when.includes('viewItem =~ /project/'))
     .map((item: { command: string }) => item.command);
   assert.deepEqual(inlineCommands, [
-    'dotnetSolutionNavigator.runProject',
-    'dotnetSolutionNavigator.debugProject',
-    'dotnetSolutionNavigator.stopProject'
+    'dotnav.runProject',
+    'dotnav.debugProject',
+    'dotnav.stopProject'
   ]);
 });
 
 test('contributes run configuration rename action', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
-  assert.ok(commandIds.has('dotnetSolutionNavigator.renameRunConfig'));
+  assert.ok(commandIds.has('dotnav.renameRunConfig'));
   assert.ok(manifest.contributes.menus['view/item/context'].some((item: { command: string; when: string }) =>
-    item.command === 'dotnetSolutionNavigator.renameRunConfig'
-      && item.when.includes('view == dotnetSolutionNavigator.runConfigurations')
+    item.command === 'dotnav.renameRunConfig'
+      && item.when.includes('view == dotnav.runConfigurations')
       && item.when.includes('viewItem =~ /runConfig/')
   ));
 });
 
-test('groups editor git actions under a submenu while keeping format visible', () => {
+test('keeps Git contributions in GitNav and installs it with DotNav', () => {
+  assert.ok(dotnavManifest.extensionDependencies.includes('tuna-ex.gitnav'));
+  assert.ok(!dotnavManifest.contributes.commands.some((item: { command: string }) =>
+    item.command.startsWith('gitnav.') || item.command.includes('HistoryForSelection') || item.command.includes('WithBranch')));
+  assert.ok(gitnavManifest.contributes.commands.every((item: { command: string }) =>
+    item.command.startsWith('gitnav.')));
+});
+
+test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
-  assert.ok(commandIds.has('dotnetSolutionNavigator.compareFileWithBranch'));
-  assert.ok(commandIds.has('dotnetSolutionNavigator.compareSelectionWithBranch'));
+  assert.ok(commandIds.has('gitnav.compareFileWithBranch'));
+  assert.ok(commandIds.has('gitnav.compareSelectionWithBranch'));
 
   assert.ok(manifest.contributes.submenus.some((submenu: { id: string; label: string }) =>
-    submenu.id === 'dotnetSolutionNavigator.git' && submenu.label === 'Git'
+    submenu.id === 'gitnav.editorMenu' && submenu.label === 'GitNav'
   ));
 
   const editorContext = manifest.contributes.menus['editor/context'];
   assert.ok(editorContext.some((item: { command?: string; submenu?: string; group?: string }) =>
-    item.command === 'dotnetSolutionNavigator.formatSelection' && item.group?.startsWith('6_dotnetNavigator')
+    item.command === 'dotnav.formatSelection' && item.group?.startsWith('6_dotnav')
   ));
   assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string; group?: string }) =>
-    item.submenu === 'dotnetSolutionNavigator.git' && item.when === undefined && item.group?.startsWith('6_dotnetNavigator')
+    item.submenu === 'gitnav.editorMenu' && item.when === undefined && item.group?.startsWith('6_gitnav')
   ));
   assert.ok(!editorContext.some((item: { command?: string }) =>
-    item.command === 'dotnetSolutionNavigator.showHistoryForSelection'
+    item.command === 'gitnav.showHistoryForSelection'
   ));
 
-  const gitMenu = manifest.contributes.menus['dotnetSolutionNavigator.git'];
+  const gitMenu = manifest.contributes.menus['gitnav.editorMenu'];
   assert.ok(gitMenu.some((item: { command: string }) =>
-    item.command === 'dotnetSolutionNavigator.compareFileWithBranch'
+    item.command === 'gitnav.compareFileWithBranch'
   ));
   assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
-    item.command === 'dotnetSolutionNavigator.compareSelectionWithBranch' && item.when?.includes('editorHasSelection')
+    item.command === 'gitnav.compareSelectionWithBranch' && item.when?.includes('editorHasSelection')
   ));
   assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
-    item.command === 'dotnetSolutionNavigator.showHistoryForSelection' && item.when?.includes('editorHasSelection')
+    item.command === 'gitnav.showHistoryForSelection' && item.when?.includes('editorHasSelection')
   ));
 });
 
 test('contributes Git Log as a bottom panel webview', () => {
   const panel = manifest.contributes.viewsContainers.panel;
-  assert.ok(panel.some((item: { id: string }) => item.id === 'dotnetSolutionNavigatorGitPanel'));
-  const views = manifest.contributes.views.dotnetSolutionNavigatorGitPanel;
+  assert.ok(panel.some((item: { id: string }) => item.id === 'gitnavPanel'));
+  const views = manifest.contributes.views.gitnavPanel;
   assert.ok(views.some((item: { id: string; type: string }) =>
-    item.id === 'dotnetSolutionNavigator.gitLog' && item.type === 'webview'));
+    item.id === 'gitnav.gitLog' && item.type === 'webview'));
 });
 
 test('contributes Git Log safety and auto-fetch settings', () => {
   const properties = manifest.contributes.configuration.properties;
-  assert.deepEqual(properties['dotnetSolutionNavigator.gitLog.protectedBranches'].default,
+  assert.deepEqual(properties['gitnav.protectedBranches'].default,
     ['main', 'master', 'develop', 'release/*']);
-  assert.equal(properties['dotnetSolutionNavigator.gitLog.autoFetch'].default, true);
-  assert.equal(properties['dotnetSolutionNavigator.gitLog.autoFetchMinutes'].default, 20);
+  assert.equal(properties['gitnav.autoFetch'].default, true);
+  assert.equal(properties['gitnav.autoFetchMinutes'].default, 20);
 });
 
 test('renders Git Log context actions inside the webview', () => {

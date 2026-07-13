@@ -1,0 +1,170 @@
+{
+  "name": "gitnav",
+  "displayName": "GitNav: Git History & Workflows",
+  "description": "Visual Git history, branch workflows, comparisons, conflict recovery, and guarded Git operations for Visual Studio Code.",
+  "version": "0.0.0",
+  "publisher": "tuna-ex",
+  "author": "Tuan Nguyen",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "galleryBanner": {
+    "color": "#24292F",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nguyentuan0307/DotNav.git",
+    "directory": "extensions/gitnav"
+  },
+  "homepage": "https://github.com/nguyentuan0307/DotNav/tree/master/extensions/gitnav#readme",
+  "bugs": {
+    "url": "https://github.com/nguyentuan0307/DotNav/issues"
+  },
+  "keywords": [
+    "git",
+    "git history",
+    "git log",
+    "git graph",
+    "branches",
+    "rebase",
+    "source control"
+  ],
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:gitnav.gitLog",
+    "onCommand:gitnav.showHistoryForSelection",
+    "onCommand:gitnav.compareFileWithBranch",
+    "onCommand:gitnav.compareSelectionWithBranch",
+    "onCommand:gitnav.openSettings"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "gitnavPanel",
+          "title": "GitNav",
+          "icon": "$(git-commit)"
+        }
+      ]
+    },
+    "views": {
+      "gitnavPanel": [
+        {
+          "type": "webview",
+          "id": "gitnav.gitLog",
+          "name": "Git Log"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "gitnav.showHistoryForSelection",
+        "title": "GitNav: Show History for Selection",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitnav.compareFileWithBranch",
+        "title": "GitNav: Compare File With Branch...",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "gitnav.compareSelectionWithBranch",
+        "title": "GitNav: Compare Selection With Branch...",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "gitnav.openSettings",
+        "title": "GitNav: Open Settings",
+        "icon": "$(gear)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "gitnav.editorMenu",
+        "label": "GitNav"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "gitnav.editorMenu",
+          "group": "6_gitnav@1"
+        }
+      ],
+      "gitnav.editorMenu": [
+        {
+          "command": "gitnav.compareFileWithBranch",
+          "group": "compare@1"
+        },
+        {
+          "command": "gitnav.compareSelectionWithBranch",
+          "when": "editorHasSelection",
+          "group": "compare@2"
+        },
+        {
+          "command": "gitnav.showHistoryForSelection",
+          "when": "editorHasSelection",
+          "group": "history@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitnav.openSettings",
+          "when": "view == gitnav.gitLog",
+          "group": "navigation@9"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GitNav",
+      "properties": {
+        "gitnav.history.maxCommits": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum commits returned by Show History for Selection."
+        },
+        "gitnav.protectedBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master",
+            "develop",
+            "release/*"
+          ],
+          "description": "Branch name patterns on which history-rewriting Git actions are blocked."
+        },
+        "gitnav.autoFetch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically fetch repositories while the Git Log view is active."
+        },
+        "gitnav.autoFetchMinutes": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Interval in minutes between automatic fetch operations."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "watch": "tsc -watch -p .",
+    "vscode:prepublish": "npm run compile",
+    "package:vsix": "vsce package --no-dependencies",
+    "publish:marketplace": "vsce publish --no-dependencies"
+  }
+}

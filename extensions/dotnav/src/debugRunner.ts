@@ -93,9 +93,9 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     args: parseCommandLineArgs(profile?.commandLineArgs),
     console: 'internalConsole',
     noDebug: !options.debug,
-    dotnetSolutionNavigatorProjectPath: project.path,
-    dotnetSolutionNavigatorRunId: runId,
-    dotnetSolutionNavigatorTargetId: targetId
+    dotnavProjectPath: project.path,
+    dotnavRunId: runId,
+    dotnavTargetId: targetId
   };
 
   if (profile && await exists(launchSettingsPath)) {
@@ -114,7 +114,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
 
   let started = false;
   const startTimeoutMs = Math.max(1, vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<number>('startTimeoutSeconds', 30)) * 1000;
   try {
     started = await withTimeout(
@@ -225,7 +225,7 @@ export async function buildProject(
   }
 
   const timeoutMs = Math.max(1, vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<number>('buildTimeoutSeconds', 600)) * 1000;
   try {
     const exitCode = await processManager.waitForTask(execution, timeoutMs);
@@ -392,13 +392,13 @@ function resolveTarget(solution: SolutionModel, projectPath: string, profileName
 
 function shouldBuildBeforeRun(): boolean {
   return vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<boolean>('buildBeforeRun', true);
 }
 
 function buildConfiguration(): string {
   return vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<string>('buildConfiguration', 'Debug');
 }
 

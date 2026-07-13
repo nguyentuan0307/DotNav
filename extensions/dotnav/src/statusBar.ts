@@ -9,10 +9,10 @@ let runItem: vscode.StatusBarItem | undefined;
 let debugItem: vscode.StatusBarItem | undefined;
 
 export function createStatusBar(): vscode.StatusBarItem[] {
-  configItem = makeItem('$(rocket) No config', 'dotnetSolutionNavigator.selectRunConfig', 'Select run configuration', 103);
-  runItem = makeItem('$(play)', 'dotnetSolutionNavigator.runActiveConfig', 'Run active configuration', 102);
-  debugItem = makeItem('$(bug)', 'dotnetSolutionNavigator.debugActiveConfig', 'Debug active configuration', 101);
-  stopItem = makeItem('$(stop-circle)', 'dotnetSolutionNavigator.stopActiveConfig', 'Stop active run configuration', 100);
+  configItem = makeItem('$(rocket) No config', 'dotnav.selectRunConfig', 'Select run configuration', 103);
+  runItem = makeItem('$(play)', 'dotnav.runActiveConfig', 'Run active configuration', 102);
+  debugItem = makeItem('$(bug)', 'dotnav.debugActiveConfig', 'Debug active configuration', 101);
+  stopItem = makeItem('$(stop-circle)', 'dotnav.stopActiveConfig', 'Stop active run configuration', 100);
   stopItem.hide();
 
   return [configItem, runItem, debugItem, stopItem];

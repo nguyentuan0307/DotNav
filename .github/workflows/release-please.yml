@@ -20,8 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      dotnav_release_created: ${{ steps.release.outputs['extensions/dotnav--release_created'] }}
+      dotnav_tag_name: ${{ steps.release.outputs['extensions/dotnav--tag_name'] }}
+      gitnav_release_created: ${{ steps.release.outputs['extensions/gitnav--release_created'] }}
+      gitnav_tag_name: ${{ steps.release.outputs['extensions/gitnav--tag_name'] }}
 
     steps:
       - name: Create or update the Release PR
@@ -32,9 +34,16 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  build-release-asset:
+  build-dotnav-release-asset:
     needs: release
-    if: ${{ needs.release.outputs.release_created == 'true' }}
+    if: ${{ needs.release.outputs.dotnav_release_created == 'true' }}
     uses: ./.github/workflows/build-release.yml
     with:
-      ref: ${{ needs.release.outputs.tag_name }}
+      ref: ${{ needs.release.outputs.dotnav_tag_name }}
+
+  build-gitnav-release-asset:
+    needs: release
+    if: ${{ needs.release.outputs.gitnav_release_created == 'true' }}
+    uses: ./.github/workflows/build-release.yml
+    with:
+      ref: ${{ needs.release.outputs.gitnav_tag_name }}

@@ -7,14 +7,6 @@ import { projectsUnderFolder, projectsUnderSolutionFolder } from './folderBuild'
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
 import { formatSelection } from './format/formatSelection';
-import { BranchCompareDocumentProvider, compareFileWithBranch, compareSelectionWithBranch } from './git/branchCompare';
-import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
-import { GitOperationCancelledError, LineHistoryQuery, getLineHistory, lineHistoryLabel } from './git/lineHistory';
-import { LineHistoryPanel } from './git/lineHistoryPanel';
-import { mapWorktreeRangeToHead } from './git/lineMapping';
-import { GitLogViewProvider } from './git/gitLogViewProvider';
-import { GitRepositoryService } from './git/gitRepositoryService';
-import { GitRevisionProvider, gitRevisionScheme } from './git/gitRevisionProvider';
 import { ProjectModel, RunConfig, SolutionModel, TreeNode } from './models';
 import { isRunnableProject } from './projectCapabilities';
 import { ProcessManager } from './processManager';
@@ -27,9 +19,6 @@ let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
-  const branchCompareProvider = new BranchCompareDocumentProvider();
-  const gitRepositoryService = new GitRepositoryService();
-  const gitLogProvider = new GitLogViewProvider(gitRepositoryService, context.extensionUri);
   const processManager = new ProcessManager();
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
@@ -43,12 +32,12 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   activeProcessManager = processManager;
   const interaction = new ExplorerInteractionController(provider);
-  const treeView = vscode.window.createTreeView('dotnetSolutionNavigator', {
+  const treeView = vscode.window.createTreeView('dotnav', {
     treeDataProvider: provider,
     dragAndDropController: interaction,
     showCollapseAll: true
   });
-  const runConfigTreeView = vscode.window.createTreeView('dotnetSolutionNavigator.runConfigurations', {
+  const runConfigTreeView = vscode.window.createTreeView('dotnav.runConfigurations', {
     treeDataProvider: new RunConfigTreeProvider(provider),
     showCollapseAll: false
   });
@@ -60,83 +49,76 @@ export function activate(context: vscode.ExtensionContext): void {
     const activeConfig = solution ? runConfigStore.getActive(solution, context) : undefined;
     vscode.commands.executeCommand(
       'setContext',
-      'dotnetSolutionNavigator.activeConfigBusy',
+      'dotnav.activeConfigBusy',
       Boolean(activeConfig && processManager.getActiveSessionForConfig(activeConfig.id))
     );
   };
   const updateRunningContext = (hasRunningProcesses: boolean) => {
-    vscode.commands.executeCommand('setContext', 'dotnetSolutionNavigator.hasRunningProcesses', hasRunningProcesses);
+    vscode.commands.executeCommand('setContext', 'dotnav.hasRunningProcesses', hasRunningProcesses);
     provider.fireChanged();
   };
 
   context.subscriptions.push(
     treeView,
     runConfigTreeView,
-    vscode.workspace.registerTextDocumentContentProvider('dotnet-navigator-compare', branchCompareProvider),
-    vscode.workspace.registerTextDocumentContentProvider(gitRevisionScheme, new GitRevisionProvider(gitRepositoryService)),
-    vscode.window.registerWebviewViewProvider(GitLogViewProvider.viewId, gitLogProvider, { webviewOptions: { retainContextWhenHidden: true } }),
-    gitLogProvider,
     processManager,
     ...statusItems,
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.refresh', () => provider.refresh()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.selectSolution', () => provider.selectActiveSolution()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.searchSolutionTree', openSolutionTreeFind),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openProjectFile', openProjectFile),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openSolutionFile', () => openSolutionFile(provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openSolutionTerminal', () => openSolutionTerminal(provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.rebuildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'rebuild')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.cleanSolution', () => runSolutionCommand(provider, processManager, 'clean')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openWorkspaceFolder', () => vscode.commands.executeCommand('workbench.action.files.openFolder')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.runProject', (node: TreeNode) => runOrDebugProject(processManager, node, false)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.debugProject', (node: TreeNode) => runOrDebugProject(processManager, node, true)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.testProject', (node: TreeNode) => runProjectCommand(processManager, node, 'test')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.cleanProject', (node: TreeNode) => runProjectCommand(processManager, node, 'clean')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.stopProject', (node: TreeNode) => stopProject(processManager, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.stopAll', () => processManager.stopAll()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.stopActiveConfig', () => stopActiveConfig(context, provider, processManager)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.showRunOutput', () => processManager.showOutput()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.stopConfigNode', (node: TreeNode) => node.configId ? processManager.stopConfig(node.configId) : undefined),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openTerminalHere', openTerminalHere),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.toggleProjectFiles', () => toggleProjectFiles(provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.toggleFileNesting', () => toggleFileNesting(provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.openSettings', () => openNavigatorSettings()),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addClass', (node: TreeNode) => addCodeItem(provider, node, 'class')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addInterface', (node: TreeNode) => addCodeItem(provider, node, 'interface')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addRecord', (node: TreeNode) => addCodeItem(provider, node, 'record')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addEnum', (node: TreeNode) => addCodeItem(provider, node, 'enum')),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addFile', (node: TreeNode) => addFile(provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addFolder', (node: TreeNode) => addFolder(provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addExistingItem', (node: TreeNode) => addExistingItem(provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.renameItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => renameItem(provider, selected))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.moveItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => moveItem(provider, selected))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.deleteItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => deleteItem(provider, selected))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.copyPath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyFullPath)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.copyRelativePath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyRelativePath)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.revealInOs', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, revealInFileExplorer)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.addRunConfig', () => addRunConfig(context, provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.selectRunConfig', () => selectRunConfig(context, provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.newCompound', () => newCompound(context, provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.deleteCompound', () => deleteCompound(context, provider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.setActiveConfig', (node: TreeNode) => setActiveConfig(context, provider, node)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.runActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: false, processManager }))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.debugActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: true, processManager }))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.buildActiveConfig', () => withActiveConfig(context, provider, config => buildConfig(provider.getSolution()!, config, processManager))),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.showHistoryForSelection', () => showHistoryForSelection(context)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.compareFileWithBranch', () => compareFileWithBranch(branchCompareProvider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.formatSelection', () => {
+    vscode.commands.registerCommand('dotnav.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
+    vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
+    vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
+    vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
+    vscode.commands.registerCommand('dotnav.openProjectFile', openProjectFile),
+    vscode.commands.registerCommand('dotnav.openSolutionFile', () => openSolutionFile(provider)),
+    vscode.commands.registerCommand('dotnav.openSolutionTerminal', () => openSolutionTerminal(provider)),
+    vscode.commands.registerCommand('dotnav.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
+    vscode.commands.registerCommand('dotnav.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node)),
+    vscode.commands.registerCommand('dotnav.rebuildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'rebuild')),
+    vscode.commands.registerCommand('dotnav.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
+    vscode.commands.registerCommand('dotnav.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
+    vscode.commands.registerCommand('dotnav.cleanSolution', () => runSolutionCommand(provider, processManager, 'clean')),
+    vscode.commands.registerCommand('dotnav.openWorkspaceFolder', () => vscode.commands.executeCommand('workbench.action.files.openFolder')),
+    vscode.commands.registerCommand('dotnav.runProject', (node: TreeNode) => runOrDebugProject(processManager, node, false)),
+    vscode.commands.registerCommand('dotnav.debugProject', (node: TreeNode) => runOrDebugProject(processManager, node, true)),
+    vscode.commands.registerCommand('dotnav.testProject', (node: TreeNode) => runProjectCommand(processManager, node, 'test')),
+    vscode.commands.registerCommand('dotnav.cleanProject', (node: TreeNode) => runProjectCommand(processManager, node, 'clean')),
+    vscode.commands.registerCommand('dotnav.stopProject', (node: TreeNode) => stopProject(processManager, node)),
+    vscode.commands.registerCommand('dotnav.stopAll', () => processManager.stopAll()),
+    vscode.commands.registerCommand('dotnav.stopActiveConfig', () => stopActiveConfig(context, provider, processManager)),
+    vscode.commands.registerCommand('dotnav.showRunOutput', () => processManager.showOutput()),
+    vscode.commands.registerCommand('dotnav.stopConfigNode', (node: TreeNode) => node.configId ? processManager.stopConfig(node.configId) : undefined),
+    vscode.commands.registerCommand('dotnav.openTerminalHere', openTerminalHere),
+    vscode.commands.registerCommand('dotnav.toggleProjectFiles', () => toggleProjectFiles(provider)),
+    vscode.commands.registerCommand('dotnav.toggleFileNesting', () => toggleFileNesting(provider)),
+    vscode.commands.registerCommand('dotnav.openSettings', () => openNavigatorSettings()),
+    vscode.commands.registerCommand('dotnav.addClass', (node: TreeNode) => addCodeItem(provider, node, 'class')),
+    vscode.commands.registerCommand('dotnav.addInterface', (node: TreeNode) => addCodeItem(provider, node, 'interface')),
+    vscode.commands.registerCommand('dotnav.addRecord', (node: TreeNode) => addCodeItem(provider, node, 'record')),
+    vscode.commands.registerCommand('dotnav.addEnum', (node: TreeNode) => addCodeItem(provider, node, 'enum')),
+    vscode.commands.registerCommand('dotnav.addFile', (node: TreeNode) => addFile(provider, node)),
+    vscode.commands.registerCommand('dotnav.addFolder', (node: TreeNode) => addFolder(provider, node)),
+    vscode.commands.registerCommand('dotnav.addExistingItem', (node: TreeNode) => addExistingItem(provider, node)),
+    vscode.commands.registerCommand('dotnav.renameItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => renameItem(provider, selected))),
+    vscode.commands.registerCommand('dotnav.moveItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => moveItem(provider, selected))),
+    vscode.commands.registerCommand('dotnav.deleteItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => deleteItem(provider, selected))),
+    vscode.commands.registerCommand('dotnav.copyPath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyFullPath)),
+    vscode.commands.registerCommand('dotnav.copyRelativePath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyRelativePath)),
+    vscode.commands.registerCommand('dotnav.revealInOs', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, revealInFileExplorer)),
+    vscode.commands.registerCommand('dotnav.addRunConfig', () => addRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnav.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
+    vscode.commands.registerCommand('dotnav.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
+    vscode.commands.registerCommand('dotnav.selectRunConfig', () => selectRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnav.newCompound', () => newCompound(context, provider)),
+    vscode.commands.registerCommand('dotnav.deleteCompound', () => deleteCompound(context, provider)),
+    vscode.commands.registerCommand('dotnav.setActiveConfig', (node: TreeNode) => setActiveConfig(context, provider, node)),
+    vscode.commands.registerCommand('dotnav.runActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: false, processManager }))),
+    vscode.commands.registerCommand('dotnav.debugActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: true, processManager }))),
+    vscode.commands.registerCommand('dotnav.buildActiveConfig', () => withActiveConfig(context, provider, config => buildConfig(provider.getSolution()!, config, processManager))),
+    vscode.commands.registerCommand('dotnav.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
+    vscode.commands.registerCommand('dotnav.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
+    vscode.commands.registerCommand('dotnav.formatSelection', () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showInformationMessage('Open a C# file before formatting a selection.');
@@ -149,22 +131,19 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     treeView.onDidChangeSelection(event => interaction.setSelection(event.selection)),
     vscode.workspace.onDidChangeConfiguration(event => {
-      if (event.affectsConfiguration('dotnetSolutionNavigator')) {
+      if (event.affectsConfiguration('dotnav')) {
         provider.refresh();
-      }
-      if (event.affectsConfiguration('dotnetSolutionNavigator.gitLog')) {
-        gitLogProvider.configureAutoFetch();
       }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
       const follow = vscode.workspace
-        .getConfiguration('dotnetSolutionNavigator')
+        .getConfiguration('dotnav')
         .get<boolean>('alwaysSelectOpenedFile', false);
       if (follow && treeView.visible) {
         selectOpenedFile(provider, treeView, false).catch(error => console.error(error));
       }
     }),
-    vscode.commands.registerCommand('dotnetSolutionNavigator.setStartupProject', async (node: TreeNode) => {
+    vscode.commands.registerCommand('dotnav.setStartupProject', async (node: TreeNode) => {
       const project = projectFromNode(node);
       if (!project) {
         return;
@@ -246,97 +225,8 @@ function openSolutionTerminal(provider: DotnetTreeProvider): void {
 }
 
 async function openSolutionTreeFind(): Promise<void> {
-  await vscode.commands.executeCommand('dotnetSolutionNavigator.focus');
+  await vscode.commands.executeCommand('dotnav.focus');
   await vscode.commands.executeCommand('list.find');
-}
-
-async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.uri.scheme !== 'file') {
-    vscode.window.showInformationMessage('Open a file and select a code range first.');
-    return;
-  }
-
-  const selection = editor.selection;
-  if (selection.isEmpty) {
-    vscode.window.showInformationMessage('Select a code range first.');
-    return;
-  }
-
-  let startLine = selection.start.line + 1;
-  let endLine = selection.end.line + 1;
-  if (selection.end.character === 0 && endLine > startLine) {
-    endLine -= 1;
-  }
-
-  if (endLine < startLine) {
-    [startLine, endLine] = [endLine, startLine];
-  }
-
-  const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
-  if (!repoRoot) {
-    vscode.window.showInformationMessage('This file is not inside a Git repository.');
-    return;
-  }
-
-  const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
-  const query = await resolveLineHistoryQuery(repoRoot, relPath, startLine, endLine);
-  if (!query) {
-    vscode.window.showInformationMessage('This selected range has not been committed yet.');
-    return;
-  }
-
-  await runLineHistoryQuery(context, query);
-}
-
-async function resolveLineHistoryQuery(
-  repoRoot: string,
-  relPath: string,
-  startLine: number,
-  endLine: number
-): Promise<LineHistoryQuery | undefined> {
-  const dirty = await runGit(repoRoot, ['diff', '--quiet', '--', relPath]);
-  if (dirty.exitCode === 0) {
-    return { repoRoot, relPath, headStart: startLine, headEnd: endLine };
-  }
-
-  const diff = await runGit(repoRoot, ['diff', '--no-color', '-U0', '--', relPath]);
-  if (diff.exitCode !== 0) {
-    throw new Error(diff.stderr.trim() || 'git diff failed.');
-  }
-
-  const mapped = mapWorktreeRangeToHead(diff.stdout, startLine, endLine);
-  return mapped ? { repoRoot, relPath, headStart: mapped.start, headEnd: mapped.end } : undefined;
-}
-
-async function runLineHistoryQuery(context: vscode.ExtensionContext, query: LineHistoryQuery): Promise<void> {
-  const maxCommits = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
-    .get<number>('gitHistoryMaxCommits', 50);
-
-  try {
-    const entries = await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      cancellable: true,
-      title: 'Loading line history'
-    }, (_progress, token) => getLineHistory(query, Math.max(1, maxCommits), token));
-
-    if (entries.length === 0) {
-      vscode.window.showInformationMessage('No commit touched this selected range.');
-      return;
-    }
-
-    LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri);
-  } catch (error) {
-    if (error instanceof GitOperationCancelledError) {
-      return;
-    }
-
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.trim().length > 0) {
-      vscode.window.showErrorMessage(message);
-    }
-  }
 }
 
 async function revealWithScrollPadding(
@@ -494,7 +384,7 @@ function projectFromNode(node: TreeNode): ProjectModel | undefined {
 }
 
 async function toggleProjectFiles(provider: DotnetTreeProvider): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('dotnetSolutionNavigator');
+  const configuration = vscode.workspace.getConfiguration('dotnav');
   const current = configuration.get<boolean>('showProjectFiles', true);
 
   await configuration.update('showProjectFiles', !current, vscode.ConfigurationTarget.Workspace);
@@ -503,7 +393,7 @@ async function toggleProjectFiles(provider: DotnetTreeProvider): Promise<void> {
 }
 
 async function toggleFileNesting(provider: DotnetTreeProvider): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration('dotnetSolutionNavigator');
+  const configuration = vscode.workspace.getConfiguration('dotnav');
   const current = configuration.get<boolean>('enableFileNesting', true);
 
   await configuration.update('enableFileNesting', !current, vscode.ConfigurationTarget.Workspace);

@@ -1,0 +1,12 @@
+.git/**
+.github/**
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+out/test/**
+out/**/*.map
+media/*.svg
+*.vsix
+tsconfig.json
+npm-debug.log

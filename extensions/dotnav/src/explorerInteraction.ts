@@ -3,7 +3,7 @@ import { moveItemToDirectory } from './fileCommands';
 import { TreeNode } from './models';
 import type { DotnetTreeProvider } from './treeProvider';
 
-const treeMime = 'application/vnd.code.tree.dotnetSolutionNavigator';
+const treeMime = 'application/vnd.code.tree.dotnav';
 
 export class ExplorerInteractionController implements vscode.TreeDragAndDropController<TreeNode> {
   readonly dragMimeTypes = [treeMime];

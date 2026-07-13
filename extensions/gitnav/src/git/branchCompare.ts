@@ -10,7 +10,7 @@ interface CompareDocument {
   readonly uri: vscode.Uri;
 }
 
-const scheme = 'dotnet-navigator-compare';
+const scheme = 'gitnav-compare';
 
 export class BranchCompareDocumentProvider implements vscode.TextDocumentContentProvider {
   private readonly documents = new Map<string, string>();

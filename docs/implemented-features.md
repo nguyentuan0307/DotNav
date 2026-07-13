@@ -1,5 +1,7 @@
 # Implemented Features
 
+> This is a historical implementation log. Paths beginning with `src/` or referencing the root `package.json` describe the pre-monorepo layout. Current code lives under `extensions/dotnav` and `extensions/gitnav`.
+
 This file records feature and fix notes for future agent/developer review.
 
 For the latest checkpoint, formatter configuration, test baseline, known gaps, and next-step priorities, read [CURRENT_STATE.md](CURRENT_STATE.md) first.

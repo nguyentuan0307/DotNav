@@ -9,7 +9,7 @@ export async function readDirectoryNodes(directoryPath: string, projectRoot: str
   const hiddenFolders = getHiddenFolders();
   const hiddenFiles = getHiddenFiles();
   const showProjectFiles = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<boolean>('showProjectFiles', true);
   const nodes: TreeNode[] = [];
 
@@ -45,7 +45,7 @@ export async function readDirectoryNodes(directoryPath: string, projectRoot: str
   const folders = nodes.filter(node => node.kind === 'folder');
   const files = nodes.filter(node => node.kind === 'file');
   const enableFileNesting = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<boolean>('enableFileNesting', true);
 
   return [...folders, ...(enableFileNesting ? nestFiles(files) : files)].sort(compareNodes);
@@ -75,7 +75,7 @@ export async function readDockerProjectNodes(project: ProjectModel): Promise<Tre
 
 function getHiddenFolders(): Set<string> {
   const values = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<string[]>('hiddenFolders', []);
 
   return new Set(values.map(value => value.toLowerCase()));
@@ -83,7 +83,7 @@ function getHiddenFolders(): Set<string> {
 
 function getHiddenFiles(): string[] {
   return vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<string[]>('hiddenFiles', []);
 }
 

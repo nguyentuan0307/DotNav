@@ -1,29 +1,44 @@
-# Releasing DotNav
+# Releasing DotNav and GitNav
 
-Releases are managed by Release Please and GitHub Actions.
+The two extensions are versioned independently by Release Please and packaged by GitHub Actions.
 
-## One-time repository setup
+## Components
 
-In **Settings > Actions > General > Workflow permissions**, select **Read and write permissions** and enable **Allow GitHub Actions to create and approve pull requests**.
+| Component | Marketplace ID | Tag format | Asset format |
+| --- | --- | --- | --- |
+| DotNav | `tuna-ex.dotnav` | `dotnav-v0.2.0` | `dotnav-0.2.0.vsix` |
+| GitNav | `tuna-ex.gitnav` | `gitnav-v0.1.0` | `gitnav-0.1.0.vsix` |
 
 ## Normal release flow
 
 1. Merge conventional commits into `master`.
-2. CI runs the test suite and validates VSIX packaging.
-3. Release Please creates or updates a Release PR containing the next version and changelog.
-4. Review and merge the Release PR when the changes are ready to ship.
-5. Release Please creates the version tag and GitHub Release.
-6. The release workflow tests and packages that exact tag as `dotnav-<version>.vsix`, then attaches it to the GitHub Release.
-7. Download the VSIX asset from the GitHub Release and upload it on the Visual Studio Marketplace publisher management page.
+2. CI tests both workspaces and validates both VSIX packages.
+3. Release Please creates or updates a component Release PR only when files in that component changed.
+4. Review and merge the relevant Release PR.
+5. Release Please creates the component tag and GitHub Release.
+6. The release workflow tests the complete monorepo, packages the tagged component, and attaches its VSIX.
+7. Upload the VSIX to the matching Visual Studio Marketplace listing.
 
-Use these commit prefixes to control semantic versioning:
+When releasing both extensions for the first time, merge and publish **GitNav before DotNav** because DotNav declares `tuna-ex.gitnav` as an extension dependency.
+
+Use conventional commit prefixes to control semantic versioning:
 
 - `fix:` creates a patch release.
 - `feat:` creates a minor release.
 - `feat!:` or a `BREAKING CHANGE:` footer creates a major release.
 
+## Local verification
+
+```console
+npm install
+npm test
+npm run package:all
+```
+
+The generated files are `dist/dotnav.vsix` and `dist/gitnav.vsix`.
+
 ## Recovery
 
-If packaging or asset upload fails after the GitHub Release has already been created, open the **Build Release Asset** workflow, choose **Run workflow**, and enter the existing tag such as `v0.0.2`.
+If packaging or asset upload fails after a GitHub Release exists, run **Build Release Asset** manually with the existing component tag.
 
 Marketplace upload remains a manual publisher action and does not require an Azure DevOps organization, Azure subscription, or PAT.

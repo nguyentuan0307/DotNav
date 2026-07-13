@@ -136,7 +136,7 @@ function specificityScore(parentName: string): number {
 
 function getRules(): FileNestingRule[] {
   const customRules = vscode.workspace
-    .getConfiguration('dotnetSolutionNavigator')
+    .getConfiguration('dotnav')
     .get<FileNestingRule[]>('fileNestingRules', []);
 
   return [...defaultRules, ...customRules.filter(isValidRule)];

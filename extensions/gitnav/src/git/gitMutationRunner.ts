@@ -132,7 +132,7 @@ export class GitMutationRunner {
 
   private async protectedPattern(root: string): Promise<string | undefined> {
     const branch = (await this.service.snapshot(root)).head;
-    const patterns = vscode.workspace.getConfiguration('dotnetSolutionNavigator.gitLog')
+    const patterns = vscode.workspace.getConfiguration('gitnav')
       .get<string[]>('protectedBranches', ['main', 'master', 'develop', 'release/*']);
     return matchingProtectedBranchPattern(branch, patterns);
   }

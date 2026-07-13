@@ -14,7 +14,7 @@ export class LineHistoryPanel {
 
     if (!LineHistoryPanel.panel) {
       LineHistoryPanel.panel = vscode.window.createWebviewPanel(
-        'dotnetSolutionNavigator.lineHistory',
+        'gitnav.lineHistory',
         title,
         vscode.ViewColumn.Beside,
         {
@@ -278,8 +278,8 @@ function renderHtml(webview: vscode.Webview, state: PanelState): string {
     const patch = document.getElementById('patch');
     const patchTitle = document.getElementById('patchTitle');
     const patchMeta = document.getElementById('patchMeta');
-    const layoutKey = 'dotnetNavigator.lineHistory.commitWidth';
-    const collapsedKey = 'dotnetNavigator.lineHistory.commitCollapsed';
+    const layoutKey = 'gitnav.lineHistory.commitWidth';
+    const collapsedKey = 'gitnav.lineHistory.commitCollapsed';
     const minCommitWidth = 160;
     const maxCommitWidth = 640;
     let selectedIndex = 0;

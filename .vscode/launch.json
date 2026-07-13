@@ -2,15 +2,29 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      "name": "Run DotNav + GitNav",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--extensionDevelopmentPath=${workspaceFolder}/extensions/dotnav",
+        "--extensionDevelopmentPath=${workspaceFolder}/extensions/gitnav",
         "D:\\VibingCode\\DotnetNavigatorSample"
       ],
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
+        "${workspaceFolder}/extensions/*/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      "name": "Run GitNav Standalone",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extensions/gitnav",
+        "${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/extensions/gitnav/out/**/*.js"
       ],
       "preLaunchTask": "npm: compile"
     }
