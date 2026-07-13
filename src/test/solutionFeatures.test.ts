@@ -197,4 +197,12 @@ test('exposes Git Log initialization diagnostics in an output channel', () => {
   assert.match(source, /Received webview message:/);
   assert.match(source, /Repository discovery completed/);
   assert.match(source, /State posted:/);
+  assert.match(source, /Webview runtime error:/);
+});
+
+test('recovers from invalid persisted Git Log webview state', () => {
+  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  assert.match(source, /function storedArray\(key\)/);
+  assert.match(source, /localStorage\.removeItem\(key\)/);
+  assert.doesNotMatch(source, /new Set\(JSON\.parse\(localStorage\.getItem/);
 });
