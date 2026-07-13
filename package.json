@@ -1,5 +1,5 @@
 {
-  "name": "rider-like-solution-navigator",
+  "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
   "version": "0.1.0",

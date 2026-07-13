@@ -512,7 +512,7 @@ async function toggleFileNesting(provider: DotnetTreeProvider): Promise<void> {
 }
 
 async function openNavigatorSettings(): Promise<void> {
-  await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.rider-like-solution-navigator');
+  await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.dotnav');
 }
 
 async function runSelectedFileCommand(

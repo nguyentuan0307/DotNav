@@ -1,7 +1,7 @@
 # DotNav: .NET Solution Explorer
 
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.rider-like-solution-navigator?style=flat-square&label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/tuna-ex.rider-like-solution-navigator?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator)
+[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/tuna-ex.dotnav?style=flat-square&label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.dotnav)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/tuna-ex.dotnav?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=tuna-ex.dotnav)
 [![CI](https://img.shields.io/github/actions/workflow/status/nguyentuan0307/DotNav/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/nguyentuan0307/DotNav/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
@@ -37,10 +37,10 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 
 ## Installation
 
-Install **DotNav: .NET Solution Explorer** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=tuna-ex.rider-like-solution-navigator), or run:
+Install **DotNav: .NET Solution Explorer** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=tuna-ex.dotnav), or run:
 
 ```console
-code --install-extension tuna-ex.rider-like-solution-navigator
+code --install-extension tuna-ex.dotnav
 ```
 
 VS Code checks Marketplace-installed extensions for updates automatically. A manual VSIX installation does not auto-update unless VS Code's VSIX auto-update option is enabled.
