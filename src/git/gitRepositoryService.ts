@@ -50,8 +50,16 @@ export class GitRepositoryService {
   }
 
   async log(root: string, offset: number, limit: number, filter: GitLogFilter): Promise<GitLogPage> {
-    const revisions = filter.refs?.length ? filter.refs : ['--all'];
-    const shared = buildFilterArgs(filter);
+    let effectiveFilter = filter;
+    let revisions = filter.refs?.length ? filter.refs : ['--all'];
+    if (filter.text && /^[0-9a-f]{4,40}$/i.test(filter.text)) {
+      const resolved = await runGit(root, ['rev-parse', '--verify', `${filter.text}^{commit}`]);
+      if (resolved.exitCode === 0) {
+        revisions = [resolved.stdout.trim()];
+        effectiveFilter = { ...filter, text: undefined };
+      }
+    }
+    const shared = buildFilterArgs(effectiveFilter);
     const tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
     const [records, count] = await Promise.all([
       this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit}`, ...shared, ...tail]),
