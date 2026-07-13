@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { runGit } from './gitCli';
 import { GitCommitDetail, GitFileChange, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo } from './gitPanelModels';
-import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ } from './gitPanelParsers';
+import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from './gitPanelParsers';
 
 export class GitCommandError extends Error {
   constructor(readonly args: string[], readonly stderr: string, readonly exitCode: number) {
@@ -90,17 +90,7 @@ export class GitRepositoryService {
 
   async workingTreeFiles(root: string): Promise<GitFileChange[]> {
     const result = await this.git(root, ['status', '--porcelain=v1', '-z']);
-    const fields = result.stdout.split('\0');
-    const files: GitFileChange[] = [];
-    for (let i = 0; i < fields.length - 1; i++) {
-      const entry = fields[i];
-      const status = entry.slice(0, 2).trim() || '?';
-      let filePath = entry.slice(3);
-      let oldPath: string | undefined;
-      if (status.includes('R')) { oldPath = filePath; filePath = fields[++i]; }
-      files.push({ status, path: filePath, oldPath, additions: 0, deletions: 0, conflict: status === 'UU' });
-    }
-    return files;
+    return parseWorkingTreeStatus(result.stdout);
   }
 
   async git(root: string, args: string[], token?: vscode.CancellationToken): Promise<{ stdout: string; stderr: string }> {

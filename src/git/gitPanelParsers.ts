@@ -51,3 +51,19 @@ export function parseNumstatZ(output: string): Map<string, { additions: number; 
   }
   return stats;
 }
+
+export function parseWorkingTreeStatus(output: string): GitFileChange[] {
+  const fields = output.split('\0');
+  const files: GitFileChange[] = [];
+  for (let index = 0; index < fields.length - 1; index++) {
+    const entry = fields[index];
+    const status = entry.slice(0, 2).trim() || '?';
+    const filePath = entry.slice(3);
+    const oldPath = status.includes('R') ? fields[++index] : undefined;
+    files.push({
+      status, path: filePath, oldPath, additions: 0, deletions: 0,
+      conflict: /^(DD|AU|UD|UA|DU|AA|UU)$/.test(status)
+    });
+  }
+  return files;
+}

@@ -6,7 +6,7 @@ import { revisionUri } from './gitRevisionProvider';
 import { GitMutationRunner } from './gitMutationRunner';
 import { GitMutationRequest } from './gitPanelModels';
 
-interface WebviewMessage { type: string; root?: string; hash?: string; path?: string; ref?: string; action?: string; kind?: string; parent?: number; offset?: number; filter?: GitLogFilter; }
+interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; action?: string; kind?: string; operation?: string; parent?: number; offset?: number; filter?: GitLogFilter; }
 
 export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewId = 'dotnetSolutionNavigator.gitLog';
@@ -72,7 +72,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         return;
       }
       if (message.type === 'copy' && message.hash) return await vscode.env.clipboard.writeText(message.hash);
+      if (message.type === 'openConflict' && message.path) return await this.openConflict(message.path);
+      if (message.type === 'compare' && message.hashes?.length === 2) {
+        const files = await this.service.filesBetween(this.root, message.hashes[0], message.hashes[1]);
+        return this.post({ type: 'compareFiles', files, from: message.hashes[0], to: message.hashes[1] });
+      }
       if (message.type === 'mutate' && message.action) {
+        if (message.action === 'continue') {
+          const unresolved = (await this.service.workingTreeFiles(this.root)).filter(file => file.conflict);
+          if (unresolved.length) throw new Error(`Resolve these files before continuing: ${unresolved.map(file => file.path).join(', ')}`);
+        }
         const request = await this.prepareMutation(message);
         if (request && await this.mutations.run(this.root, request)) await this.refresh();
       }
@@ -90,6 +99,20 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (!selected) return;
     if (selected.action === 'copy') {
       await vscode.env.clipboard.writeText(message.ref ?? message.hash ?? message.path ?? '');
+      return;
+    }
+    if (selected.action === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent);
+    if (selected.action === 'openRevision' && message.hash && message.path) {
+      await vscode.window.showTextDocument(revisionUri(this.root!, message.hash, message.path), { preview: true });
+      return;
+    }
+    if (selected.action === 'openFile' && message.path) {
+      await vscode.window.showTextDocument(vscode.Uri.file(path.join(this.root!, message.path)));
+      return;
+    }
+    if (selected.action === 'compare' && message.hashes?.length === 2) {
+      const files = await this.service.filesBetween(this.root!, message.hashes[0], message.hashes[1]);
+      this.post({ type: 'compareFiles', files, from: message.hashes[0], to: message.hashes[1] });
       return;
     }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action: selected.action });
@@ -151,7 +174,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const name = await vscode.window.showInputBox({ title: 'New Tag', prompt: 'Tag name', validateInput: validateRefName });
       return name ? { action, ref: message.hash, options: { name } } : undefined;
     }
-    return { action, ref: message.ref ?? message.hash, hash: message.hash, path: message.path };
+    return { action, ref: message.ref ?? message.hash, hash: message.hash, hashes: message.hashes, path: message.path, options: message.operation ? { operation: message.operation } : undefined };
   }
 
   private async openDiff(hash: string, filePath: string, parent = 1): Promise<void> {
@@ -160,6 +183,12 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     const left = leftRef ? revisionUri(this.root!, leftRef, filePath) : vscode.Uri.parse('untitled:empty');
     const right = revisionUri(this.root!, hash, filePath);
     await vscode.commands.executeCommand('vscode.diff', left, right, `${filePath} (${hash.slice(0, 8)})`);
+  }
+
+  private async openConflict(filePath: string): Promise<void> {
+    const uri = vscode.Uri.file(path.join(this.root!, filePath));
+    try { await vscode.commands.executeCommand('git.openMergeEditor', uri); }
+    catch { await vscode.window.showTextDocument(uri); }
   }
 
   private post(message: unknown): void { this.view?.webview.postMessage(message); }
@@ -185,6 +214,11 @@ function contextActions(kind?: string): Array<{ label: string; action: string }>
     { label: 'Checkout Revision', action: 'checkout' }, { label: 'New Branch here...', action: 'createBranch' }, { label: 'New Tag here...', action: 'tag' },
     { label: 'Cherry-Pick', action: 'cherryPick' }, { label: 'Revert Commit', action: 'revert' }, { label: 'Reset Current Branch to Here...', action: 'reset' }, { label: 'Copy Revision Number', action: 'copy' }
   ];
+  if (kind === 'commits') return [{ label: 'Compare Versions', action: 'compare' }, { label: 'Cherry-Pick in Selected Order', action: 'cherryPick' }, { label: 'Revert in Selected Order', action: 'revert' }];
+  if (kind === 'commitFile') return [
+    { label: 'Show Diff', action: 'diff' }, { label: 'Open Version at Revision', action: 'openRevision' },
+    { label: 'Get File from Revision', action: 'getFile' }, { label: 'Open in Editor', action: 'openFile' }, { label: 'Copy Path', action: 'copy' }
+  ];
   if (kind === 'workingFile') return [{ label: 'Rollback', action: 'rollbackFile' }];
   return [];
 }
@@ -198,20 +232,21 @@ function renderHtml(webview: vscode.Webview): string {
 </style></head><body>
 <div class="toolbar"><button id="refresh" title="Refresh">↻</button><button data-action="fetch">Fetch</button><button data-action="update">Update Project</button><button data-action="pull">Pull</button><button data-action="push">Push</button><button data-action="stash">Stash</button><button data-action="createBranch">New Branch</button><span id="status"></span><span class="grow"></span><select id="repo"></select></div>
 <main class="layout" id="layout"><section class="pane branches"><div class="heading">BRANCHES</div><input id="branchSearch" placeholder="Search branches"><div id="branches"></div></section><div class="split" data-side="left"></div>
-<section class="pane center"><div class="banner" id="banner"></div><div class="filters"><input id="textFilter" placeholder="Message"><input id="authorFilter" placeholder="Author"><input id="pathFilter" placeholder="Path"><input id="sinceFilter" type="date" title="From date"><input id="untilFilter" type="date" title="To date"><input id="goto" placeholder="Hash / ref"><label><input type="checkbox" id="regex"> Regex</label><label><input type="checkbox" id="case"> Case</label><button id="clear">Clear</button></div><div class="header"><span>Graph</span><span>Subject</span><span>Author</span><span>Date</span></div><div class="viewport" id="viewport" tabindex="0"><div class="spacer" id="spacer"></div></div></section>
+<section class="pane center"><div class="banner" id="banner"><b id="operation"></b><button data-conflict="continue">Continue</button><button data-conflict="abort">Abort</button><button data-conflict="skip">Skip</button></div><div class="filters"><input id="textFilter" placeholder="Message"><input id="authorFilter" placeholder="Author"><input id="pathFilter" placeholder="Path"><input id="sinceFilter" type="date" title="From date"><input id="untilFilter" type="date" title="To date"><input id="goto" placeholder="Hash / ref"><label><input type="checkbox" id="regex"> Regex</label><label><input type="checkbox" id="case"> Case</label><button id="clear">Clear</button></div><div class="header"><span>Graph</span><span>Subject</span><span>Author</span><span>Date</span></div><div class="viewport" id="viewport" tabindex="0"><div class="spacer" id="spacer"></div></div></section>
 <div class="split" data-side="right"></div><section class="pane right"><div class="heading">CHANGED FILES</div><div id="files"></div><div class="detail" id="detail"><div class="empty">Select a commit</div></div></section></main>
 <script nonce="${nonce}">
-const vscode=acquireVsCodeApi(), ROW=28, overscan=12;let state={commits:[],total:0,selected:-1,detail:null,uncommitted:[]};
+const vscode=acquireVsCodeApi(), ROW=28, overscan=12;let state={commits:[],total:0,selected:-1,selectedHashes:new Set(),detail:null,uncommitted:[]};
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function send(type,data={}){vscode.postMessage({type,...data})}function date(ts){return new Date(ts*1000).toLocaleString()}
 function renderBranches(){const q=$('branchSearch').value.toLowerCase(),r=state.repository;if(!r)return;$('branches').innerHTML=['local','remote','tag'].map(kind=>{const rows=r.refs.filter(x=>x.kind===kind&&x.name.toLowerCase().includes(q));if(!rows.length)return'';return '<div class="group">'+kind+'</div>'+rows.map(x=>'<div class="item '+(x.current?'active':'')+'" data-kind="'+kind+'" data-hash="'+x.hash+'" data-ref="'+esc(x.name)+'">'+esc(x.name)+'<span class="badge">'+(x.ahead?'↑'+x.ahead+' ':'')+(x.behind?'↓'+x.behind:'')+'</span></div>').join('')}).join('')+'<div class="group">Stashes</div>'+r.stashes.map(x=>'<div class="item" data-kind="stash" data-ref="'+esc(x.ref)+'" data-hash="'+x.hash+'">'+esc(x.ref+' '+x.message)+'</div>').join('')}
-function renderRows(){const vp=$('viewport'),start=Math.max(0,Math.floor(vp.scrollTop/ROW)-overscan),end=Math.min(state.commits.length,Math.ceil((vp.scrollTop+vp.clientHeight)/ROW)+overscan);$('spacer').style.height=(Math.max(state.total,state.commits.length)*ROW)+'px';$('spacer').innerHTML=state.commits.slice(start,end).map((c,i)=>{const n=start+i,refs=c.refs.length?'<span class="refs">'+esc(c.refs[0].replace('refs/heads/','').replace('refs/remotes/','').replace('tag: refs/tags/',''))+'</span>':'';return '<div class="row '+(n===state.selected?'selected':'')+'" data-index="'+n+'" style="top:'+(n*ROW)+'px"><span class="graph">● '+(c.parents.length>1?'╲':'│')+'</span><span>'+esc(c.subject)+refs+'</span><span>'+esc(c.author)+'</span><span>'+date(c.authorTimestamp)+'</span></div>'}).join('');if(end>state.commits.length-30&&state.commits.length<state.total)send('loadLog',{offset:state.commits.length,filter:filter()})}
+function renderRows(){const vp=$('viewport'),start=Math.max(0,Math.floor(vp.scrollTop/ROW)-overscan),end=Math.min(state.commits.length,Math.ceil((vp.scrollTop+vp.clientHeight)/ROW)+overscan);$('spacer').style.height=(Math.max(state.total,state.commits.length)*ROW)+'px';$('spacer').innerHTML=state.commits.slice(start,end).map((c,i)=>{const n=start+i,refs=c.refs.length?'<span class="refs">'+esc(c.refs[0].replace('refs/heads/','').replace('refs/remotes/','').replace('tag: refs/tags/',''))+'</span>':'';return '<div class="row '+(n===state.selected?'selected ':'')+(state.selectedHashes.has(c.hash)?'multi':'')+'" data-index="'+n+'" style="top:'+(n*ROW)+'px"><span class="graph">● '+(c.parents.length>1?'╲':'│')+'</span><span>'+esc(c.subject)+refs+'</span><span>'+esc(c.author)+'</span><span>'+date(c.authorTimestamp)+'</span></div>'}).join('');if(end>state.commits.length-30&&state.commits.length<state.total)send('loadLog',{offset:state.commits.length,filter:filter()})}
 function renderDetail(){const d=state.detail;if(!d)return;$('detail').innerHTML='<div class="message">'+esc(d.message)+'</div><div class="meta">'+esc(d.hash)+'<br>'+esc(d.author+' <'+d.authorEmail+'> · '+date(d.authorTimestamp))+'<br>Parents: '+d.parents.map(esc).join(', ')+'</div>';$('files').innerHTML=d.files.map(f=>'<div class="file" data-path="'+esc(f.path)+'"><b>'+esc(f.status)+'</b><span>'+esc(f.path)+'</span><span class="stat">+'+f.additions+' -'+f.deletions+'</span></div>').join('')}
 function filter(){return{text:$('textFilter').value||undefined,author:$('authorFilter').value||undefined,path:$('pathFilter').value||undefined,since:$('sinceFilter').value||undefined,until:$('untilFilter').value||undefined,refs:state.selectedRef?[state.selectedRef]:undefined,regex:$('regex').checked,matchCase:$('case').checked}}
 function loadFiltered(){state.commits=[];state.total=0;send('loadLog',{offset:0,filter:filter()})}let timer;for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).oninput=()=>{clearTimeout(timer);timer=setTimeout(loadFiltered,250)};$('regex').onchange=$('case').onchange=loadFiltered;$('clear').onclick=()=>{for(const id of ['textFilter','authorFilter','pathFilter','sinceFilter','untilFilter'])$(id).value='';state.selectedRef=undefined;$('regex').checked=$('case').checked=false;loadFiltered()};
-$('viewport').onscroll=renderRows;$('viewport').onclick=e=>{const row=e.target.closest('.row');if(!row)return;state.selected=Number(row.dataset.index);send('detail',{hash:state.commits[state.selected].hash});renderRows()};$('viewport').oncontextmenu=e=>{e.preventDefault();const row=e.target.closest('.row');if(row){const c=state.commits[Number(row.dataset.index)];send('context',{kind:'commit',hash:c.hash,ref:c.hash})}};$('viewport').onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();state.selected=Math.max(0,Math.min(state.commits.length-1,state.selected+(e.key==='ArrowDown'?1:-1)));send('detail',{hash:state.commits[state.selected].hash});$('viewport').scrollTop=Math.max(0,state.selected*ROW-$('viewport').clientHeight/2);renderRows()}if(e.key==='Enter'&&state.detail?.files[0])send('diff',{hash:state.detail.hash,path:state.detail.files[0].path})};
-$('files').ondblclick=e=>{const f=e.target.closest('.file');if(f&&state.detail)send('diff',{hash:state.detail.hash,path:f.dataset.path})};$('branchSearch').oninput=renderBranches;$('branches').onclick=e=>{const item=e.target.closest('.item');if(!item)return;if(item.dataset.ref){state.selectedRef=item.dataset.ref;loadFiltered()}else if(item.dataset.hash)send('detail',{hash:item.dataset.hash})};$('branches').ondblclick=e=>{const item=e.target.closest('.item');if(item&&['local','remote'].includes(item.dataset.kind))send('mutate',{action:item.dataset.kind==='remote'?'checkoutRemote':'checkout',ref:item.dataset.ref})};$('branches').oncontextmenu=e=>{e.preventDefault();const item=e.target.closest('.item');if(item)send('context',{kind:item.dataset.kind,ref:item.dataset.ref,hash:item.dataset.hash})};$('goto').onkeydown=e=>{if(e.key==='Enter'&&e.target.value)send('detail',{hash:e.target.value})};$('refresh').onclick=()=>send('refresh');for(const b of document.querySelectorAll('[data-action]'))b.onclick=()=>send('mutate',{action:b.dataset.action});$('repo').onchange=()=>send('selectRepo',{root:$('repo').value});
+$('viewport').onscroll=renderRows;$('viewport').onclick=e=>{const row=e.target.closest('.row');if(!row)return;state.selected=Number(row.dataset.index);const hash=state.commits[state.selected].hash;if(e.ctrlKey||e.metaKey){state.selectedHashes.has(hash)?state.selectedHashes.delete(hash):state.selectedHashes.add(hash)}else{state.selectedHashes.clear();state.selectedHashes.add(hash)}send('detail',{hash});renderRows()};$('viewport').oncontextmenu=e=>{e.preventDefault();const row=e.target.closest('.row');if(row){const c=state.commits[Number(row.dataset.index)],hashes=[...state.selectedHashes];send('context',{kind:hashes.length>1?'commits':'commit',hash:c.hash,ref:c.hash,hashes})}};$('viewport').onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();state.selected=Math.max(0,Math.min(state.commits.length-1,state.selected+(e.key==='ArrowDown'?1:-1)));send('detail',{hash:state.commits[state.selected].hash});$('viewport').scrollTop=Math.max(0,state.selected*ROW-$('viewport').clientHeight/2);renderRows()}if(e.key==='Enter'&&state.detail?.files[0])send('diff',{hash:state.detail.hash,path:state.detail.files[0].path})};
+$('files').ondblclick=e=>{const f=e.target.closest('.file');if(f&&state.detail)send('diff',{hash:state.detail.hash,path:f.dataset.path})};$('files').oncontextmenu=e=>{e.preventDefault();const f=e.target.closest('.file');if(f&&state.detail)send('context',{kind:'commitFile',hash:state.detail.hash,path:f.dataset.path})};$('branchSearch').oninput=renderBranches;$('branches').onclick=e=>{const item=e.target.closest('.item');if(!item)return;if(item.dataset.ref){state.selectedRef=item.dataset.ref;loadFiltered()}else if(item.dataset.hash)send('detail',{hash:item.dataset.hash})};$('branches').ondblclick=e=>{const item=e.target.closest('.item');if(item&&['local','remote'].includes(item.dataset.kind))send('mutate',{action:item.dataset.kind==='remote'?'checkoutRemote':'checkout',ref:item.dataset.ref})};$('branches').oncontextmenu=e=>{e.preventDefault();const item=e.target.closest('.item');if(item)send('context',{kind:item.dataset.kind,ref:item.dataset.ref,hash:item.dataset.hash})};$('goto').onkeydown=e=>{if(e.key==='Enter'&&e.target.value)send('detail',{hash:e.target.value})};$('refresh').onclick=()=>send('refresh');for(const b of document.querySelectorAll('[data-action]'))b.onclick=()=>send('mutate',{action:b.dataset.action});for(const b of document.querySelectorAll('[data-conflict]'))b.onclick=()=>send('mutate',{action:b.dataset.conflict,operation:state.repository?.operation});$('repo').onchange=()=>send('selectRepo',{root:$('repo').value});
+$('files').addEventListener('click',e=>{const f=e.target.closest('.file[data-conflict]');if(f)send('openConflict',{path:f.dataset.path})});
 for(const split of document.querySelectorAll('.split'))split.onmousedown=e=>{const side=split.dataset.side,start=e.clientX,layout=$('layout'),initial=side==='left'?layout.children[0].offsetWidth:layout.children[4].offsetWidth;document.onmousemove=m=>{const value=Math.max(140,initial+(side==='left'?m.clientX-start:start-m.clientX));layout.style.setProperty('--'+side,value+'px');localStorage.setItem('gitLog.'+side,value)};document.onmouseup=()=>document.onmousemove=document.onmouseup=null};for(const side of ['left','right']){const v=localStorage.getItem('gitLog.'+side);if(v)$('layout').style.setProperty('--'+side,v+'px')}
-window.onmessage=e=>{const m=e.data;if(m.type==='state'){state={...state,...m,commits:m.log?.commits??[],total:m.log?.total??0};$('repo').innerHTML=m.repositories.map(r=>'<option '+(r===m.repository?.root?'selected':'')+'>'+esc(r)+'</option>').join('');const r=m.repository;$('status').textContent=r?r.head+'  ↑'+r.ahead+' ↓'+r.behind+'  '+r.changedCount+' changed':'';$('banner').style.display=r?.operation?'block':'none';$('banner').textContent=r?.operation??'';renderBranches();renderRows()}else if(m.type==='log'){if(m.log.offset===0)state.commits=m.log.commits;else state.commits.push(...m.log.commits);state.total=m.log.total;renderRows()}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}};send('ready');
+window.onmessage=e=>{const m=e.data;if(m.type==='state'){state={...state,...m,commits:m.log?.commits??[],total:m.log?.total??0};$('repo').innerHTML=m.repositories.map(r=>'<option '+(r===m.repository?.root?'selected':'')+'>'+esc(r)+'</option>').join('');const r=m.repository;$('status').textContent=r?r.head+'  ↑'+r.ahead+' ↓'+r.behind+'  '+r.changedCount+' changed':'';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';renderBranches();renderRows();if(r?.operation){$('files').innerHTML=state.uncommitted.filter(f=>f.conflict).map(f=>'<div class="file" data-conflict="true" data-path="'+esc(f.path)+'"><b>!</b><span>'+esc(f.path)+'</span></div>').join('')}}else if(m.type==='log'){if(m.log.offset===0)state.commits=m.log.commits;else state.commits.push(...m.log.commits);state.total=m.log.total;renderRows()}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}else if(m.type==='compareFiles'){$('files').innerHTML=m.files.map(f=>'<div class="file"><b>'+esc(f.status)+'</b><span>'+esc(f.path)+'</span></div>').join('')}};send('ready');
 </script></body></html>`;
 }
