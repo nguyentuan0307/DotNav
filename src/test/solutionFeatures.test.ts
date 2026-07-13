@@ -132,6 +132,11 @@ test('renders Git Log context actions inside the webview', () => {
   assert.match(source, /<svg class="graph-overlay" id="graphSvg"/);
   assert.match(source, /function renderGraph\(/);
   assert.doesNotMatch(source, /esc\(c\.graph/);
+  assert.match(source, /requestAnimationFrame/);
+  assert.match(source, /e\.shiftKey&&state\.selectionAnchor/);
+  assert.match(source, /\.filter\(hash=>hash&&state\.selectedHashes\.has\(hash\)\)\.reverse\(\)/);
+  assert.match(source, /m\.type==='busy'/);
+  assert.match(source, /class="toast" id="toast"/);
 });
 
 test('renders changed files as a recursive collapsible tree', () => {
