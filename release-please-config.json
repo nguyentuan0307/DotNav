@@ -1,6 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "separate-pull-requests": true,
   "packages": {
     "extensions/dotnav": {
       "release-type": "node",

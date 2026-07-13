@@ -13,9 +13,9 @@ The two extensions are versioned independently by Release Please and packaged by
 
 1. Merge conventional commits into `master`.
 2. CI tests both workspaces and validates both VSIX packages.
-3. Release Please creates or updates a component Release PR only when files in that component changed.
-4. Review and merge the relevant Release PR.
-5. Release Please creates the component tag and GitHub Release.
+3. Release Please creates or updates one Release PR containing every changed component.
+4. Review and merge that Release PR.
+5. Release Please creates an independent tag and GitHub Release for each included component.
 6. The release workflow tests the complete monorepo, packages the tagged component, and attaches its VSIX.
 7. Upload the VSIX to the matching Visual Studio Marketplace listing.
 
