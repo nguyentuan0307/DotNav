@@ -97,15 +97,15 @@ async function compareEditorDocumentWithBranch(
   }
 
   const left = selection
-    ? selectionDocument(provider, branch.ref, relPath, branchContent, selection)
-    : fullDocument(provider, branch.ref, relPath, branchContent);
+    ? selectionDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent, selection)
+    : fullDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent);
   const right = selection
     ? selectedWorktreeDocument(provider, relPath, editor, selection)
-    : fullDocument(provider, 'Working Tree', relPath, editor.document.getText());
+    : { uri: editor.document.uri };
 
   const title = selection
-    ? `${path.basename(relPath)} selection: ${branch.ref} ↔ Working Tree`
-    : `${path.basename(relPath)}: ${branch.ref} ↔ Working Tree`;
+    ? `${path.basename(relPath)} selection: Branch ${branch.ref} ↔ Working Tree`
+    : `${path.basename(relPath)}: Branch ${branch.ref} ↔ Working Tree`;
   await vscode.commands.executeCommand('vscode.diff', left.uri, right.uri, title, { preview: true });
 }
 
