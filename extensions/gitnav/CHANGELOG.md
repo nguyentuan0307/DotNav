@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.0...gitnav-v0.3.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **gitnav:** contain graph and column menu ([6e3b3a6](https://github.com/nguyentuan0307/DotNav/commit/6e3b3a6f286f952648d4d132779d3601903471a4))
+
 ## [0.3.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.2.0...gitnav-v0.3.0) (2026-07-13)
 
 
