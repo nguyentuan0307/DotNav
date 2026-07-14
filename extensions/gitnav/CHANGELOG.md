@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.3...gitnav-v0.4.0) (2026-07-14)
+
+
+### Features
+
+* **gitnav:** redesign Git history workspace ([1f54e65](https://github.com/nguyentuan0307/DotNav/commit/1f54e65b0a2aa108d5197e74928eede29811f711))
+
 ## [0.3.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.2...gitnav-v0.3.3) (2026-07-14)
 
 
