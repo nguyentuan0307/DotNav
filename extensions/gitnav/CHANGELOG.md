@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.0...gitnav-v0.4.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **gitnav:** polish history panel interactions ([c471d06](https://github.com/nguyentuan0307/DotNav/commit/c471d068c35138b2a9ce77a31b5b3181d3a595ae))
+
 ## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.3...gitnav-v0.4.0) (2026-07-14)
 
 
