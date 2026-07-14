@@ -175,6 +175,9 @@ test('renders Git Log context actions inside the webview', () => {
   assert.doesNotMatch(source, /showQuickPick\(actions/);
   assert.match(source, /const \{type,\.\.\.context\}=state\.contextPayload/);
   assert.match(source, /function requestContext\(data\)/);
+  assert.match(source, /body\{[^}]*user-select:none/);
+  assert.match(source, /input,textarea,\.detail \.message,\.detail \.meta,\.diff-preview\{user-select:text\}/);
+  assert.match(source, /addEventListener\('contextmenu',e=>\{e\.preventDefault\(\)/);
   assert.match(source, /context\.requestId!==state\.contextRequestId/);
   assert.match(source, /button\.disabled=true/);
   assert.match(source, /Ignored duplicate mutation/);
