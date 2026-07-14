@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.2...gitnav-v0.3.3) (2026-07-14)
+
+
+### Bug Fixes
+
+* **gitnav:** prevent unintended webview selection ([df0c251](https://github.com/nguyentuan0307/DotNav/commit/df0c2512dfdf544e7f0b2895a08823ace1c9bb1f))
+* **gitnav:** streamline reset safety flow ([4408c05](https://github.com/nguyentuan0307/DotNav/commit/4408c055d82b4932ee6f8a589869cc8eda7407be))
+
 ## [0.3.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.1...gitnav-v0.3.2) (2026-07-14)
 
 
