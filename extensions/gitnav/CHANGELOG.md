@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.1...gitnav-v0.3.2) (2026-07-14)
+
+
+### Performance Improvements
+
+* **gitnav:** smooth log interactions ([d1079b3](https://github.com/nguyentuan0307/DotNav/commit/d1079b30f61f535472bf0289ccb22225074b9dc7))
+
 ## [0.3.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.3.0...gitnav-v0.3.1) (2026-07-14)
 
 
