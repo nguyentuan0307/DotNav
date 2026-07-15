@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { GitMutationRequest } from './gitPanelModels';
+import { GitMutationRequest, GitRepositorySnapshot } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
 import { RepositoryMutationQueue } from './gitPanelCoordinator';
 import { destructiveWarning, protectedRemoteMutationPattern, requiresDestructiveConfirmation, supportsBackup } from './gitMutationSafety';
@@ -8,6 +8,15 @@ import { runGit } from './gitCli';
 import { runInteractiveRebase } from './gitInteractiveRebase';
 import { GitRebasePlanItem } from './gitPanelModels';
 import { currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs } from './gitPush';
+
+class GitMutationExecutionContext {
+  constructor(
+    readonly root: string,
+    readonly request: GitMutationRequest,
+    readonly snapshot: GitRepositorySnapshot,
+    readonly startedAt: number
+  ) {}
+}
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
@@ -20,18 +29,19 @@ export class GitMutationRunner {
   }
 
   private async runExclusive(root: string, request: GitMutationRequest): Promise<boolean> {
-    const operation = (await this.service.snapshot(root)).operation;
+    const snapshot = await this.service.snapshot(root, undefined, true);
+    const context = new GitMutationExecutionContext(root, request, snapshot, Date.now());
+    const operation = snapshot.operation;
     if (operation && !isActionAllowedDuringOperation(request.action)) {
       throw new Error(`${request.action} is blocked while the repository is ${operation}. Continue, skip, or abort the current operation first.`);
     }
-    const snapshot = await this.service.snapshot(root);
     const protectedPattern = this.protectedRemotePattern(snapshot.head, request);
     if (protectedPattern) {
       throw new Error(`This remote operation is blocked because the branch matches protected pattern "${protectedPattern}".`);
     }
     if (requiresDestructiveConfirmation(request)
-      && !await confirmDestructive(root, request, this.service, snapshot.head, snapshot.upstream)) return false;
-    const args = await this.argumentsFor(root, request);
+      && !await confirmDestructive(root, request, this.service, snapshot)) return false;
+    const args = await this.argumentsFor(context);
     if (!args) return false;
     return vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
@@ -41,45 +51,46 @@ export class GitMutationRunner {
       await this.service.git(root, args, token);
       if (request.action === 'fetch' || request.action === 'update') this.service.markFetched(root);
       this.service.invalidateCaches(root);
-      await vscode.commands.executeCommand('git.refresh');
+      void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
       return true;
     });
   }
 
-  private async argumentsFor(root: string, request: GitMutationRequest): Promise<string[] | undefined> {
+  private async argumentsFor(context: GitMutationExecutionContext): Promise<string[] | undefined> {
+    const { root, request, snapshot } = context;
     const ref = request.ref ?? request.hash ?? '';
     switch (request.action) {
       case 'fetch': return ['fetch', '--all', '--prune'];
       case 'pull': {
         await this.service.git(root, ['fetch', 'origin']);
-        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
         return sameNameUpdateArgs(plan, 'merge');
       }
       case 'update': {
         await this.service.git(root, ['fetch', 'origin', '--prune']);
-        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
         const strategy = request.options?.strategy === 'reset'
           ? 'reset'
           : request.options?.strategy === 'rebase' ? 'rebase' : 'merge';
         return sameNameUpdateArgs(plan, strategy);
       }
       case 'push': return currentBranchPushArgs(
-        currentBranchPushPlan(await this.service.snapshot(root)),
+        currentBranchPushPlan(snapshot),
         { forceLease: request.options?.forceLease === true, tags: request.options?.tags === true }
       );
-      case 'checkout': return this.checkoutArgs(root, ref, request.options?.detached === true);
+      case 'checkout': return this.checkoutArgs(context, ref, request.options?.detached === true);
       case 'checkoutUpdate': {
-        const checkout = request.options?.remote ? await this.remoteCheckoutArgs(root, ref) : await this.checkoutArgs(root, ref);
+        const checkout = request.options?.remote ? await this.remoteCheckoutArgs(context, ref) : await this.checkoutArgs(context, ref);
         if (!checkout) return undefined;
         await this.service.git(root, checkout);
         await this.service.git(root, ['fetch', 'origin', '--prune']);
-        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
         return sameNameUpdateArgs(plan, request.options?.rebase ? 'rebase' : 'merge');
       }
-      case 'checkoutRemote': return this.remoteCheckoutArgs(root, ref);
+      case 'checkoutRemote': return this.remoteCheckoutArgs(context, ref);
       case 'checkoutRebase': {
         const oldHead = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
-        const checkout = await this.checkoutArgs(root, ref);
+        const checkout = await this.checkoutArgs(context, ref);
         if (!checkout) return undefined;
         await this.service.git(root, checkout);
         return ['rebase', oldHead];
@@ -119,7 +130,7 @@ export class GitMutationRunner {
       }
       case 'pushBranch': return pushNamedBranchArgs(ref, String(request.options?.remote ?? 'origin'));
       case 'updateBranchFromOrigin': {
-        const plan = sameNameRemoteBranchPlan(await this.service.snapshot(root), ref);
+        const plan = sameNameRemoteBranchPlan(snapshot, ref);
         return updateNamedBranchArgs(plan);
       }
       case 'pullInto': return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase', String(request.options?.remote), String(request.options?.branch)];
@@ -151,9 +162,9 @@ export class GitMutationRunner {
     return protectedRemoteMutationPattern(branch, request, patterns);
   }
 
-  private async checkoutArgs(root: string, ref: string, detached = false, track = false): Promise<string[] | undefined> {
+  private async checkoutArgs(context: GitMutationExecutionContext, ref: string, detached = false, track = false): Promise<string[] | undefined> {
+    const { root, snapshot } = context;
     const base = ['switch', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref];
-    const snapshot = await this.service.snapshot(root);
     if (snapshot.operation) throw new Error(`Checkout is blocked while the repository is ${snapshot.operation}. Continue or abort that operation first.`);
     if (!detached && snapshot.head === ref) {
       void vscode.window.showInformationMessage(`${ref} is already checked out.`);
@@ -175,12 +186,12 @@ export class GitMutationRunner {
     return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref] : undefined;
   }
 
-  private async remoteCheckoutArgs(root: string, ref: string): Promise<string[] | undefined> {
-    const snapshot = await this.service.snapshot(root);
+  private async remoteCheckoutArgs(context: GitMutationExecutionContext, ref: string): Promise<string[] | undefined> {
+    const { snapshot } = context;
     const remoteSeparator = ref.indexOf('/');
     const localName = remoteSeparator >= 0 ? ref.slice(remoteSeparator + 1) : ref;
     const localExists = snapshot.refs.some(item => item.kind === 'local' && item.name === localName);
-    return this.checkoutArgs(root, localExists ? localName : ref, false, !localExists);
+    return this.checkoutArgs(context, localExists ? localName : ref, false, !localExists);
   }
 }
 
@@ -188,16 +199,14 @@ async function confirmDestructive(
   root: string,
   request: GitMutationRequest,
   service: GitRepositoryService,
-  branch: string,
-  upstream?: string
+  snapshot: GitRepositorySnapshot
 ): Promise<boolean> {
   const canBackup = supportsBackup(request);
   const choice = await vscode.window.showWarningMessage(
-    destructiveWarning(request, branch, upstream),
+    destructiveWarning(request, snapshot.head, snapshot.upstream),
     { modal: true }, 'Continue', ...(canBackup ? ['Create Backup & Continue'] : [])
   );
   if (choice === 'Create Backup & Continue') {
-    const snapshot = await service.snapshot(root);
     const name = `backup/${snapshot.head}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     await service.git(root, ['branch', name, 'HEAD']);
   }

@@ -274,6 +274,24 @@ test('renders Git Log lane focus, action feedback, and worktree support', () => 
   assert.match(mutations, /case 'worktreePrune'/);
 });
 
+test('reuses mutation state and keeps expensive refresh work off the action critical path', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  assert.match(mutations, /class GitMutationExecutionContext/);
+  assert.match(mutations, /snapshot\(root, undefined, true\)/);
+  assert.match(mutations, /checkoutArgs\(context: GitMutationExecutionContext/);
+  assert.match(mutations, /remoteCheckoutArgs\(context: GitMutationExecutionContext/);
+  assert.doesNotMatch(mutations, /await vscode\.commands\.executeCommand\('git\.refresh'\)/);
+  assert.match(service, /repositoryDiscoveryCache/);
+  assert.match(service, /snapshotInFlight/);
+  assert.match(service, /snapshotGenerations/);
+  assert.match(service, /=== generation/);
+  assert.match(service, /expiresAt: Date\.now\(\) \+ 300/);
+  assert.match(provider, /await this\.refreshRepositoryStatus\(root\)/);
+  assert.match(provider, /void this\.refresh\(\)\.catch/);
+});
+
 test('renders advanced Git Log UX and interactive rebase preview', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   assert.match(source, /data-empty-action="refresh"/);

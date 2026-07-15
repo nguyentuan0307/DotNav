@@ -46,6 +46,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.disposables.push(view.onDidChangeVisibility(() => {
       if (view.visible && this.root) this.localRefreshScheduler.schedule(this.root, 'history');
     }));
+    this.disposables.push(vscode.workspace.onDidChangeWorkspaceFolders(() => this.service.invalidateRepositoryDiscovery()));
     view.webview.html = renderHtml(view.webview);
     this.logDiagnostic('Webview HTML loaded; waiting for ready message.');
     this.configureAutoFetch();
@@ -141,6 +142,10 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
 
+    await this.refreshRepositoryStatus(root);
+  }
+
+  private async refreshRepositoryStatus(root: string): Promise<void> {
     const read = this.beginRead('local-status', root);
     try {
       const [repository, uncommitted] = await Promise.all([
@@ -284,17 +289,22 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     try {
       await runMutationLifecycle(
         async () => { applied = await this.mutations.run(root, request); },
-        async () => { if (this.root === root && this.mutationBusy.pending(root) === 1) await this.refresh(); },
+        async () => { if (this.root === root && this.mutationBusy.pending(root) === 1) await this.refreshRepositoryStatus(root); },
         error => { if (!(error instanceof vscode.CancellationError)) console.error(error); }
       );
       succeeded = true;
     } finally {
       this.activeMutations.leave(mutationKey);
       this.lastInternalMutationAt = Date.now();
-      if (this.mutationBusy.end(root) === 0) this.post({
-        type: 'busy', busy: false, action: request.action, repositoryId: root,
-        durationMs: Date.now() - startedAt, succeeded, applied
-      });
+      if (this.mutationBusy.end(root) === 0) {
+        this.post({
+          type: 'busy', busy: false, action: request.action, repositoryId: root,
+          durationMs: Date.now() - startedAt, succeeded, applied
+        });
+        if (succeeded && applied && this.root === root) {
+          void this.refresh().catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
+        }
+      }
     }
   }
 
@@ -670,7 +680,7 @@ function renderColumnMenu(){const visibleCount=visibleColumns.size;$('columnMenu
 function send(type,data={}){vscode.postMessage({type,...data})}function date(ts){return new Date(ts*1000).toLocaleString()}function commitAge(ts){const seconds=Math.max(0,Math.floor(Date.now()/1000-ts));if(seconds<60)return'now';if(seconds<3600)return Math.floor(seconds/60)+'m ago';if(seconds<86400)return Math.floor(seconds/3600)+'h ago';if(seconds<172800)return'yesterday';if(seconds<604800)return Math.floor(seconds/86400)+' days ago';return new Date(ts*1000).toLocaleDateString()}function actionLabel(action){return String(action||'Git operation').replace(/([A-Z])/g,' $1').toLowerCase()}
 function relativeTime(ms){if(!ms)return'Not fetched this session';const minutes=Math.max(0,Math.round((Date.now()-ms)/60000));return minutes<1?'Fetched just now':'Fetched '+minutes+'m ago'}
 function renderStatusBadges(){const r=state.repository,host=$('repoBadges');if(!r){host.innerHTML='';return}const values=[];if(r.ahead)values.push(['↑ '+r.ahead,r.ahead+' local commit(s) not on the upstream branch','sync-ahead']);if(r.behind)values.push(['↓ '+r.behind,r.behind+' upstream commit(s) not in the local branch','sync-behind']);if(r.changedCount)values.push([r.changedCount+' changed','Working tree files','changed-status']);if(r.detached)values.push(['Detached HEAD','No branch is checked out','operation']);if(r.operation)values.push([r.operation,'Git operation in progress','operation']);values.push([relativeTime(r.lastFetchedAt),'Last successful fetch','fetch-status']);host.innerHTML=values.map(x=>'<span class="repo-badge '+x[2]+'" title="'+esc(x[1])+'">'+esc(x[0])+'</span>').join('')}
-function applyRepositoryStatus(m){state.repository=m.repository;state.uncommitted=m.uncommitted||[];renderStatusBadges();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=state.repository?.operation?'block':'none';$('operation').textContent=state.repository?.operation??'';if(state.showingUncommitted){renderFiles(state.uncommitted,true);$('detail').innerHTML='<div class="message">Uncommitted changes</div>'}}
+function applyRepositoryStatus(m){state.repository=m.repository;state.uncommitted=m.uncommitted||[];const r=state.repository;$('branchName').textContent=r?.detached?'Detached HEAD':r?.head||'No branch';$('branchLock').classList.toggle('visible',!!r&&!r.detached&&protectedBranch(r.head));renderStatusBadges();renderBranches();renderBranchPicker();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';if(state.showingUncommitted){renderFiles(state.uncommitted,true);$('detail').innerHTML='<div class="message">Uncommitted changes</div>'}}
 function activeFilters(){const values=[['authorFilter','Author'],['pathFilter','Path'],['sinceFilter','From'],['untilFilter','To']];const chips=values.filter(([id])=>$(id).value).map(([id,label])=>({id,label:label+': '+$(id).value}));if(state.selectedRef)chips.push({id:'ref',label:'Branch: '+state.selectedRef});if($('regex').checked)chips.push({id:'regex',label:'Regex'});if($('case').checked)chips.push({id:'case',label:'Case'});return chips}
 function renderFilterChips(){$('filterChips').innerHTML=activeFilters().map(x=>'<button class="filter-chip" data-clear-filter="'+x.id+'">'+esc(x.label)+' ×</button>').join('')}
 function requestContext(data){state.contextRequestId++;$('contextMenu').style.display='none';if(!state.busy)send('context',{...data,requestId:state.contextRequestId})}

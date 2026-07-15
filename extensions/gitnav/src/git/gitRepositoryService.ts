@@ -14,10 +14,30 @@ export class GitCommandError extends Error {
 
 export class GitRepositoryService {
   private readonly lastFetched = new Map<string, number>();
+  private repositoryDiscoveryCache?: { readonly expiresAt: number; readonly roots: string[] };
+  private repositoryDiscoveryInFlight?: Promise<string[]>;
+  private readonly snapshotCache = new Map<string, { readonly expiresAt: number; readonly value: GitRepositorySnapshot }>();
+  private readonly snapshotInFlight = new Map<string, Promise<GitRepositorySnapshot>>();
+  private readonly snapshotGenerations = new Map<string, number>();
   private readonly graphSnapshots = new Map<string, GitGraphSnapshot>();
   private readonly logCache = new BoundedCache<GitLogPage>(30);
   private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
-  async discoverRepositories(): Promise<string[]> {
+  async discoverRepositories(force = false): Promise<string[]> {
+    const cached = this.repositoryDiscoveryCache;
+    if (!force && cached && cached.expiresAt > Date.now()) return cached.roots;
+    if (!force && this.repositoryDiscoveryInFlight) return this.repositoryDiscoveryInFlight;
+    const discovery = this.discoverRepositoriesCore();
+    this.repositoryDiscoveryInFlight = discovery;
+    try {
+      const roots = await discovery;
+      this.repositoryDiscoveryCache = { roots, expiresAt: Date.now() + 10_000 };
+      return roots;
+    } finally {
+      if (this.repositoryDiscoveryInFlight === discovery) this.repositoryDiscoveryInFlight = undefined;
+    }
+  }
+
+  private async discoverRepositoriesCore(): Promise<string[]> {
     const roots = vscode.workspace.workspaceFolders ?? [];
     const repositories = new Set<string>();
     await Promise.all(roots.map(async folder => {
@@ -29,7 +49,22 @@ export class GitRepositoryService {
     return [...repositories].sort();
   }
 
-  async snapshot(root: string, token?: vscode.CancellationToken): Promise<GitRepositorySnapshot> {
+  async snapshot(root: string, token?: vscode.CancellationToken, force = false): Promise<GitRepositorySnapshot> {
+    const generation = this.snapshotGenerations.get(root) ?? 0;
+    const cached = this.snapshotCache.get(root);
+    if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
+    if (!force && !token) {
+      const running = this.snapshotInFlight.get(root);
+      if (running) return running;
+      const request = this.snapshotCore(root, undefined, generation);
+      this.snapshotInFlight.set(root, request);
+      try { return await request; }
+      finally { if (this.snapshotInFlight.get(root) === request) this.snapshotInFlight.delete(root); }
+    }
+    return this.snapshotCore(root, token, generation);
+  }
+
+  private async snapshotCore(root: string, token: vscode.CancellationToken | undefined, generation: number): Promise<GitRepositorySnapshot> {
     const [status, refs, stashes, worktrees] = await Promise.all([
       this.git(root, ['status', '--porcelain=v2', '--branch', '-z'], token),
       this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags'], token),
@@ -41,7 +76,7 @@ export class GitRepositoryService {
     const upstream = readStatusHeader(statusFields, '# branch.upstream ');
     const ab = readStatusHeader(statusFields, '# branch.ab ');
     const match = ab ? /\+(\d+)\s+-(\d+)/.exec(ab) : undefined;
-    return {
+    const snapshot = {
       root,
       name: path.basename(root),
       head: branchHead,
@@ -56,6 +91,10 @@ export class GitRepositoryService {
       stashes: parseStashes(stashes.stdout),
       worktrees: parseWorktrees(worktrees.stdout, root)
     };
+    if ((this.snapshotGenerations.get(root) ?? 0) === generation) {
+      this.snapshotCache.set(root, { value: snapshot, expiresAt: Date.now() + 300 });
+    }
+    return snapshot;
   }
 
   async log(root: string, offset: number, limit: number, filter: GitLogFilter, token?: vscode.CancellationToken): Promise<GitLogPage> {
@@ -197,8 +236,14 @@ export class GitRepositoryService {
 
   invalidateCaches(root: string): void {
     const prefix = `${root}\0`;
+    this.snapshotGenerations.set(root, (this.snapshotGenerations.get(root) ?? 0) + 1);
+    this.snapshotCache.delete(root);
     this.logCache.deletePrefix(prefix);
     for (const key of this.graphSnapshots.keys()) if (key.startsWith(prefix)) this.graphSnapshots.delete(key);
+  }
+
+  invalidateRepositoryDiscovery(): void {
+    this.repositoryDiscoveryCache = undefined;
   }
 }
 
