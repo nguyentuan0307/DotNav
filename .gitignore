@@ -22,3 +22,6 @@ Thumbs.db
 *.key
 *.pfx
 *.p12
+
+# Local agent context
+docs/CURRENT_STATE.md
