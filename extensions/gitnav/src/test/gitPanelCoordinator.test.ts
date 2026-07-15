@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CoalescedRefreshRunner, GitRequestCoordinator, InFlightOperationGuard, RepositoryMutationQueue, RepositoryValueStore } from '../git/gitPanelCoordinator';
+import { CoalescedRefreshRunner, GitRequestCoordinator, InFlightOperationGuard, LocalRepositoryRefreshScheduler, RepositoryMutationQueue, RepositoryValueStore } from '../git/gitPanelCoordinator';
 
 test('rejects a stale response superseded on the same channel', () => {
   const coordinator = new GitRequestCoordinator();
@@ -35,6 +35,30 @@ test('keeps active filters isolated per repository and supports clearing', () =>
   assert.deepEqual(filters.get('/repo-b', {}), { refs: ['feature/b'] });
   filters.set('/repo-a', {});
   assert.deepEqual(filters.get('/repo-a', { refs: ['fallback'] }), {});
+});
+
+test('coalesces local Git events per repository and keeps history refresh priority', async () => {
+  const events: Array<{ root: string; kind: string }> = [];
+  const scheduler = new LocalRepositoryRefreshScheduler((root, kind) => events.push({ root, kind }), 5);
+  scheduler.schedule('/repo-a', 'status');
+  scheduler.schedule('/repo-a', 'history');
+  scheduler.schedule('/repo-a', 'status');
+  scheduler.schedule('/repo-b', 'status');
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.deepEqual(events, [
+    { root: '/repo-a', kind: 'history' },
+    { root: '/repo-b', kind: 'status' }
+  ]);
+  scheduler.dispose();
+});
+
+test('cancels pending local Git refreshes when disposed', async () => {
+  let calls = 0;
+  const scheduler = new LocalRepositoryRefreshScheduler(() => calls++, 5);
+  scheduler.schedule('/repo', 'history');
+  scheduler.dispose();
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(calls, 0);
 });
 
 test('serializes mutations per repository and recovers after failure', async () => {

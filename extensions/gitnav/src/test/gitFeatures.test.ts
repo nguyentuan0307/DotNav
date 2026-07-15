@@ -329,6 +329,19 @@ test('preserves repository-specific log filters across full refreshes', () => {
   assert.doesNotMatch(source, /this\.service\.log\(this\.root, 0, 200, \{\}/);
 });
 
+test('synchronizes local Git events without fetching on panel visibility', () => {
+  const extension = readFileSync(path.join(__dirname, '..', '..', 'src', 'extension.ts'), 'utf8');
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const sync = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLocalSync.ts'), 'utf8');
+  assert.match(extension, /subscribeToBuiltInGitChanges/);
+  assert.match(sync, /getExtension<GitExtensionExports>\('vscode\.git'\)/);
+  assert.match(sync, /repository\.state\.onDidChange/);
+  assert.match(provider, /view\.onDidChangeVisibility/);
+  assert.match(provider, /type: 'repositoryStatus'/);
+  assert.match(provider, /packed-refs/);
+  assert.doesNotMatch(provider, /onDidChangeVisibility[\s\S]{0,200}fetch/);
+});
+
 test('subscribes to Git Log messages before loading webview HTML', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   const resolver = source.slice(source.indexOf('resolveWebviewView('), source.indexOf('async refresh()'));

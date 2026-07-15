@@ -1,4 +1,5 @@
 export type GitReadChannel = string;
+export type LocalRefreshKind = 'status' | 'history';
 
 export interface GitRequestIdentity {
   readonly repositoryId: string;
@@ -56,6 +57,31 @@ export class RepositoryValueStore<T> {
 
   set(repositoryId: string, value: T): void {
     this.values.set(repositoryId, value);
+  }
+}
+
+export class LocalRepositoryRefreshScheduler {
+  private readonly pending = new Map<string, { kind: LocalRefreshKind; timer: NodeJS.Timeout }>();
+
+  constructor(
+    private readonly callback: (root: string, kind: LocalRefreshKind) => void,
+    private readonly delayMs = 180
+  ) {}
+
+  schedule(root: string, kind: LocalRefreshKind): void {
+    const existing = this.pending.get(root);
+    if (existing) clearTimeout(existing.timer);
+    const effectiveKind = existing?.kind === 'history' || kind === 'history' ? 'history' : 'status';
+    const timer = setTimeout(() => {
+      this.pending.delete(root);
+      this.callback(root, effectiveKind);
+    }, this.delayMs);
+    this.pending.set(root, { kind: effectiveKind, timer });
+  }
+
+  dispose(): void {
+    for (const pending of this.pending.values()) clearTimeout(pending.timer);
+    this.pending.clear();
   }
 }
 

@@ -7,8 +7,9 @@ import { mapWorktreeRangeToHead } from './git/lineMapping';
 import { GitLogViewProvider } from './git/gitLogViewProvider';
 import { GitRepositoryService } from './git/gitRepositoryService';
 import { GitRevisionProvider, gitRevisionScheme } from './git/gitRevisionProvider';
+import { subscribeToBuiltInGitChanges } from './git/gitLocalSync';
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const branchCompareProvider = new BranchCompareDocumentProvider();
   const repositoryService = new GitRepositoryService();
   const gitLogProvider = new GitLogViewProvider(repositoryService, context.extensionUri);
@@ -31,6 +32,15 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     })
   );
+
+  try {
+    const gitEvents = await subscribeToBuiltInGitChanges((root, kind) => {
+      gitLogProvider.scheduleLocalRepositoryChange(root, kind);
+    });
+    if (gitEvents) context.subscriptions.push(gitEvents);
+  } catch (error) {
+    console.warn(`GitNav could not subscribe to the built-in Git extension: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
