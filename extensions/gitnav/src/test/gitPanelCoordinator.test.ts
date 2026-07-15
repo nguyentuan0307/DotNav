@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CoalescedRefreshRunner, GitRequestCoordinator, InFlightOperationGuard, RepositoryMutationQueue } from '../git/gitPanelCoordinator';
+import { CoalescedRefreshRunner, GitRequestCoordinator, InFlightOperationGuard, RepositoryMutationQueue, RepositoryValueStore } from '../git/gitPanelCoordinator';
 
 test('rejects a stale response superseded on the same channel', () => {
   const coordinator = new GitRequestCoordinator();
@@ -16,6 +16,25 @@ test('rejects responses from a previous repository or generation', () => {
   assert.equal(coordinator.isCurrent('log', request, '/repo-b'), false);
   coordinator.invalidate('/repo-a');
   assert.equal(coordinator.isCurrent('log', request, '/repo-a'), false);
+});
+
+test('recognizes only the latest filter generation for the selected repository', () => {
+  const coordinator = new GitRequestCoordinator();
+  const current = coordinator.begin('log:0', '/repo', 2);
+  const stale = coordinator.begin('log:0', '/repo', 1);
+  assert.equal(coordinator.isGenerationCurrent(current, '/repo'), true);
+  assert.equal(coordinator.isGenerationCurrent(stale, '/repo'), false);
+  assert.equal(coordinator.isGenerationCurrent(current, '/other'), false);
+});
+
+test('keeps active filters isolated per repository and supports clearing', () => {
+  const filters = new RepositoryValueStore<{ refs?: string[] }>();
+  filters.set('/repo-a', { refs: ['feature/a'] });
+  filters.set('/repo-b', { refs: ['feature/b'] });
+  assert.deepEqual(filters.get('/repo-a', {}), { refs: ['feature/a'] });
+  assert.deepEqual(filters.get('/repo-b', {}), { refs: ['feature/b'] });
+  filters.set('/repo-a', {});
+  assert.deepEqual(filters.get('/repo-a', { refs: ['fallback'] }), {});
 });
 
 test('serializes mutations per repository and recovers after failure', async () => {

@@ -34,11 +34,28 @@ export class GitRequestCoordinator {
       && (this.generations.get(identity.repositoryId) ?? 0) === identity.generation;
   }
 
+  isGenerationCurrent(identity: GitRequestIdentity, selectedRepositoryId: string | undefined): boolean {
+    return selectedRepositoryId === identity.repositoryId
+      && (this.generations.get(identity.repositoryId) ?? 0) === identity.generation;
+  }
+
   invalidate(repositoryId: string): void {
     this.advance(repositoryId);
     for (const [channel, identity] of this.active) {
       if (identity.repositoryId === repositoryId) this.active.delete(channel);
     }
+  }
+}
+
+export class RepositoryValueStore<T> {
+  private readonly values = new Map<string, T>();
+
+  get(repositoryId: string, fallback: T): T {
+    return this.values.get(repositoryId) ?? fallback;
+  }
+
+  set(repositoryId: string, value: T): void {
+    this.values.set(repositoryId, value);
   }
 }
 

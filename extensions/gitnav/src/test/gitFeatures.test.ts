@@ -319,6 +319,16 @@ test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('preserves repository-specific log filters across full refreshes', () => {
+  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  assert.match(source, /activeFilters\.get\(this\.root, \{\}\)/);
+  assert.match(source, /this\.service\.log\(this\.root, 0, 200, activeFilter/);
+  assert.match(source, /activeFilter, generation:/);
+  assert.match(source, /activeFilters\.set\(this\.root, filter\)/);
+  assert.match(source, /state\.selectedRef=f\.refs\?\.\[0\]/);
+  assert.doesNotMatch(source, /this\.service\.log\(this\.root, 0, 200, \{\}/);
+});
+
 test('subscribes to Git Log messages before loading webview HTML', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   const resolver = source.slice(source.indexOf('resolveWebviewView('), source.indexOf('async refresh()'));

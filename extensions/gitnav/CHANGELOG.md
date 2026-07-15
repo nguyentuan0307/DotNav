@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 * keep push, pull, update, and branch synchronization pinned to the same-named origin branch
+* preserve branch and search filters when Git history refreshes after mutations
 
 ## [0.4.4](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.3...gitnav-v0.4.4) (2026-07-15)
 
