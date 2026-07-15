@@ -127,10 +127,11 @@ export class GitRepositoryService {
 
   async publishedCommits(root: string, hashes: string[]): Promise<string[]> {
     const snapshot = await this.snapshot(root);
-    if (!snapshot.upstream) return [];
+    const remoteBranch = `origin/${snapshot.head}`;
+    if (snapshot.detached || !snapshot.refs.some(ref => ref.kind === 'remote' && ref.name === remoteBranch)) return [];
     const published: string[] = [];
     for (const hash of hashes) {
-      const result = await runGit(root, ['merge-base', '--is-ancestor', hash, snapshot.upstream]);
+      const result = await runGit(root, ['merge-base', '--is-ancestor', hash, remoteBranch]);
       if (result.exitCode === 0) published.push(hash);
     }
     return published;

@@ -7,6 +7,7 @@ import { isActionAllowedDuringOperation, operationArguments } from './gitOperati
 import { runGit } from './gitCli';
 import { runInteractiveRebase } from './gitInteractiveRebase';
 import { GitRebasePlanItem } from './gitPanelModels';
+import { currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs } from './gitPush';
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
@@ -49,23 +50,31 @@ export class GitMutationRunner {
     const ref = request.ref ?? request.hash ?? '';
     switch (request.action) {
       case 'fetch': return ['fetch', '--all', '--prune'];
-      case 'pull': return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase'];
-      case 'update': {
-        await this.service.git(root, ['fetch', '--all', '--prune']);
-        if (request.options?.strategy === 'reset') {
-          const snapshot = await this.service.snapshot(root);
-          if (!snapshot.upstream) throw new Error('The current branch has no upstream branch.');
-          return ['reset', '--hard', snapshot.upstream];
-        }
-        return ['pull', request.options?.strategy === 'rebase' ? '--rebase' : '--no-rebase'];
+      case 'pull': {
+        await this.service.git(root, ['fetch', 'origin']);
+        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        return sameNameUpdateArgs(plan, 'merge');
       }
-      case 'push': return ['push', ...(request.options?.forceLease ? ['--force-with-lease'] : []), ...(request.options?.tags ? ['--tags'] : [])];
+      case 'update': {
+        await this.service.git(root, ['fetch', 'origin', '--prune']);
+        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        const strategy = request.options?.strategy === 'reset'
+          ? 'reset'
+          : request.options?.strategy === 'rebase' ? 'rebase' : 'merge';
+        return sameNameUpdateArgs(plan, strategy);
+      }
+      case 'push': return currentBranchPushArgs(
+        currentBranchPushPlan(await this.service.snapshot(root)),
+        { forceLease: request.options?.forceLease === true, tags: request.options?.tags === true }
+      );
       case 'checkout': return this.checkoutArgs(root, ref, request.options?.detached === true);
       case 'checkoutUpdate': {
         const checkout = request.options?.remote ? await this.remoteCheckoutArgs(root, ref) : await this.checkoutArgs(root, ref);
         if (!checkout) return undefined;
         await this.service.git(root, checkout);
-        return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase'];
+        await this.service.git(root, ['fetch', 'origin', '--prune']);
+        const plan = currentBranchPushPlan(await this.service.snapshot(root));
+        return sameNameUpdateArgs(plan, request.options?.rebase ? 'rebase' : 'merge');
       }
       case 'checkoutRemote': return this.remoteCheckoutArgs(root, ref);
       case 'checkoutRebase': {
@@ -108,8 +117,11 @@ export class GitMutationRunner {
         }
         return ['tag', '-d', ref];
       }
-      case 'pushBranch': return ['push', '-u', String(request.options?.remote ?? 'origin'), ref];
-      case 'updateBranchFromOrigin': return ['fetch', String(request.options?.remote ?? 'origin'), `${String(request.options?.remoteBranch)}:${ref}`];
+      case 'pushBranch': return pushNamedBranchArgs(ref, String(request.options?.remote ?? 'origin'));
+      case 'updateBranchFromOrigin': {
+        const plan = sameNameRemoteBranchPlan(await this.service.snapshot(root), ref);
+        return updateNamedBranchArgs(plan);
+      }
       case 'pullInto': return ['pull', request.options?.rebase ? '--rebase' : '--no-rebase', String(request.options?.remote), String(request.options?.branch)];
       case 'dropCommit': return ['rebase', '--onto', `${ref}^`, ref, 'HEAD'];
       case 'rollbackFile': return ['restore', '--staged', '--worktree', '--', String(request.path)];

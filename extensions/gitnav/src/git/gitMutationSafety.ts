@@ -38,7 +38,7 @@ export function destructiveWarning(request: GitMutationRequest, branch: string, 
     return `Reset ${branch} to ${target} (${mode})? ${effect[mode] ?? effect.mixed}`;
   }
   if (request.action === 'update' && request.options?.strategy === 'reset') {
-    return `Reset ${branch} to ${upstream ?? 'its upstream branch'} (hard)? Local commits and all tracked working tree changes will be permanently discarded.`;
+    return `Reset ${branch} to ${request.options?.destination ?? upstream ?? 'its same-named origin branch'} (hard)? Local commits and all tracked working tree changes will be permanently discarded.`;
   }
   const detail: Record<string, string> = {
     deleteRemote: `Remote branch ${request.ref} will be deleted for every collaborator.`,

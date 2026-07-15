@@ -36,8 +36,9 @@ test('describes each reset mode accurately', () => {
 });
 
 test('confirms and offers backup for reset-to-upstream', () => {
-  const request = { action: 'update', options: { strategy: 'reset' } };
+  const request = { action: 'update', options: { strategy: 'reset', destination: 'origin/feature/a' } };
   assert.equal(requiresDestructiveConfirmation(request), true);
   assert.equal(supportsBackup(request), true);
-  assert.match(destructiveWarning(request, 'main', 'origin/main'), /origin\/main/);
+  assert.match(destructiveWarning(request, 'feature/a', 'origin/main'), /origin\/feature\/a/);
+  assert.doesNotMatch(destructiveWarning(request, 'feature/a', 'origin/main'), /origin\/main/);
 });

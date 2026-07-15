@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+* keep push, pull, update, and branch synchronization pinned to the same-named origin branch
+
 ## [0.4.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.2...gitnav-v0.4.3) (2026-07-15)
 
 

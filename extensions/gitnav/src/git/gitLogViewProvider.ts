@@ -4,6 +4,7 @@ import { GitLogFilter, GitRebasePlanItem } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
 import { revisionUri } from './gitRevisionProvider';
 import { GitMutationRunner } from './gitMutationRunner';
+import { currentBranchPushPlan } from './gitPush';
 import { GitMutationRequest } from './gitPanelModels';
 import { CoalescedRefreshRunner, GitReadChannel, GitRequestCoordinator, GitRequestIdentity, InFlightOperationGuard } from './gitPanelCoordinator';
 import { classifyGitError } from './gitErrorRecovery';
@@ -380,38 +381,49 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const branch = snapshot.refs.find(item => item.kind === 'local' && item.name === message.ref);
       if (!branch) throw new Error(`Local branch ${message.ref} was not found.`);
       if (branch.current) throw new Error('Use Update for the current branch.');
-      const upstream = branch.upstream ?? `origin/${branch.name}`;
-      const remoteExists = snapshot.refs.some(item => item.kind === 'remote' && item.name === upstream);
-      if (!remoteExists) throw new Error(`${branch.name} has no matching origin branch.`);
-      const [remote, ...remoteBranchParts] = upstream.split('/');
-      const remoteBranch = remoteBranchParts.join('/');
+      const remoteBranch = `origin/${branch.name}`;
+      const remoteExists = snapshot.refs.some(item => item.kind === 'remote' && item.name === remoteBranch);
+      if (!remoteExists) throw new Error(`${remoteBranch} does not exist.`);
       const choice = await vscode.window.showWarningMessage(
-        `Update local branch ${branch.name} from ${upstream} without checkout? This only succeeds when Git can fast-forward the local branch.`,
+        `Update local branch ${branch.name} from ${remoteBranch} without checkout? This only succeeds when Git can fast-forward the local branch.`,
         { modal: true }, 'Update Branch');
-      return choice === 'Update Branch' ? { action, ref: branch.name, options: { remote, remoteBranch } } : undefined;
+      return choice === 'Update Branch' ? { action, ref: branch.name } : undefined;
     }
     if (action === 'renameBranch') {
       const name = await vscode.window.showInputBox({ title: `Rename ${message.ref}`, prompt: 'New branch name', value: message.ref, validateInput: validateRefName });
       return name ? { action, ref: message.ref, options: { name } } : undefined;
     }
     if (action === 'checkoutUpdate') {
-      const strategy = await vscode.window.showQuickPick([{ label: 'Merge', rebase: false }, { label: 'Rebase', rebase: true }], { title: `Checkout and Update ${message.ref}` });
+      const localBranch = message.kind === 'remote' ? (message.ref ?? '').split('/').slice(1).join('/') : message.ref;
+      const strategy = await vscode.window.showQuickPick([
+        { label: 'Merge', description: `from origin/${localBranch}`, rebase: false },
+        { label: 'Rebase', description: `onto origin/${localBranch}`, rebase: true }
+      ], { title: `Checkout and Update ${message.ref}` });
       return strategy ? { action, ref: message.ref, options: { rebase: strategy.rebase, remote: message.kind === 'remote' } } : undefined;
     }
     if (action === 'update') {
+      const snapshot = await this.service.snapshot(this.root!);
+      const destination = `origin/${snapshot.head}`;
       const strategy = await vscode.window.showQuickPick([
-        { label: 'Merge', value: 'merge' }, { label: 'Rebase', value: 'rebase' },
-        { label: 'Reset to Remote Branch', description: 'Discards local commits and changes', value: 'reset' }
-      ], { title: 'Update Project Strategy' });
+        { label: 'Merge', description: `Merge ${destination}`, value: 'merge' },
+        { label: 'Rebase', description: `Rebase onto ${destination}`, value: 'rebase' },
+        { label: 'Reset to Remote Branch', description: `Hard reset to ${destination}; discards local commits and changes`, value: 'reset' }
+      ], { title: `Update ${snapshot.head} from Same-Named Origin Branch` });
       if (!strategy) return undefined;
-      return { action, options: { strategy: strategy.value } };
+      return { action, options: { strategy: strategy.value, destination } };
     }
     if (action === 'push') {
       const snapshot = await this.service.snapshot(this.root!);
-      const outgoing = snapshot.upstream ? await this.service.commitsInRange(this.root!, `${snapshot.upstream}..HEAD`, 50) : [];
+      const pushPlan = currentBranchPushPlan(snapshot);
+      const outgoing = pushPlan.remoteBranchExists
+        ? await this.service.commitsInRange(this.root!, `${pushPlan.destination}..HEAD`, 50)
+        : [];
+      const destinationDescription = pushPlan.remoteBranchExists
+        ? pushPlan.destination
+        : `${pushPlan.destination} · new remote branch`;
       const forceLease = await vscode.window.showQuickPick([
-        { label: 'Push', value: false, description: `${snapshot.upstream ?? 'Configured upstream'} · ${outgoing.length} outgoing commit(s)`, detail: outgoing.slice(0, 5).map(commit => `${commit.shortHash} ${commit.subject}`).join('\n') },
-        { label: 'Force with Lease', value: true, description: 'Rewrites the remote only if it has not changed' }
+        { label: 'Push', value: false, description: `${destinationDescription} · ${outgoing.length} outgoing commit(s)`, detail: outgoing.slice(0, 5).map(commit => `${commit.shortHash} ${commit.subject}`).join('\n') },
+        { label: 'Force with Lease', value: true, description: `Safely rewrite ${pushPlan.destination} only if it has not changed` }
       ], { title: 'Push Current Branch' });
       if (!forceLease) return undefined;
       const tags = await vscode.window.showQuickPick([{ label: 'Branch only', value: false }, { label: 'Include tags', value: true }], { title: 'Push Tags' });
