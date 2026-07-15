@@ -8,6 +8,13 @@
 * preserve branch and search filters when Git history refreshes after mutations
 * synchronize local commits, branch changes, and working tree state through VS Code Git events
 
+## [0.5.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.0...gitnav-v0.5.1) (2026-07-15)
+
+
+### Performance Improvements
+
+* **gitnav:** lazy load graph history ([103ba4f](https://github.com/nguyentuan0307/DotNav/commit/103ba4f2a557a51a964d5c78e21838c299409901))
+
 ## [0.5.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.4...gitnav-v0.5.0) (2026-07-15)
 
 
