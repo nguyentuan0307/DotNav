@@ -3,3 +3,22 @@ out/
 .vscode-test/
 *.vsix
 dist/
+
+# Local editor and build state
+.vs/
+.idea/
+coverage/
+*.log
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12

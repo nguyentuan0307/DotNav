@@ -8,7 +8,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/extensions/dotnav",
         "--extensionDevelopmentPath=${workspaceFolder}/extensions/gitnav",
-        "D:\\VibingCode\\DotnetNavigatorSample"
+        "${workspaceFolder}"
       ],
       "outFiles": [
         "${workspaceFolder}/extensions/*/out/**/*.js"
