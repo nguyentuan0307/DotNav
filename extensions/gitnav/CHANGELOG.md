@@ -6,6 +6,14 @@
 
 * keep push, pull, update, and branch synchronization pinned to the same-named origin branch
 
+## [0.4.4](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.3...gitnav-v0.4.4) (2026-07-15)
+
+
+### Bug Fixes
+
+* **gitnav:** keep graph visible while scrolling ([252d4cf](https://github.com/nguyentuan0307/DotNav/commit/252d4cf74c99b189deec50ef053df8cdfee9e67d))
+* **gitnav:** pin remote actions to matching branches ([e77e081](https://github.com/nguyentuan0307/DotNav/commit/e77e081db5957253322bd20517e08e3b799a496e))
+
 ## [0.4.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.2...gitnav-v0.4.3) (2026-07-15)
 
 
