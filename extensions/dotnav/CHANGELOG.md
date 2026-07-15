@@ -8,13 +8,6 @@ All notable changes to DotNav are documented here.
 
 * build folder projects in one parallel MSBuild session with a configurable worker limit
 
-## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.2...dotnav-v0.4.0) (2026-07-15)
-
-
-### Features
-
-* **dotnav:** parallelize folder builds ([51eb1d8](https://github.com/nguyentuan0307/DotNav/commit/51eb1d8362d9bf35af95cb1b826e543e46e4d98c))
-
 ## [0.3.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.1...dotnav-v0.3.2) (2026-07-15)
 
 
