@@ -260,7 +260,8 @@ test('renders Git Log lane focus, action feedback, and worktree support', () => 
   assert.match(provider, /path:item\.dataset\.path/);
   assert.doesNotMatch(provider, /e\.key==='ArrowDown'\|\|e\.key==='ArrowUp'/);
   assert.match(service, /worktree', 'list', '--porcelain'/);
-  assert.match(service, /logCountCache/);
+  assert.doesNotMatch(service, /rev-list', '--count/);
+  assert.match(service, /`--max-count=\$\{limit \+ 1\}`/);
   assert.doesNotMatch(service, /detailCache\.deletePrefix/);
   assert.match(service, /export function parseWorktrees/);
   assert.match(mutations, /case 'worktreeAdd'/);

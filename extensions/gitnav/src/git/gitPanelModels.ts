@@ -104,7 +104,6 @@ export interface GitLogFilter {
 export interface GitLogPage {
   readonly commits: GitCommitSummary[];
   readonly offset: number;
-  readonly total: number;
   readonly hasMore: boolean;
 }
 

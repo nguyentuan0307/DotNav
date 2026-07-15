@@ -16,7 +16,6 @@ export class GitRepositoryService {
   private readonly lastFetched = new Map<string, number>();
   private readonly graphSnapshots = new Map<string, GitGraphSnapshot>();
   private readonly logCache = new BoundedCache<GitLogPage>(30);
-  private readonly logCountCache = new BoundedCache<number>(30);
   private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
   async discoverRepositories(): Promise<string[]> {
     const roots = vscode.workspace.workspaceFolders ?? [];
@@ -74,19 +73,10 @@ export class GitRepositoryService {
     const cacheKey = `${root}\0${offset}\0${limit}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
     const cached = this.logCache.get(cacheKey);
     if (cached) return cached;
-    const countKey = `${root}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
-    const cachedCount = this.logCountCache.get(countKey);
-    const [records, total] = await Promise.all([
-      this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit}`, ...shared, ...tail], token),
-      cachedCount !== undefined
-        ? Promise.resolve(cachedCount)
-        : this.git(root, ['rev-list', '--count', ...shared, ...tail], token).then(result => {
-          const value = Number(result.stdout.trim()) || 0;
-          this.logCountCache.set(countKey, value);
-          return value;
-        })
-    ]);
-    const parsed = parseLog(records.stdout);
+    const records = await this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit + 1}`, ...shared, ...tail], token);
+    const parsedWithLookahead = parseLog(records.stdout);
+    const hasMore = parsedWithLookahead.length > limit;
+    const parsed = parsedWithLookahead.slice(0, limit);
     const graphKey = `${root}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
     if (offset === 0) {
       for (const key of [...this.graphSnapshots.keys()]) if (key.startsWith(`${graphKey}\0`)) this.graphSnapshots.delete(key);
@@ -94,7 +84,7 @@ export class GitRepositoryService {
     const layout = computeGraphLayout(parsed, this.graphSnapshots.get(`${graphKey}\0${offset}`));
     this.graphSnapshots.set(`${graphKey}\0${offset + parsed.length}`, layout.snapshot);
     const commits = parsed.map(commit => ({ ...commit, lane: layout.lanes[commit.hash] }));
-    const page = { commits, offset, total, hasMore: offset + commits.length < total };
+    const page = { commits, offset, hasMore };
     this.logCache.set(cacheKey, page);
     return page;
   }
@@ -208,7 +198,6 @@ export class GitRepositoryService {
   invalidateCaches(root: string): void {
     const prefix = `${root}\0`;
     this.logCache.deletePrefix(prefix);
-    this.logCountCache.deletePrefix(prefix);
     for (const key of this.graphSnapshots.keys()) if (key.startsWith(prefix)) this.graphSnapshots.delete(key);
   }
 }
