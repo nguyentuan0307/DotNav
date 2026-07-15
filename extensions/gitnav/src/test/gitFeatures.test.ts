@@ -248,6 +248,11 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /\.item\.viewing/);
   assert.match(source, /class="filter-chips"/);
   assert.match(source, /state\.selectedRef=item\.dataset\.ref;renderBranches\(\)/);
+  assert.match(source, /BRANCH_SEARCH_DELAY=120,BRANCH_SEARCH_LIMIT=200/);
+  assert.match(source, /clearTimeout\(branchSearchTimer\)/);
+  assert.match(source, /cancelAnimationFrame\(branchSearchFrame\)/);
+  assert.match(source, /generation!==branchSearchGeneration/);
+  assert.match(source, /branchSearch'\)\.oninput=scheduleBranchSearch/);
 });
 
 test('renders Git Log lane focus, action feedback, and worktree support', () => {
