@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.2...gitnav-v0.4.3) (2026-07-15)
+
+
+### Bug Fixes
+
+* publish refreshed DotNav and GitNav icons ([0ba630a](https://github.com/nguyentuan0307/DotNav/commit/0ba630a5d0add533f584e4b2b96d26d35d4c6798))
+
 ## [0.4.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.4.1...gitnav-v0.4.2) (2026-07-14)
 
 

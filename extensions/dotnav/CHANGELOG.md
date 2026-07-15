@@ -2,6 +2,13 @@
 
 All notable changes to DotNav are documented here.
 
+## [0.3.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.1...dotnav-v0.3.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* publish refreshed DotNav and GitNav icons ([0ba630a](https://github.com/nguyentuan0307/DotNav/commit/0ba630a5d0add533f584e4b2b96d26d35d4c6798))
+
 ## [0.3.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.0...dotnav-v0.3.1) (2026-07-13)
 
 
