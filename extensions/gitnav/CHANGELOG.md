@@ -8,6 +8,13 @@
 * preserve branch and search filters when Git history refreshes after mutations
 * synchronize local commits, branch changes, and working tree state through VS Code Git events
 
+## [0.5.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.1...gitnav-v0.5.2) (2026-07-15)
+
+
+### Performance Improvements
+
+* **gitnav:** debounce branch search ([030f88c](https://github.com/nguyentuan0307/DotNav/commit/030f88c6f9e5bb08d85453c79cfb8bae7f9771f5))
+
 ## [0.5.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.0...gitnav-v0.5.1) (2026-07-15)
 
 
