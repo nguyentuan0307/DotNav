@@ -9,6 +9,7 @@ GitNav brings clear visual Git history and safer Git workflows directly into Vis
 
 GitNav is standalone: it works in any Git repository and does not require .NET or C#.
 Install GitNav directly when you only need Git history, comparisons, and guarded branch workflows without the full DotNav .NET workspace experience.
+Marketplace releases are produced from the protected release branch after the promotion PR is merged.
 
 ## Why GitNav?
 
