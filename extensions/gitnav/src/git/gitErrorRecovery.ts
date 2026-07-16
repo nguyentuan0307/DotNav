@@ -15,6 +15,12 @@ export class GitRecoveryAction {
   ) {}
 }
 
+export function shouldAutoSkipEmptyCherryPick(message: string, action: string, operation?: string): boolean {
+  return action === 'cherryPick'
+    && operation === 'CHERRY-PICKING'
+    && /previous cherry-pick is now empty|cherry-pick.*empty/i.test(message);
+}
+
 export function classifyGitError(message: string, action?: string): GitErrorRecovery | undefined {
   if (/previous cherry-pick is now empty|cherry-pick.*empty/i.test(message)) {
     return {

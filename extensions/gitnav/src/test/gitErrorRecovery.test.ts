@@ -1,6 +1,14 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { classifyGitError } from '../git/gitErrorRecovery';
+import { classifyGitError, shouldAutoSkipEmptyCherryPick } from '../git/gitErrorRecovery';
+
+test('auto-skips only an empty in-progress cherry-pick', () => {
+  const empty = 'The previous cherry-pick is now empty, possibly due to conflict resolution.';
+  assert.equal(shouldAutoSkipEmptyCherryPick(empty, 'cherryPick', 'CHERRY-PICKING'), true);
+  assert.equal(shouldAutoSkipEmptyCherryPick(empty, 'cherryPick', undefined), false);
+  assert.equal(shouldAutoSkipEmptyCherryPick(empty, 'revert', 'CHERRY-PICKING'), false);
+  assert.equal(shouldAutoSkipEmptyCherryPick('CONFLICT (content)', 'cherryPick', 'CHERRY-PICKING'), false);
+});
 
 test('offers recovery actions for an empty cherry-pick', () => {
   const recovery = classifyGitError('The previous cherry-pick is now empty, possibly due to conflict resolution.');

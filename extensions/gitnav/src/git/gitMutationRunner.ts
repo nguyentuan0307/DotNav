@@ -10,6 +10,7 @@ import { GitRebasePlanItem } from './gitPanelModels';
 import { currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs } from './gitPush';
 import { actionConfirmationLabel, actionLabel, actionProgress } from './gitActionPolicy';
 import { prepareRecoveredPush } from './gitPushRecovery';
+import { shouldAutoSkipEmptyCherryPick } from './gitErrorRecovery';
 
 class GitMutationExecutionContext {
   constructor(
@@ -51,7 +52,16 @@ export class GitMutationRunner {
       title: `Git: ${actionLabel(request.action)}`,
       cancellable: progress === 'notification'
     }, async (_progress, token) => {
-      await this.service.git(root, args, token);
+      try {
+        await this.service.git(root, args, token);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failedSnapshot = request.action === 'cherryPick'
+          ? await this.service.snapshot(root, undefined, true)
+          : undefined;
+        if (!shouldAutoSkipEmptyCherryPick(message, request.action, failedSnapshot?.operation)) throw error;
+        await this.service.git(root, ['cherry-pick', '--skip'], token);
+      }
       if (request.action === 'fetch' || request.action === 'update') this.service.markFetched(root);
       this.service.invalidateCaches(root);
       void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
