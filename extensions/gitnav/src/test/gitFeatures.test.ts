@@ -343,6 +343,12 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /function closeContextMenus\(/);
   assert.match(source, /Push Recovery Settings…/);
   assert.match(source, /Remember this choice for this repository/);
+  assert.match(source, /recovery\.actions\.slice\(0,2\)/);
+  assert.match(source, /function renderOperationBanner\(/);
+  assert.match(source, /Resetting will permanently drop them/);
+  assert.match(source, /action: 'checkoutRemoteReset'/);
+  assert.match(source, /Branch .* already exists/);
+  assert.match(source, /Tag .* already exists/);
   assert.match(source, /querySelectorAll\('\.file'\)/);
   assert.doesNotMatch(source, /state\.selectedFilePath=file\.dataset\.path;renderFiles/);
   assert.match(source, /item\.group==='danger'/);

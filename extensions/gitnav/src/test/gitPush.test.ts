@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs,
-  sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs
+  resetLocalBranchToRemoteCommands, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs
 } from '../git/gitPush';
 import { GitRepositorySnapshot } from '../git/gitPanelModels';
 
@@ -79,5 +79,14 @@ test('uses full same-name refspecs for a selected local branch', () => {
   assert.deepEqual(updateNamedBranchArgs(plan), [
     'fetch', 'origin',
     'refs/heads/feature/nested/name:refs/heads/feature/nested/name'
+  ]);
+});
+
+test('resets an existing local branch to its remote without backup', () => {
+  assert.deepEqual(resetLocalBranchToRemoteCommands('feature', 'develop', 'origin/develop', true), [
+    ['clean', '-fd'], ['switch', '--discard-changes', 'develop'], ['reset', '--hard', 'origin/develop'], ['status', '--short']
+  ]);
+  assert.deepEqual(resetLocalBranchToRemoteCommands('develop', 'develop', 'origin/develop'), [
+    ['reset', '--hard', 'origin/develop'], ['status', '--short']
   ]);
 });
