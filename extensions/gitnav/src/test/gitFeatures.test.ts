@@ -328,6 +328,9 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /aria-expanded="false"/);
   assert.match(source, />Fetch<\/span>/);
   assert.match(source, />Push<\/span>/);
+  assert.match(source, /updateButton\.dataset\.action='update'/);
+  assert.match(source, /Update current branch/);
+  assert.match(source, /have diverged\.`?, \{ modal: true \}/);
   assert.doesNotMatch(source, />New Branch<\/button>/);
   assert.match(source, /Update from Origin/);
   assert.match(source, /updateBranchFromOrigin/);
@@ -353,6 +356,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /action: 'checkoutRemoteReset'/);
   assert.match(source, /Branch .* already exists/);
   assert.match(source, /Tag .* already exists/);
+  assert.match(source, /state\.fileMode==='flat'\?folder\+old:old/);
+  assert.match(source, /f\.additions\?'<span class="file-add">/);
   assert.match(source, /querySelectorAll\('\.file'\)/);
   assert.doesNotMatch(source, /state\.selectedFilePath=file\.dataset\.path;renderFiles/);
   assert.match(source, /item\.group==='danger'/);

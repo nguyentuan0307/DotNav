@@ -29,7 +29,7 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   pull: new GitActionPresentation('Pull', 'Pull', 'normal', 'status'),
   update: new GitActionPresentation('Update Branch', 'Update Branch', 'normal', 'status'),
   push: new GitActionPresentation('Push', 'Push', 'normal', 'status'),
-  pushAfterUpdate: new GitActionPresentation('Update and Push', 'Update and Push', 'normal', 'toast'),
+  pushAfterUpdate: new GitActionPresentation('Update and Push', 'Update and Push', 'normal', 'status'),
   pushBranch: new GitActionPresentation('Push Branch', 'Push Branch', 'normal', 'status'),
   checkout: new GitActionPresentation('Checkout', 'Checkout', 'normal', 'status'),
   checkoutRemote: new GitActionPresentation('Checkout Tracking Branch', 'Checkout', 'normal', 'status'),
