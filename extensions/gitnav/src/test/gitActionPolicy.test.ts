@@ -17,6 +17,7 @@ test('uses consequence-specific confirmation labels', () => {
 test('keeps low-value feedback quiet', () => {
   assert.equal(actionFeedback('fetch'), 'silent');
   assert.equal(actionFeedback('checkout'), 'status');
+  assert.equal(actionFeedback('pushAfterUpdate'), 'status');
   assert.equal(actionFeedback('reset'), 'toast');
 });
 
