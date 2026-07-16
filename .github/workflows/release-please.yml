@@ -1,4 +1,4 @@
-name: Release Please
+name: Release
 
 on:
   push:
@@ -8,11 +8,9 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
 
 concurrency:
-  group: release-please-release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -20,20 +18,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      dotnav_release_created: ${{ steps.release.outputs['extensions/dotnav--release_created'] }}
-      dotnav_tag_name: ${{ steps.release.outputs['extensions/dotnav--tag_name'] }}
-      gitnav_release_created: ${{ steps.release.outputs['extensions/gitnav--release_created'] }}
-      gitnav_tag_name: ${{ steps.release.outputs['extensions/gitnav--tag_name'] }}
+      dotnav_release_created: ${{ steps.release.outputs.dotnav_release_created }}
+      dotnav_tag_name: ${{ steps.release.outputs.dotnav_tag_name }}
+      gitnav_release_created: ${{ steps.release.outputs.gitnav_release_created }}
+      gitnav_tag_name: ${{ steps.release.outputs.gitnav_tag_name }}
 
     steps:
-      - name: Create or update the Release PR
-        id: release
-        uses: googleapis/release-please-action@v5
+      - name: Check out release
+        uses: actions/checkout@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          target-branch: release
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Create GitHub releases
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: node .github/scripts/create-github-releases.mjs
 
   build-dotnav-release-asset:
     needs: release
