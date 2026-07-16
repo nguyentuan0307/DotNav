@@ -344,6 +344,10 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /Push Recovery Settings…/);
   assert.match(source, /Remember this choice for this repository/);
   assert.match(source, /recovery\.actions\.slice\(0,2\)/);
+  assert.match(source, /id="recoveryModal" role="dialog" aria-modal="true"/);
+  assert.match(source, /function showRecoveryModal\(/);
+  assert.match(source, /if\(recovery\.actions\.length\)return showRecoveryModal\(message\)/);
+  assert.match(source, /is behind \$\{remoteRef\}\.`, \{ modal: true \}/);
   assert.match(source, /function renderOperationBanner\(/);
   assert.match(source, /Resetting will permanently drop them/);
   assert.match(source, /action: 'checkoutRemoteReset'/);
