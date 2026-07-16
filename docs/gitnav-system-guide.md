@@ -2,6 +2,34 @@
 
 > Tài liệu bàn giao kỹ thuật cho GitNav `0.7.0`. Nội dung được đối chiếu với source tại `extensions/gitnav` trên nhánh `master` ngày 2026-07-16. Khi tài liệu và code khác nhau, code cùng test tự động là nguồn sự thật cuối cùng.
 
+## Đọc nhanh tài liệu này
+
+Không cần đọc từ đầu đến cuối. Chọn đường đọc phù hợp:
+
+| Bạn là ai? | Nên đọc theo thứ tự |
+|---|---|
+| Người dùng/PO/QA | [Tổng quan](#2-tổng-quan-sản-phẩm) → [UI](#7-ui-và-trải-nghiệm-chính) → [Update](#10-update-workflow) → [Push](#11-push-workflow) → [Checkout remote](#12-checkout-remote-workflow) → [Recovery](#14-recovery-ba-mức) |
+| Developer mới | [Kiến trúc](#4-kiến-trúc-hệ-thống) → [Source map](#5-bản-đồ-source-code) → [Read flow](#6-mô-hình-dữ-liệu-và-read-flow) → [Mutation pipeline](#9-mutation-pipeline) → [Build/test](#19-build-test-và-chạy-local) |
+| AI coding agent | [AI context index](#27-ai-context-index) → [Invariant](#92-các-invariant-không-được-phá-vỡ) → module liên quan → tests tương ứng |
+| Maintainer/Reviewer | [Safety](#15-safety-và-protected-branches) → [Test strategy](#21-test-strategy) → [Mở rộng an toàn](#22-hướng-dẫn-mở-rộng-an-toàn) → [Giới hạn](#23-giới-hạn-và-quyết-định-thiết-kế-cần-biết) |
+
+### Bản đồ nội dung
+
+```mermaid
+flowchart TB
+    START["GitNav là gì?"] --> UX["Người dùng nhìn thấy gì?"]
+    START --> ARCH["Code được tổ chức thế nào?"]
+    UX --> ACTIONS["Update · Push · Checkout · Commit actions"]
+    ACTIONS --> ERR["Nếu có lỗi: Recovery 3 mức"]
+    ARCH --> READ["Read path: query + cache + render"]
+    ARCH --> WRITE["Write path: safety + mutation + refresh"]
+    READ --> TEST["Build · Test · Release"]
+    WRITE --> TEST
+    ERR --> TEST
+```
+
+> **Quy ước từ ngữ:** *read/query* là thao tác không đổi repository; *mutation* là thao tác có thể đổi Git state; *operation* là merge/rebase/cherry-pick/revert đang dang dở; *recovery* là cách hệ thống phản ứng sau lỗi.
+
 ## 1. Mục đích tài liệu
 
 Tài liệu này giúp một đội mới nhận source có thể:
@@ -192,6 +220,25 @@ Panel chính có ba vùng:
 
 Kích thước panel trái/phải, chiều cao detail, độ rộng cột, cột hiển thị, folder collapse, favorite/recent branch và commit đang chọn được lưu bằng webview `localStorage`.
 
+Wireframe khái niệm (không thể hiện chính xác màu sắc/kích thước):
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Repository ▾ │ develop ▾ │ Search commits… │ Filters │ ↻ │ Fetch │ Update │ Push │
+├──────────────────┬───────────────────────────────────┬───────────────────────┤
+│ BRANCHES         │ GRAPH  COMMIT      AUTHOR   DATE  │ COMMIT DETAIL         │
+│ Search branches  │ ●────  resolve…    dat      3d    │ subject + metadata    │
+│                  │ │ ●──  implement…  tuan     3d    ├───────────────────────┤
+│ ★ develop        │ ●─┘    fix…        dat      6d    │ CHANGED FILES         │
+│ LOCAL            │                                   │ src/                  │
+│   master         │      virtualized commit list      │   git/…        +12 -3 │
+│ REMOTE           │                                   │   ui/…          +4 -1 │
+│ TAG / WORKTREE   │                                   │ Tree ▾  Collapse      │
+└──────────────────┴───────────────────────────────────┴───────────────────────┘
+```
+
+Một thao tác bình thường nên đi theo nhịp: **chọn đối tượng → chọn action → chỉ xác nhận nếu có rủi ro → xem kết quả ngắn**.
+
 ### 7.2 Toolbar
 
 - Repository selector khi workspace có nhiều repository.
@@ -235,6 +282,59 @@ Khi search branch, current branch luôn được giữ như một lựa chọn d
 - **Modal giữa màn hình**: khi user cần quyết định ngay, tối đa hai primary choices trong recovery thông thường.
 - **Operation banner**: khi merge/rebase/cherry-pick/revert còn dang dở.
 - Nội dung ưu tiên ngắn, nêu hậu quả; chi tiết Git không biến popup thành report.
+
+### 7.7 Ví dụ thông báo
+
+Các ví dụ dưới đây mô tả tone và lượng thông tin, không phải chuỗi bắt buộc tuyệt đối.
+
+**No-op — toast, tự biến mất**
+
+```text
+Already up to date
+```
+
+**Update diverged — modal giữa màn hình**
+
+```text
+Update develop
+
+Local and origin both have new commits.
+
+[ Rebase ]  [ Merge ]  [ Cancel ]
+```
+
+**Checkout remote có dữ liệu local — modal giữa màn hình**
+
+```text
+Checkout origin/develop?
+
+Local develop has unpublished commits or working changes.
+
+[ Keep Local ]  [ Reset to Origin ]  [ Cancel ]
+```
+
+**Auto-recovery — toast kín đáo**
+
+```text
+Empty cherry-pick skipped
+```
+
+**Manual recovery — không đưa action gây hiểu nhầm**
+
+```text
+Push failed: authentication required
+
+Check your Git credentials, then try again.
+```
+
+```mermaid
+flowchart LR
+    RESULT{"Action result"}
+    RESULT -- "Success / no-op" --> T["Toast ngắn"]
+    RESULT -- "Cần user chọn" --> M["Modal giữa màn hình\n≤ 2 lựa chọn chính"]
+    RESULT -- "Operation còn dang dở" --> B["Banner + Continue/Skip/Abort"]
+    RESULT -- "Auth/network/hook/unknown" --> E["Lỗi ngắn + hướng xử lý thủ công"]
+```
 
 ## 8. Danh mục tính năng theo đối tượng
 
@@ -296,6 +396,8 @@ Khi search branch, current branch luôn được giữ như một lựa chọn d
 
 Mọi action thay đổi repository phải đi qua cùng pipeline; không gọi Git trực tiếp từ webview handler mới.
 
+### 9.1 Luồng xử lý
+
 ```mermaid
 flowchart TD
     A["User action"] --> B["Prepare request / resolve ref"]
@@ -314,7 +416,7 @@ flowchart TD
     L --> I
 ```
 
-Các invariant:
+### 9.2 Các invariant không được phá vỡ
 
 - Mutation tuần tự theo repository; repository khác có thể hoạt động độc lập.
 - Request giống hệt đang chạy được chặn để tránh double click tạo mutation trùng.
@@ -667,3 +769,76 @@ Mỗi thay đổi feature nên cập nhật file này trong cùng commit nếu l
 
 Không ghi feature dự kiến vào danh sách “đã có”. Ý tưởng tương lai nên đặt ở issue/roadmap riêng và chỉ chuyển vào tài liệu này sau khi code + test đã tồn tại.
 
+## 27. AI context index
+
+Phần này cung cấp điểm vào ổn định cho AI coding agent hoặc công cụ phân tích source. Không thay thế việc đọc implementation trước khi sửa.
+
+### 27.1 System facts
+
+```yaml
+system: GitNav
+type: VS Code extension
+package_root: extensions/gitnav
+runtime_entry: extensions/gitnav/src/extension.ts
+compiled_entry: extensions/gitnav/out/extension.js
+primary_ui: extensions/gitnav/src/git/gitLogViewProvider.ts
+read_service: extensions/gitnav/src/git/gitRepositoryService.ts
+mutation_runner: extensions/gitnav/src/git/gitMutationRunner.ts
+git_transport: extensions/gitnav/src/git/gitCli.ts
+remote_convention: origin
+branch_sync_convention: same-name remote branch
+test_root: extensions/gitnav/src/test
+package_artifact: dist/gitnav.vsix
+source_of_truth_priority:
+  - implementation
+  - automated_tests
+  - this_document
+  - readme_or_planning_documents
+```
+
+### 27.2 Task-to-file routing
+
+| Yêu cầu thay đổi | Đọc trước | Test bắt buộc xem |
+|---|---|---|
+| Panel layout, menu, modal, toast | `gitLogViewProvider.ts`, `gitActionPolicy.ts` | `gitFeatures`, `gitActionPolicy` |
+| Log/filter/detail/changed files | `gitRepositoryService.ts`, `gitPanelParsers.ts` | parser, graph, integration |
+| Git action mới | `gitMutationRunner.ts`, models, action policy | safety, lifecycle, operation flow |
+| Update/push behavior | `gitPush.ts`, `gitPushRecovery.ts`, mutation runner | push và recovery tests |
+| Destructive confirmation | `gitMutationSafety.ts`, `gitBranchProtection.ts` | `gitMutationSafety` |
+| Error/recovery | `gitMutationRecovery.ts`, `gitErrorRecovery.ts` | recovery + false-positive cases |
+| Refresh/concurrency | `gitPanelCoordinator.ts`, lifecycle | coordinator + lifecycle |
+| Line history/compare | line history, mapping, compare modules | line history + mapping |
+| Setting/command/package | `package.json`, `extension.ts` | `gitFeatures` |
+
+### 27.3 Prompt context tối thiểu cho AI
+
+Khi giao một thay đổi cho AI, nên cung cấp:
+
+1. action/read flow cần thay đổi;
+2. trạng thái Git trước và kết quả mong muốn;
+3. có được mất dữ liệu hay rewrite remote history không;
+4. feedback mong muốn: silent, toast, modal hay operation banner;
+5. behavior khi success, no-op, conflict và unknown error;
+6. test hiện có cần giữ và test mới cần thêm.
+
+Ví dụ yêu cầu đủ rõ:
+
+```text
+Khi Update current branch sau fetch:
+- incoming = 0: kết thúc như no-op, chỉ toast ngắn;
+- behind-only: fast-forward;
+- diverged: modal Rebase/Merge;
+- không tự reset hoặc force push;
+- giữ per-repository mutation serialization;
+- thêm test cho cả ba trạng thái.
+```
+
+### 27.4 Anti-hallucination rules
+
+- Không suy luận feature từ tên file hoặc tài liệu planning; kiểm tra handler/runner và test.
+- Không coi mọi `git pull` là Update workflow; UI Update có decision flow riêng.
+- Không coi protected branch là chặn mọi local rewrite; guard hiện tập trung remote destructive actions.
+- Không thêm backup mặc định vào flow Reset to Origin đã được user xác nhận.
+- Không tự chạy Rebase/Merge khi lỗi là authentication, network hoặc hook.
+- Không bỏ refresh sau failure: Git có thể đã đổi một phần state trước khi trả lỗi.
+- Không gửi Git command từ webview JavaScript; mọi Git access chạy trong extension host.
