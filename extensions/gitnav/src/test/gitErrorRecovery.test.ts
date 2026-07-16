@@ -1,28 +1,49 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { classifyGitError } from '../git/gitErrorRecovery';
+import { classifyGitError, isEmptySequencerError } from '../git/gitErrorRecovery';
 
-test('offers recovery actions for an empty cherry-pick', () => {
-  const recovery = classifyGitError('The previous cherry-pick is now empty, possibly due to conflict resolution.');
-  assert.equal(recovery?.kind, 'emptyCherryPick');
-  assert.deepEqual(recovery?.actions.map(item => item.action), ['skip', 'commitEmptyContinue', 'abort']);
+test('classifies guided recovery with at most two useful actions', () => {
+  const empty = classifyGitError('The previous cherry-pick is now empty, possibly due to conflict resolution.', { action: 'cherryPick', operation: 'CHERRY-PICKING' });
+  assert.equal(empty.level, 'guided');
+  assert.equal(empty.kind, 'emptyCherryPick');
+  assert.deepEqual(empty.actions.map(item => item.action), ['skip', 'abort']);
+  const push = classifyGitError('rejected: non-fast-forward', { action: 'push' });
+  assert.equal(push.kind, 'pushRejected');
+  assert.deepEqual(push.actions.map(item => item.strategy), ['rebase', 'merge']);
 });
 
-test('does not replace ordinary Git errors with unrelated recovery actions', () => {
-  assert.equal(classifyGitError('fatal: not a git repository'), undefined);
+test('classifies conflicts using operation context', () => {
+  const conflict = classifyGitError('CONFLICT (content): merge conflict', { action: 'rebase', operation: 'REBASING' });
+  assert.equal(conflict.kind, 'conflict');
+  assert.deepEqual(conflict.actions.map(item => item.action), ['abort']);
+  const stash = classifyGitError('CONFLICT (content)', { action: 'stashPop' });
+  assert.equal(stash.kind, 'stashConflict');
+  assert.match(stash.message, /stash was kept/i);
 });
 
-test('offers an update action when a push is rejected', () => {
-  const recovery = classifyGitError('rejected: non-fast-forward', 'push');
-  assert.equal(recovery?.kind, 'pushRejected');
-  assert.deepEqual(recovery?.actions.map(item => ({ label: item.label, action: item.action, strategy: item.strategy })), [
-    { label: 'Rebase then Push', action: 'pushAfterUpdate', strategy: 'rebase' },
-    { label: 'Merge then Push', action: 'pushAfterUpdate', strategy: 'merge' }
-  ]);
+test('classifies manual errors without misleading actions', () => {
+  for (const [message, kind] of [
+    ['Authentication failed for origin', 'authentication'],
+    ['Could not resolve host: github.com', 'network'],
+    ['pre-push hook declined', 'hookFailed'],
+    ['Unable to create .git/index.lock', 'repositoryLocked'],
+    ['fatal: not a git repository', 'unknown']
+  ] as const) {
+    const recovery = classifyGitError(message);
+    assert.equal(recovery.level, 'manual');
+    assert.equal(recovery.kind, kind);
+    assert.deepEqual(recovery.actions, []);
+  }
 });
 
-test('offers force delete only after safe branch deletion is rejected', () => {
-  const recovery = classifyGitError("error: branch 'feature/a' is not fully merged", 'deleteBranch');
-  assert.equal(recovery?.kind, 'branchNotMerged');
-  assert.deepEqual(recovery?.actions.map(item => ({ label: item.label, action: item.action })), [{ label: 'Force Delete Branch', action: 'forceDeleteBranch' }]);
+test('recognizes only matching empty sequencer errors', () => {
+  assert.equal(isEmptySequencerError('cherry-pick is now empty', 'cherryPick'), true);
+  assert.equal(isEmptySequencerError('nothing to commit, working tree clean', 'revert'), true);
+  assert.equal(isEmptySequencerError('CONFLICT (content)', 'cherryPick'), false);
+});
+
+test('offers force delete only after safe deletion is rejected', () => {
+  const recovery = classifyGitError("error: branch 'feature/a' is not fully merged", { action: 'deleteBranch' });
+  assert.equal(recovery.kind, 'branchNotMerged');
+  assert.deepEqual(recovery.actions.map(item => item.action), ['forceDeleteBranch']);
 });

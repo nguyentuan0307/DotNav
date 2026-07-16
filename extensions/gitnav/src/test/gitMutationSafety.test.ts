@@ -68,3 +68,8 @@ test('confirms abort only when resolved changes may be discarded', () => {
   assert.equal(requiresDestructiveConfirmation({ action: 'abort', options: { operation: 'REBASING', hasResolvedChanges: false } }), false);
   assert.equal(requiresDestructiveConfirmation({ action: 'abort', options: { operation: 'REBASING', hasResolvedChanges: true } }), true);
 });
+
+test('requires confirmation for an unconfirmed remote reset only', () => {
+  assert.equal(requiresDestructiveConfirmation({ action: 'checkoutRemoteReset', options: { confirmed: false } }), true);
+  assert.equal(requiresDestructiveConfirmation({ action: 'checkoutRemoteReset', options: { confirmed: true } }), false);
+});

@@ -21,6 +21,7 @@ export function requiresDestructiveConfirmation(request: GitMutationRequest): bo
   if (request.action === 'worktreeRemove') return request.options?.force === true;
   if (request.action === 'deleteTag') return request.options?.remote !== undefined;
   if (request.action === 'abort') return request.options?.hasResolvedChanges === true;
+  if (request.action === 'checkoutRemoteReset') return request.options?.confirmed !== true;
   return destructiveActions.has(request.action)
     || request.action === 'update' && request.options?.strategy === 'reset'
     || request.action === 'push' && request.options?.forceLease === true;
@@ -56,7 +57,8 @@ export function destructiveWarning(request: GitMutationRequest, branch: string, 
     deleteBranch: `Local branch ${request.ref} will be deleted${request.options?.force ? ' even if it is not merged' : ''}.`,
     deleteTag: `Tag ${request.ref} will be deleted${request.options?.remote ? ` locally and from ${request.options.remote}` : ' locally'}.`,
     abort: `The current ${String(request.options?.operation ?? 'Git operation').toLowerCase()} will be aborted and its in-progress changes discarded.`,
-    worktreeRemove: `Remove worktree ${request.path}?${request.options?.force ? ` Its ${request.options.changedCount ?? ''} uncommitted file(s) will be permanently discarded.` : ''}`
+    worktreeRemove: `Remove worktree ${request.path}?${request.options?.force ? ` Its ${request.options.changedCount ?? ''} uncommitted file(s) will be permanently discarded.` : ''}`,
+    checkoutRemoteReset: `Reset ${request.options?.local ?? branch} to ${request.options?.remoteRef ?? 'origin'}? Local commits and working tree changes will be permanently discarded.`
   };
   return detail[request.action] ?? `Continue with ${request.action}?`;
 }

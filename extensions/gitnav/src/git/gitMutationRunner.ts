@@ -7,9 +7,10 @@ import { isActionAllowedDuringOperation, operationArguments } from './gitOperati
 import { runGit } from './gitCli';
 import { runInteractiveRebase } from './gitInteractiveRebase';
 import { GitRebasePlanItem } from './gitPanelModels';
-import { currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs } from './gitPush';
+import { currentBranchPushArgs, currentBranchPushPlan, pushNamedBranchArgs, resetLocalBranchToRemoteCommands, sameNameRemoteBranchPlan, sameNameUpdateArgs, updateNamedBranchArgs } from './gitPush';
 import { actionConfirmationLabel, actionLabel, actionProgress } from './gitActionPolicy';
 import { prepareRecoveredPush } from './gitPushRecovery';
+import { recoverMutationFailure } from './gitMutationRecovery';
 
 class GitMutationExecutionContext {
   constructor(
@@ -22,9 +23,16 @@ class GitMutationExecutionContext {
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
+  private readonly recoveryMessages = new Map<string, string>();
   constructor(private readonly service: GitRepositoryService) {}
 
   isBusy(root: string): boolean { return this.queue.isBusy(root); }
+
+  consumeRecoveryMessage(root: string): string | undefined {
+    const message = this.recoveryMessages.get(root);
+    this.recoveryMessages.delete(root);
+    return message;
+  }
 
   async run(root: string, request: GitMutationRequest): Promise<boolean> {
     return this.queue.enqueue(root, () => this.runExclusive(root, request));
@@ -51,7 +59,17 @@ export class GitMutationRunner {
       title: `Git: ${actionLabel(request.action)}`,
       cancellable: progress === 'notification'
     }, async (_progress, token) => {
-      await this.service.git(root, args, token);
+      try {
+        await this.service.git(root, args, token);
+      } catch (error) {
+        const recovery = await recoverMutationFailure({
+          snapshot: repositoryRoot => this.service.snapshot(repositoryRoot, undefined, true),
+          git: (repositoryRoot, recoveryArgs) => this.service.git(repositoryRoot, recoveryArgs, token),
+          hasConflicts: async repositoryRoot => (await this.service.workingTreeFiles(repositoryRoot)).some(file => file.conflict)
+        }, root, request, error);
+        if (!recovery.recovered) throw error;
+        if (recovery.message) this.recoveryMessages.set(root, recovery.message);
+      }
       if (request.action === 'fetch' || request.action === 'update') this.service.markFetched(root);
       this.service.invalidateCaches(root);
       void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
@@ -98,6 +116,13 @@ export class GitMutationRunner {
         return sameNameUpdateArgs(plan, request.options?.rebase ? 'rebase' : 'merge');
       }
       case 'checkoutRemote': return this.remoteCheckoutArgs(context, ref);
+      case 'checkoutRemoteReset': {
+        const local = String(request.options?.local);
+        const remoteRef = String(request.options?.remoteRef);
+        const commands = resetLocalBranchToRemoteCommands(snapshot.head, local, remoteRef, request.options?.clean === true);
+        for (const command of commands.slice(0, -1)) await this.service.git(root, command);
+        return commands.at(-1)!;
+      }
       case 'checkoutRebase': {
         const oldHead = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
         const checkout = await this.checkoutArgs(context, ref);
@@ -116,6 +141,7 @@ export class GitMutationRunner {
       case 'worktreeAdd': return ['worktree', 'add', ...(request.options?.newBranch ? ['-b', String(request.options.newBranch)] : []), String(request.path), ref];
       case 'worktreeRemove': return ['worktree', 'remove', ...(request.options?.force ? ['--force'] : []), String(request.path)];
       case 'worktreePrune': return ['worktree', 'prune'];
+      case 'worktreeUnlock': return ['worktree', 'unlock', String(request.path)];
       case 'interactiveRebase': {
         const plan = JSON.parse(String(request.options?.plan ?? '[]')) as GitRebasePlanItem[];
         await runInteractiveRebase(root, String(request.options?.base), plan);

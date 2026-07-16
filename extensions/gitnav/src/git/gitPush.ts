@@ -71,3 +71,19 @@ export function currentBranchPushArgs(
     `HEAD:refs/heads/${plan.branch}`
   ];
 }
+
+export function resetLocalBranchToRemoteCommands(
+  currentBranch: string,
+  localBranch: string,
+  remoteRef: string,
+  clean = false
+): string[][] {
+  const switching = currentBranch !== localBranch;
+  return [
+    ...(clean && switching ? [['clean', '-fd']] : []),
+    ...(switching ? [['switch', '--discard-changes', localBranch]] : []),
+    ['reset', '--hard', remoteRef],
+    ...(clean && !switching ? [['clean', '-fd']] : []),
+    ['status', '--short']
+  ];
+}

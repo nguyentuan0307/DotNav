@@ -318,6 +318,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /id="branchTrigger"/);
   assert.match(source, /id="branchPicker"/);
   assert.match(source, /id="branchSearch" placeholder="Search branches"/);
+  assert.match(source, /const current=r\.refs\.find\(x=>x\.current\),matching=r\.refs\.filter\(x=>x!==current/);
+  assert.match(source, /'<div class="group">Current branch<\/div>'\+refItem\(current,current\.name\)/);
   assert.match(source, /m\.repositories\.length>1\?'block':'none'/);
   assert.match(source, /id="fileSummary"/);
   assert.match(source, /function commitAge\(/);
@@ -341,6 +343,16 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /function closeContextMenus\(/);
   assert.match(source, /Push Recovery Settings…/);
   assert.match(source, /Remember this choice for this repository/);
+  assert.match(source, /recovery\.actions\.slice\(0,2\)/);
+  assert.match(source, /id="recoveryModal" role="dialog" aria-modal="true"/);
+  assert.match(source, /function showRecoveryModal\(/);
+  assert.match(source, /if\(recovery\.actions\.length\)return showRecoveryModal\(message\)/);
+  assert.match(source, /is behind \$\{remoteRef\}\.`, \{ modal: true \}/);
+  assert.match(source, /function renderOperationBanner\(/);
+  assert.match(source, /Resetting will permanently drop them/);
+  assert.match(source, /action: 'checkoutRemoteReset'/);
+  assert.match(source, /Branch .* already exists/);
+  assert.match(source, /Tag .* already exists/);
   assert.match(source, /querySelectorAll\('\.file'\)/);
   assert.doesNotMatch(source, /state\.selectedFilePath=file\.dataset\.path;renderFiles/);
   assert.match(source, /item\.group==='danger'/);
