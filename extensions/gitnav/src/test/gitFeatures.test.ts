@@ -318,6 +318,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /id="branchTrigger"/);
   assert.match(source, /id="branchPicker"/);
   assert.match(source, /id="branchSearch" placeholder="Search branches"/);
+  assert.match(source, /const current=r\.refs\.find\(x=>x\.current\),matching=r\.refs\.filter\(x=>x!==current/);
+  assert.match(source, /'<div class="group">Current branch<\/div>'\+refItem\(current,current\.name\)/);
   assert.match(source, /m\.repositories\.length>1\?'block':'none'/);
   assert.match(source, /id="fileSummary"/);
   assert.match(source, /function commitAge\(/);
