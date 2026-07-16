@@ -19,6 +19,21 @@
 * open More Actions as a pointer and keyboard accessible flyout menu
 * keep Update from Origin visible and defer force-delete until safe deletion is rejected
 
+## [0.8.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.7.0...gitnav-v0.8.0) (2026-07-16)
+
+
+### Features
+
+* **gitnav:** add contextual error recovery ([96ebba0](https://github.com/nguyentuan0307/DotNav/commit/96ebba0c90b0a95de656e87fcaafd57d076d486c))
+* **gitnav:** center recovery actions ([de36638](https://github.com/nguyentuan0307/DotNav/commit/de36638bed29c520197a87856d33f1feb5a2c6d7))
+* **gitnav:** pin current branch in search ([4ab159c](https://github.com/nguyentuan0307/DotNav/commit/4ab159c76c95b37866ff338b76a1d1573d9f1dba))
+
+
+### Bug Fixes
+
+* **gitnav:** preserve cherry-pick errors ([6c7f319](https://github.com/nguyentuan0307/DotNav/commit/6c7f319b2643a6dafa20e4442567bf52b7e4f740))
+* **gitnav:** skip empty cherry-picks ([d3447e0](https://github.com/nguyentuan0307/DotNav/commit/d3447e075ff420d5e66c696bc46f2165cc19b097))
+
 ## [0.7.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.6.0...gitnav-v0.7.0) (2026-07-16)
 
 
