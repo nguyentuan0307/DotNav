@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.1...gitnav-v0.8.2) (2026-07-16)
+
+
+### Bug Fixes
+
+* **gitnav:** document release promotion ([3f4c930](https://github.com/nguyentuan0307/DotNav/commit/3f4c93046b87cfe5132f9c19088b93360e08e5bf))
+
+
 ## [0.8.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.0...gitnav-v0.8.1) (2026-07-16)
 
 

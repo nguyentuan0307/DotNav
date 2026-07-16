@@ -34,6 +34,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Configure release git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Create GitHub releases
         id: release
         env:
