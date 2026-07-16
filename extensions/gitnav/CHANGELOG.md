@@ -19,6 +19,13 @@
 * open More Actions as a pointer and keyboard accessible flyout menu
 * keep Update from Origin visible and defer force-delete until safe deletion is rejected
 
+## [0.7.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.6.0...gitnav-v0.7.0) (2026-07-16)
+
+
+### Features
+
+* **gitnav:** add context-aware push recovery ([879c51e](https://github.com/nguyentuan0307/DotNav/commit/879c51ed1dec0a1838610e3f50e4c62d293ecf8e))
+
 ## [0.6.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.3...gitnav-v0.6.0) (2026-07-16)
 
 
