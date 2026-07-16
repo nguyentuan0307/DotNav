@@ -2,22 +2,13 @@
 
 ## Unreleased
 
-### Changed
+## [0.8.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.7.0...gitnav-v0.8.0) (2026-07-16)
 
-* simplify Git workflows with direct safe actions and consequence-specific confirmations
-* organize context menus into primary, advanced, and destructive action groups
-* reduce notification noise with inline status feedback and scoped error recovery
-* improve branch, filter, changed-file, keyboard, responsive, and accessibility behavior
-* offer equal rebase-or-merge recovery when a push is rejected as non-fast-forward
-* remember the selected push recovery strategy independently for each repository
 
-### Bug Fixes
+### Features
 
-* keep push, pull, update, and branch synchronization pinned to the same-named origin branch
-* preserve branch and search filters when Git history refreshes after mutations
-* synchronize local commits, branch changes, and working tree state through VS Code Git events
-* open More Actions as a pointer and keyboard accessible flyout menu
-* keep Update from Origin visible and defer force-delete until safe deletion is rejected
+* **gitnav:** polish update workflow UI ([4a766ba](https://github.com/nguyentuan0307/DotNav/commit/4a766ba1bfff86e5fd7709ae6f570ae8599103df))
+
 
 ## [0.7.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.6.0...gitnav-v0.7.0) (2026-07-16)
 
