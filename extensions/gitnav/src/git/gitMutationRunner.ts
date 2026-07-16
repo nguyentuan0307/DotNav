@@ -56,9 +56,11 @@ export class GitMutationRunner {
         await this.service.git(root, args, token);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const failedSnapshot = request.action === 'cherryPick'
-          ? await this.service.snapshot(root, undefined, true)
-          : undefined;
+        let failedSnapshot: GitRepositorySnapshot | undefined;
+        if (request.action === 'cherryPick') {
+          try { failedSnapshot = await this.service.snapshot(root, undefined, true); }
+          catch { throw error; }
+        }
         if (!shouldAutoSkipEmptyCherryPick(message, request.action, failedSnapshot?.operation)) throw error;
         await this.service.git(root, ['cherry-pick', '--skip'], token);
       }
