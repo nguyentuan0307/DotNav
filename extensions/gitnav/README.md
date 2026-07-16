@@ -8,6 +8,7 @@
 GitNav brings clear visual Git history and safer Git workflows directly into Visual Studio Code. Explore how your repository changed, compare code across branches, and run complex Git operations without piecing together multiple views and terminal commands.
 
 GitNav is standalone: it works in any Git repository and does not require .NET or C#.
+Install GitNav directly when you only need Git history, comparisons, and guarded branch workflows without the full DotNav .NET workspace experience.
 
 ## Why GitNav?
 
