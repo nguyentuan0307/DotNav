@@ -15,6 +15,13 @@
 * preserve branch and search filters when Git history refreshes after mutations
 * synchronize local commits, branch changes, and working tree state through VS Code Git events
 
+## [0.6.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.3...gitnav-v0.6.0) (2026-07-16)
+
+
+### Features
+
+* **gitnav:** streamline safe Git workflows ([a42c481](https://github.com/nguyentuan0307/DotNav/commit/a42c481ded7ff13afbba2ea435cec2a26a287122))
+
 ## [0.5.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.5.2...gitnav-v0.5.3) (2026-07-15)
 
 
