@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - release
   workflow_dispatch:
 
 permissions:
@@ -54,7 +55,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C release-candidate origin/master
+          git switch -C release-candidate origin/release
+          git merge --no-ff --no-edit origin/master
 
           node .github/scripts/prepare-release-candidate.mjs \
             --base origin/release \

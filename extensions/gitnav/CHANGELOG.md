@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.0...gitnav-v0.8.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **gitnav:** clarify standalone install ([18efcac](https://github.com/nguyentuan0307/DotNav/commit/18efcacdaa6f4eb5d22f71fa31064a9211b3787c))
+
+
 ## [0.8.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.7.0...gitnav-v0.8.0) (2026-07-16)
 
 
