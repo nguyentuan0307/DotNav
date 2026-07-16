@@ -3,7 +3,7 @@ name: Release Please
 on:
   push:
     branches:
-      - master
+      - release
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: release-please-master
+  group: release-please-release
   cancel-in-progress: false
 
 jobs:
@@ -33,6 +33,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: release
 
   build-dotnav-release-asset:
     needs: release

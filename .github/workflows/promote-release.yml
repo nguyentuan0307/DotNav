@@ -1,0 +1,65 @@
+name: Promote Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out master
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Create or update promotion PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin master --prune
+
+          if ! git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
+            git push origin origin/master:refs/heads/release
+            echo "Created release branch from master. No promotion PR is needed yet."
+            exit 0
+          fi
+
+          git fetch origin release
+
+          if [ "$(git rev-list --count origin/release..origin/master)" = "0" ]; then
+            echo "release already contains master."
+            exit 0
+          fi
+
+          body="$(cat <<'BODY'
+          Promotes the current master branch into release.
+
+          Merge this PR when you want to publish the accumulated changes.
+
+          After this PR is merged, Release Please evaluates the release branch and creates or updates the release PR when version/changelog changes are needed.
+          BODY
+          )"
+
+          existing_pr="$(gh pr list --base release --head master --state open --json url --jq '.[0].url')"
+          if [ -n "$existing_pr" ]; then
+            gh pr edit "$existing_pr" --title "release: promote master to release" --body "$body"
+            echo "Updated $existing_pr"
+          else
+            gh pr create --base release --head master --title "release: promote master to release" --body "$body"
+          fi
