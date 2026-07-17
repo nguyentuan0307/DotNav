@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { SolutionModel } from './models';
-import { parseProject } from './projectParser';
+import { createProjectStub } from './projectParser';
 import { resolveMsbuildPath, uniqueByPath } from './pathUtils';
 
 const supportedProjectExtensions = 'csproj|fsproj|vbproj|dcproj';
@@ -88,18 +88,13 @@ export async function pickSolution(workspaceFolder: vscode.WorkspaceFolder, curr
 }
 
 async function parseProjects(projectEntries: SolutionProjectEntry[], rootPath: string): Promise<SolutionModel['projects']> {
-  const results = await Promise.allSettled(projectEntries.map(entry => parseProject(entry.path, rootPath)));
   const projects = [];
 
-  for (const [index, result] of results.entries()) {
-    if (result.status === 'fulfilled') {
-      const solutionFolder = projectEntries[index].solutionFolder;
-      projects.push(solutionFolder && solutionFolder.length > 0
-        ? { ...result.value, solutionFolder }
-        : result.value);
-    } else {
-      console.warn(`Skipped project ${projectEntries[index].path}: ${result.reason}`);
-    }
+  for (const entry of projectEntries) {
+    const project = createProjectStub(entry.path, rootPath);
+    projects.push(entry.solutionFolder && entry.solutionFolder.length > 0
+      ? { ...project, solutionFolder: entry.solutionFolder }
+      : project);
   }
 
   return uniqueByPath(projects).sort((a, b) => a.relativePath.localeCompare(b.relativePath));

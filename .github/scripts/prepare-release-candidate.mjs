@@ -53,9 +53,10 @@ function releasableCommits(from, to, packagePath) {
     .map(record => {
       const [hash, subject, body = ''] = record.split('\x1f');
       const parsed = parseConventionalCommit(subject, body);
-      return parsed ? { hash, subject, body, ...parsed } : undefined;
+      return parsed
+        ? { hash, subject, body, ...parsed }
+        : { hash, subject, body, type: 'change', scope: undefined, description: subject, bump: 'patch' };
     })
-    .filter(Boolean)
     .reverse();
 }
 
@@ -115,7 +116,8 @@ function renderReleaseSection({ repoUrl, version, previousTag, tagName, commits 
     ['minor', 'Features'],
     ['patch-fix', 'Bug Fixes'],
     ['patch-perf', 'Performance Improvements'],
-    ['patch-deps', 'Dependencies']
+    ['patch-deps', 'Dependencies'],
+    ['patch-change', 'Changes']
   ];
   const byGroup = new Map(groups.map(([key]) => [key, []]));
   for (const commit of commits) {
@@ -123,7 +125,8 @@ function renderReleaseSection({ repoUrl, version, previousTag, tagName, commits 
       : commit.type === 'feat' ? 'minor'
         : commit.type === 'perf' ? 'patch-perf'
           : commit.type === 'deps' ? 'patch-deps'
-            : 'patch-fix';
+            : commit.type === 'fix' ? 'patch-fix'
+              : 'patch-change';
     byGroup.get(key).push(commit);
   }
 

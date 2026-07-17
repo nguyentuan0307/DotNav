@@ -39,12 +39,13 @@ export async function addCodeItem(provider: DotnetTreeProvider, node: TreeNode, 
     return;
   }
 
-  const namespaceName = target.project ? computeNamespace(target.project, target.dir) : undefined;
+  const project = target.project ? await provider.ensureProjectMetadata(target.project) : undefined;
+  const namespaceName = project ? computeNamespace(project, target.dir) : undefined;
   const content = renderTemplate(
     kind,
     fileInfo.typeName,
     namespaceName,
-    useFileScoped(target.project),
+    useFileScoped(project),
     { partial: fileInfo.partial }
   );
 

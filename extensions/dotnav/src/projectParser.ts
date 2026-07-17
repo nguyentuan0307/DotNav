@@ -7,7 +7,38 @@ import { normalizeSlashes, relativeOrName, resolveMsbuildPath } from './pathUtil
 const packageReferenceRegex = /<PackageReference\b([^>]*)>(?:[\s\S]*?<\/PackageReference>)?/gi;
 const projectReferenceRegex = /<ProjectReference\b([^>]*)>/gi;
 
+interface ProjectCacheEntry {
+  readonly signature: string;
+  readonly project: ProjectModel;
+}
+
+const projectCache = new Map<string, ProjectCacheEntry>();
+
+export function createProjectStub(projectPath: string, rootPath: string): ProjectModel {
+  const directory = path.dirname(projectPath);
+  const name = path.basename(projectPath, path.extname(projectPath));
+
+  return {
+    name,
+    path: projectPath,
+    directory,
+    relativePath: normalizeSlashes(relativeOrName(rootPath, projectPath)),
+    metadataLoaded: false,
+    kind: 'unknown',
+    targetFrameworks: [],
+    launchProfiles: [],
+    packageReferences: [],
+    projectReferences: []
+  };
+}
+
 export async function parseProject(projectPath: string, rootPath: string): Promise<ProjectModel> {
+  const signature = await projectSignature(projectPath);
+  const cached = projectCache.get(projectPath);
+  if (cached?.signature === signature) {
+    return cached.project;
+  }
+
   const xml = await fs.readFile(projectPath, 'utf8');
   const directory = path.dirname(projectPath);
   const name = path.basename(projectPath, path.extname(projectPath));
@@ -19,11 +50,12 @@ export async function parseProject(projectPath: string, rootPath: string): Promi
   const projectReferences = parseProjectReferences(xml, directory);
   const kind = classifyProject(projectPath, xml, packageReferences);
 
-  return {
+  const project = {
     name,
     path: projectPath,
     directory,
     relativePath: normalizeSlashes(relativeOrName(rootPath, projectPath)),
+    metadataLoaded: true,
     kind,
     rootNamespace,
     assemblyName,
@@ -32,6 +64,30 @@ export async function parseProject(projectPath: string, rootPath: string): Promi
     packageReferences,
     projectReferences
   };
+
+  projectCache.set(projectPath, { signature, project });
+  return project;
+}
+
+async function projectSignature(projectPath: string): Promise<string> {
+  const projectStat = await fs.stat(projectPath);
+  const launchSettingsPath = path.join(path.dirname(projectPath), 'Properties', 'launchSettings.json');
+  const launchSettingsStat = await statOrUndefined(launchSettingsPath);
+
+  return [
+    projectStat.mtimeMs,
+    projectStat.size,
+    launchSettingsStat?.mtimeMs ?? 'missing',
+    launchSettingsStat?.size ?? 0
+  ].join(':');
+}
+
+async function statOrUndefined(filePath: string): Promise<{ readonly mtimeMs: number; readonly size: number } | undefined> {
+  try {
+    return await fs.stat(filePath);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseTargetFrameworks(xml: string): string[] {

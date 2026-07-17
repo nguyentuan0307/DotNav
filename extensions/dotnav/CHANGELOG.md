@@ -4,9 +4,17 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.5.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.4.0...dotnav-v0.5.0) (2026-07-17)
+
+
 ### Features
 
-* build folder projects in one parallel MSBuild session with a configurable worker limit
+* **dotnav:** streamline project context actions ([b4140ff](https://github.com/nguyentuan0307/DotNav/commit/b4140fffb1d509ab5571545920235df937d57534))
+
+### Performance Improvements
+
+* **dotnav:** lazy load project metadata ([0eecf58](https://github.com/nguyentuan0307/DotNav/commit/0eecf58dfb4c2004902616de99a814f86fb1ab36))
+
 
 ## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.2...dotnav-v0.4.0) (2026-07-15)
 

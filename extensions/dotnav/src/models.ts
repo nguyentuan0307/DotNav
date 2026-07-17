@@ -14,6 +14,7 @@ export interface ProjectModel {
   readonly path: string;
   readonly directory: string;
   readonly relativePath: string;
+  readonly metadataLoaded?: boolean;
   readonly solutionFolder?: string[];
   readonly kind: ProjectKind;
   readonly rootNamespace?: string;

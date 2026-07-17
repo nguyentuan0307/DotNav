@@ -5,6 +5,7 @@ import { isInside, readDirectoryNodes, readDockerProjectNodes } from './fileTree
 import { ProjectModel, SolutionModel, TreeNode } from './models';
 import { samePath } from './pathUtils';
 import { isRunnableProject, isTestProject } from './projectCapabilities';
+import { parseProject } from './projectParser';
 import * as runConfigStore from './runConfigStore';
 import { RunPhase } from './runSessionState';
 import { loadSolution, pickSolution } from './solutionParser';
@@ -23,6 +24,9 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private solution?: SolutionModel;
   private solutionTree?: TreeNode[];
   private loading?: Promise<void>;
+  private readonly metadataLoads = new Map<string, Promise<ProjectModel>>();
+  private batchingMetadataUpdates = false;
+  private pendingMetadataRefresh = false;
   private startupProjectPath?: string;
   private projectStateProvider?: (project: ProjectModel) => RunPhase | undefined;
   private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
@@ -130,37 +134,39 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     if (node.kind === 'project' && node.project) {
+      const project = await this.ensureProjectMetadata(node.project);
       const nodes: TreeNode[] = [];
-      if (node.project.kind === 'docker') {
-        nodes.push(...await readDockerProjectNodes(node.project));
+      if (project.kind === 'docker') {
+        nodes.push(...await readDockerProjectNodes(project));
         return nodes;
       }
 
       if (vscode.workspace.getConfiguration('dotnav').get<boolean>('showDependencies', true)) {
-        nodes.push(this.dependenciesNode(node.project));
+        nodes.push(this.dependenciesNode(project));
       }
 
-      nodes.push(...await readDirectoryNodes(node.project.directory, node.project.directory, node.project));
+      nodes.push(...await readDirectoryNodes(project.directory, project.directory, project));
       return nodes;
     }
 
     if (node.kind === 'dependencies' && node.project) {
+      const project = await this.ensureProjectMetadata(node.project);
       const groups: TreeNode[] = [];
 
-      if (node.project.projectReferences.length > 0) {
+      if (project.projectReferences.length > 0) {
         groups.push({
           kind: 'projectReferences',
           label: 'Projects',
-          project: node.project,
+          project,
           collapsibleState: vscode.TreeItemCollapsibleState.Collapsed
         });
       }
 
-      if (node.project.packageReferences.length > 0) {
+      if (project.packageReferences.length > 0) {
         groups.push({
           kind: 'packageReferences',
           label: 'Packages',
-          project: node.project,
+          project,
           collapsibleState: vscode.TreeItemCollapsibleState.Collapsed
         });
       }
@@ -196,6 +202,87 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     return [];
+  }
+
+  async ensureProjectMetadata(project: ProjectModel): Promise<ProjectModel> {
+    if (project.metadataLoaded) {
+      return project;
+    }
+
+    const existing = this.metadataLoads.get(project.path);
+    if (existing) {
+      return existing;
+    }
+
+    const load = parseProject(project.path, this.solution?.rootPath ?? path.dirname(project.path))
+      .then(loaded => this.replaceProject(project, loaded))
+      .catch(error => {
+        console.warn(`Skipped project metadata ${project.path}: ${error}`);
+        return project;
+      })
+      .finally(() => {
+        this.metadataLoads.delete(project.path);
+      });
+
+    this.metadataLoads.set(project.path, load);
+    return load;
+  }
+
+  async ensureProjectMetadataForProjects(projects: readonly ProjectModel[]): Promise<ProjectModel[]> {
+    return Promise.all(projects.map(project => this.ensureProjectMetadata(project)));
+  }
+
+  async ensureAllProjectMetadata(): Promise<void> {
+    if (!this.solution) {
+      await this.refresh();
+    }
+
+    if (!this.solution) {
+      return;
+    }
+
+    this.batchingMetadataUpdates = true;
+    try {
+      await this.ensureProjectMetadataForProjects(this.solution.projects);
+    } finally {
+      this.batchingMetadataUpdates = false;
+      if (this.pendingMetadataRefresh) {
+        this.pendingMetadataRefresh = false;
+        this.onDidChangeTreeDataEmitter.fire();
+      }
+    }
+  }
+
+  private replaceProject(previous: ProjectModel, loaded: ProjectModel): ProjectModel {
+    const next = previous.solutionFolder && previous.solutionFolder.length > 0
+      ? { ...loaded, solutionFolder: previous.solutionFolder }
+      : loaded;
+
+    if (!this.solution) {
+      return next;
+    }
+
+    let changed = false;
+    const projects = this.solution.projects.map(project => {
+      if (!samePath(project.path, previous.path)) {
+        return project;
+      }
+
+      changed = true;
+      return next;
+    });
+
+    if (changed) {
+      this.solution = { ...this.solution, projects };
+      this.solutionTree = undefined;
+      if (this.batchingMetadataUpdates) {
+        this.pendingMetadataRefresh = true;
+      } else {
+        this.onDidChangeTreeDataEmitter.fire();
+      }
+    }
+
+    return next;
   }
 
   async setStartupProject(project: ProjectModel): Promise<void> {
@@ -302,7 +389,12 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     };
   }
 
-  getRunConfigNodes(): TreeNode[] {
+  async getRunConfigNodes(): Promise<TreeNode[]> {
+    if (!this.solution) {
+      return [];
+    }
+
+    await this.ensureAllProjectMetadata();
     if (!this.solution) {
       return [];
     }
@@ -600,7 +692,9 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         values.push('startup');
       }
 
-      if (isRunnableProject(node.project)) {
+      if (!node.project.metadataLoaded) {
+        values.push('metadataPending', 'runnable');
+      } else if (isRunnableProject(node.project)) {
         values.push('runnable');
       }
 
