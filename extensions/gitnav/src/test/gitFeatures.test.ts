@@ -123,6 +123,12 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
   assert.ok(commandIds.has('gitnav.compareFileWithBranch'));
   assert.ok(commandIds.has('gitnav.compareSelectionWithBranch'));
+  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
+    command.command === 'gitnav.showHistoryForSelection')?.title, 'Show History for Selection');
+  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
+    command.command === 'gitnav.compareFileWithBranch')?.title, 'Compare File With Branch...');
+  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
+    command.command === 'gitnav.compareSelectionWithBranch')?.title, 'Compare Selection With Branch...');
 
   assert.ok(manifest.contributes.submenus.some((submenu: { id: string; label: string }) =>
     submenu.id === 'gitnav.editorMenu' && submenu.label === 'GitNav'
@@ -140,6 +146,11 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
   ));
 
   const gitMenu = manifest.contributes.menus['gitnav.editorMenu'];
+  assert.deepEqual(gitMenu.map((item: { command: string }) => item.command), [
+    'gitnav.showHistoryForSelection',
+    'gitnav.compareFileWithBranch',
+    'gitnav.compareSelectionWithBranch'
+  ]);
   assert.ok(gitMenu.some((item: { command: string }) =>
     item.command === 'gitnav.compareFileWithBranch'
   ));

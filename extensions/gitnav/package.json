@@ -2,7 +2,7 @@
   "name": "gitnav-workflows",
   "displayName": "GitNav: Visual Git History & Workflows",
   "description": "Explore visual Git history, compare branches and code, and run guarded Git workflows directly in Visual Studio Code.",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -71,17 +71,17 @@
     "commands": [
       {
         "command": "gitnav.showHistoryForSelection",
-        "title": "GitNav: Show History for Selection",
+        "title": "Show History for Selection",
         "icon": "$(git-commit)"
       },
       {
         "command": "gitnav.compareFileWithBranch",
-        "title": "GitNav: Compare File With Branch...",
+        "title": "Compare File With Branch...",
         "icon": "$(git-compare)"
       },
       {
         "command": "gitnav.compareSelectionWithBranch",
-        "title": "GitNav: Compare Selection With Branch...",
+        "title": "Compare Selection With Branch...",
         "icon": "$(git-compare)"
       },
       {
@@ -105,6 +105,11 @@
       ],
       "gitnav.editorMenu": [
         {
+          "command": "gitnav.showHistoryForSelection",
+          "when": "editorHasSelection",
+          "group": "history@1"
+        },
+        {
           "command": "gitnav.compareFileWithBranch",
           "group": "compare@1"
         },
@@ -112,11 +117,6 @@
           "command": "gitnav.compareSelectionWithBranch",
           "when": "editorHasSelection",
           "group": "compare@2"
-        },
-        {
-          "command": "gitnav.showHistoryForSelection",
-          "when": "editorHasSelection",
-          "group": "history@1"
         }
       ],
       "view/title": [

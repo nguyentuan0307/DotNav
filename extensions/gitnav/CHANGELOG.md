@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.2...gitnav-v0.8.3) (2026-07-17)
+
+
+### Bug Fixes
+
+* **gitnav:** simplify editor menu labels ([9a238dc](https://github.com/nguyentuan0307/DotNav/commit/9a238dc2625d06f308e8bddcdfbad998500dbcfe))
+
+
 ## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.1...gitnav-v0.8.2) (2026-07-16)
 
 
