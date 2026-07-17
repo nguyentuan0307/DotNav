@@ -1,7 +1,9 @@
 import * as fs from 'fs/promises';
 import type { Dirent } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { createFolderBuildProject, normalizeMaxParallelBuilds } from './folderBuild';
 import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models';
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
@@ -11,6 +13,7 @@ interface StartOptions {
   readonly processManager?: ProcessManager;
   readonly runId?: string;
   readonly targetId?: string;
+  readonly skipBuild?: boolean;
 }
 
 export async function pickProfile(project: ProjectModel): Promise<LaunchProfile | undefined | null> {
@@ -60,7 +63,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     }
   }
 
-  if (shouldBuildBeforeRun()) {
+  if (shouldBuildBeforeRun() && !options.skipBuild) {
     const built = await buildProject(project, options.processManager, runId, targetId);
     if (!built) {
       return false;
@@ -294,24 +297,143 @@ export async function runConfig(
     }
   }
 
-  for (const [index, target] of config.targets.entries()) {
-    const resolved = resolvedTargets[index];
-    if (!resolved.project) {
-      return;
-    }
-
-    const started = await startTarget(resolved.project, resolved.profile, {
-      debug: options.debug,
-      processManager: options.processManager,
-      runId: session?.runId,
-      targetId: session?.targets[index].targetId
-    });
-
-    if (!started) {
+  const prebuilt = shouldBuildBeforeRun() && resolvedTargets.length > 1;
+  if (prebuilt) {
+    const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), options.processManager, session?.runId);
+    if (!built) {
       if (session) {
         await options.processManager?.stopRun(session.runId);
       }
-      break;
+      return;
+    }
+  }
+
+  const started = await Promise.all(resolvedTargets.map((resolved, index) =>
+    startTarget(resolved.project!, resolved.profile, {
+      debug: options.debug,
+      processManager: options.processManager,
+      runId: session?.runId,
+      targetId: session?.targets[index].targetId,
+      skipBuild: prebuilt
+    })
+  ));
+
+  if (started.some(value => !value) && session) {
+    await options.processManager?.stopRun(session.runId);
+  }
+}
+
+async function buildProjectGroup(
+  label: string,
+  projects: readonly ProjectModel[],
+  processManager?: ProcessManager,
+  runId?: string
+): Promise<boolean> {
+  const unique = uniqueProjects(projects);
+  if (unique.length === 0) {
+    return true;
+  }
+
+  const session = runId && processManager ? processManager.getSession(runId) : undefined;
+  if (unique.length === 1 && (!session || session.targets.length <= 1)) {
+    return buildProject(unique[0], processManager, runId, runId ? processManager?.getSession(runId)?.targets[0]?.targetId : undefined);
+  }
+
+  const configuration = buildConfiguration();
+  const timeoutMs = Math.max(1, vscode.workspace
+    .getConfiguration('dotnav')
+    .get<number>('buildTimeoutSeconds', 600)) * 1000;
+  const maxParallelBuilds = normalizeMaxParallelBuilds(vscode.workspace
+    .getConfiguration('dotnav')
+    .get<number>('maxParallelBuilds', 6));
+  let tempDirectory: string | undefined;
+
+  try {
+    tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-compound-build-'));
+    const orchestrationPath = path.join(tempDirectory, 'compound-build.proj');
+    await fs.writeFile(orchestrationPath, createFolderBuildProject(unique), 'utf8');
+
+    return await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      cancellable: true,
+      title: `Build ${label} (${unique.length} projects, ${maxParallelBuilds} workers)`
+    }, async (progress, token) => {
+      progress.report({ message: `${configuration} · up to ${maxParallelBuilds} parallel workers` });
+      const task = new vscode.Task(
+        { type: 'dotnet', task: 'build-compound', projects: unique.map(project => project.path), config: label },
+        vscode.TaskScope.Workspace,
+        `build ${label} (${unique.length} projects)`,
+        '.NET Navigator',
+        new vscode.ProcessExecution('dotnet', [
+          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`
+        ], { cwd: commonProjectDirectory(unique) }),
+        ['$msCompile']
+      );
+
+      let execution: vscode.TaskExecution;
+      try {
+        execution = await vscode.tasks.executeTask(task);
+      } catch (error) {
+        if (processManager && runId) {
+          processManager.failRun(runId, {
+            code: 'build-failed',
+            message: `Could not start compound build for ${label}.`,
+            cause: error instanceof Error ? error.message : String(error)
+          });
+        }
+        vscode.window.showErrorMessage(`Could not start compound build for ${label}: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+
+      const binding = processManager?.trackTaskGroup(unique, 'build', execution, runId);
+      const cancellation = token.onCancellationRequested(() => {
+        if (binding) {
+          void processManager?.stopRun(binding.runId);
+        } else {
+          execution.terminate();
+        }
+      });
+
+      try {
+        const exitCode = processManager
+          ? await processManager.waitForTask(execution, timeoutMs)
+          : await waitForUnmanagedTask(execution, label).then(ok => ok ? 0 : 1);
+        if (token.isCancellationRequested) {
+          return false;
+        }
+        const ok = exitCode === 0;
+        if (!ok) {
+          if (processManager && binding) {
+            processManager.failRun(binding.runId, {
+              code: 'build-failed',
+              message: `Build failed for ${label}${exitCode === undefined ? '' : ` with exit code ${exitCode}`}.`
+            });
+          }
+          vscode.window.showErrorMessage(`Build failed for ${label}.`);
+        }
+        return ok;
+      } catch (error) {
+        if (processManager && binding) {
+          processManager.terminateTimedOutRunTask(binding.runId, execution, {
+            code: 'build-timeout',
+            message: `Build timed out for ${label}.`,
+            cause: error instanceof Error ? error.message : String(error)
+          });
+        } else {
+          execution.terminate();
+        }
+        vscode.window.showErrorMessage(`Build timed out for ${label}.`);
+        return false;
+      } finally {
+        cancellation.dispose();
+      }
+    });
+  } catch (error) {
+    vscode.window.showErrorMessage(`Could not prepare compound build for ${label}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  } finally {
+    if (tempDirectory) {
+      await fs.rm(tempDirectory, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }
@@ -365,19 +487,9 @@ export async function buildConfig(
     }
   }
 
-  for (const [index, resolved] of resolvedTargets.entries()) {
-    const built = await buildProject(
-      resolved.project!,
-      processManager,
-      session?.runId,
-      session?.targets[index].targetId
-    );
-    if (!built) {
-      if (session) {
-        await processManager?.stopRun(session.runId);
-      }
-      return;
-    }
+  const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), processManager, session?.runId);
+  if (!built && session) {
+    await processManager?.stopRun(session.runId);
   }
 }
 
@@ -394,6 +506,38 @@ function shouldBuildBeforeRun(): boolean {
   return vscode.workspace
     .getConfiguration('dotnav')
     .get<boolean>('buildBeforeRun', true);
+}
+
+function uniqueProjects(projects: readonly ProjectModel[]): ProjectModel[] {
+  const byPath = new Map<string, ProjectModel>();
+  for (const project of projects) {
+    const key = path.resolve(project.path).toLowerCase();
+    if (!byPath.has(key)) {
+      byPath.set(key, project);
+    }
+  }
+
+  return [...byPath.values()];
+}
+
+function commonProjectDirectory(projects: readonly ProjectModel[]): string {
+  if (projects.length === 0) {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  }
+
+  const directories = projects.map(project => path.resolve(project.directory));
+  const [first, ...rest] = directories;
+  const separator = path.sep;
+  const commonParts = first.split(separator);
+
+  for (const directory of rest) {
+    const parts = directory.split(separator);
+    while (commonParts.length > 0 && commonParts.join(separator) !== parts.slice(0, commonParts.length).join(separator)) {
+      commonParts.pop();
+    }
+  }
+
+  return commonParts.join(separator) || path.parse(first).root || first;
 }
 
 function buildConfiguration(): string {

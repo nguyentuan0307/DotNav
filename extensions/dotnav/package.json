@@ -344,6 +344,14 @@
       {
         "id": "dotnav.add",
         "label": "Add"
+      },
+      {
+        "id": "dotnav.project",
+        "label": "Project"
+      },
+      {
+        "id": "dotnav.copy",
+        "label": "Copy"
       }
     ],
     "keybindings": [
@@ -492,7 +500,7 @@
         {
           "submenu": "dotnav.add",
           "when": "view == dotnav && viewItem =~ /folder|project/",
-          "group": "6_add@0"
+          "group": "3_add@1"
         },
         {
           "command": "dotnav.openItem",
@@ -515,29 +523,19 @@
           "group": "edit@3"
         },
         {
-          "command": "dotnav.copyPath",
+          "submenu": "dotnav.copy",
           "when": "view == dotnav && viewItem =~ /file|folder|project/",
           "group": "7_copy@1"
         },
         {
-          "command": "dotnav.copyRelativePath",
-          "when": "view == dotnav && viewItem =~ /file|folder|project/",
+          "command": "dotnav.revealInOs",
+          "when": "view == dotnav && viewItem =~ /file|folder/ && !(viewItem =~ /project/)",
           "group": "7_copy@2"
         },
         {
-          "command": "dotnav.revealInOs",
-          "when": "view == dotnav && viewItem =~ /file|folder|project/",
-          "group": "7_copy@3"
-        },
-        {
-          "command": "dotnav.openProjectFile",
+          "submenu": "dotnav.project",
           "when": "view == dotnav && viewItem =~ /project/",
-          "group": "4_navigation@1"
-        },
-        {
-          "command": "dotnav.setStartupProject",
-          "when": "view == dotnav && viewItem =~ /project/",
-          "group": "3_project@1"
+          "group": "4_project@1"
         },
         {
           "command": "dotnav.runProject",
@@ -581,7 +579,7 @@
         },
         {
           "command": "dotnav.openTerminalHere",
-          "when": "view == dotnav && viewItem =~ /folder|project/",
+          "when": "view == dotnav && viewItem =~ /folder/ && !(viewItem =~ /project/)",
           "group": "5_terminal@1"
         },
         {
@@ -648,6 +646,34 @@
         {
           "command": "dotnav.addExistingItem",
           "group": "3_existing@1"
+        }
+      ],
+      "dotnav.project": [
+        {
+          "command": "dotnav.setStartupProject",
+          "group": "1_project@1"
+        },
+        {
+          "command": "dotnav.openProjectFile",
+          "group": "1_project@2"
+        },
+        {
+          "command": "dotnav.openTerminalHere",
+          "group": "2_open@1"
+        },
+        {
+          "command": "dotnav.revealInOs",
+          "group": "2_open@2"
+        }
+      ],
+      "dotnav.copy": [
+        {
+          "command": "dotnav.copyPath",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "dotnav.copyRelativePath",
+          "group": "1_copy@2"
         }
       ]
     },
