@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.4](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.3...gitnav-v0.8.4) (2026-07-17)
+
+
+### Bug Fixes
+
+* **gitnav:** improve action responsiveness ([1f323a4](https://github.com/nguyentuan0307/DotNav/commit/1f323a4e82c8289c57bd5321b1b462ed1ee7515c))
+
+
 ## [0.8.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.2...gitnav-v0.8.3) (2026-07-17)
 
 
