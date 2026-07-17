@@ -9,17 +9,17 @@ export class ExplorerInteractionController implements vscode.TreeDragAndDropCont
   readonly dragMimeTypes = [treeMime];
   readonly dropMimeTypes = [treeMime];
 
-  private selectedNode?: TreeNode;
+  private selectedNodes: readonly TreeNode[] = [];
 
   constructor(private readonly provider: DotnetTreeProvider) {
   }
 
   setSelection(selection: readonly TreeNode[]): void {
-    this.selectedNode = selection[0];
+    this.selectedNodes = selection;
   }
 
-  getSelection(): TreeNode | undefined {
-    return this.selectedNode;
+  getSelection(): readonly TreeNode[] {
+    return this.selectedNodes;
   }
 
   async handleDrag(source: readonly TreeNode[], dataTransfer: vscode.DataTransfer): Promise<void> {
