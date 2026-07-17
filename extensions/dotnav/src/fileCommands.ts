@@ -35,48 +35,57 @@ export async function renameItem(provider: DotnetTreeProvider, node: TreeNode): 
   await provider.refresh();
 }
 
-export async function deleteItem(provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
-  const target = targetPathFor(node);
-  if (!target) {
+export async function deleteItems(provider: DotnetTreeProvider, nodes: readonly TreeNode[]): Promise<void> {
+  const entries = nodes
+    .map(node => ({ node, target: targetPathFor(node) }))
+    .filter((entry): entry is { node: TreeNode; target: string } => Boolean(entry.target));
+  if (entries.length === 0) {
     return;
   }
 
-  const label = path.basename(target);
-  const choice = await vscode.window.showWarningMessage(
-    `Delete "${label}"? The item will be moved to the recycle bin when possible.`,
-    { modal: true },
-    'Delete'
-  );
+  const message = entries.length === 1
+    ? `Delete "${path.basename(entries[0].target)}"? The item will be moved to the recycle bin when possible.`
+    : `Delete ${entries.length} items? They will be moved to the recycle bin when possible.\n\n${entries.map(entry => path.basename(entry.target)).join('\n')}`;
 
+  const choice = await vscode.window.showWarningMessage(message, { modal: true }, 'Delete');
   if (choice !== 'Delete') {
     return;
   }
 
-  await vscode.workspace.fs.delete(vscode.Uri.file(target), {
-    recursive: node.kind === 'folder',
-    useTrash: true
-  });
+  for (const entry of entries) {
+    await vscode.workspace.fs.delete(vscode.Uri.file(entry.target), {
+      recursive: entry.node.kind === 'folder',
+      useTrash: true
+    });
+  }
+
   await provider.refresh();
 }
 
-export async function moveItem(provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
-  const target = targetPathFor(node);
-  if (!target) {
+export async function moveItems(provider: DotnetTreeProvider, nodes: readonly TreeNode[]): Promise<void> {
+  const entries = nodes.filter(node => targetPathFor(node));
+  if (entries.length === 0) {
     return;
   }
+
+  const title = entries.length === 1
+    ? `Move "${path.basename(targetPathFor(entries[0])!)}" To Folder`
+    : `Move ${entries.length} Items To Folder`;
 
   const picked = await vscode.window.showOpenDialog({
     canSelectFiles: false,
     canSelectFolders: true,
     canSelectMany: false,
-    title: `Move "${path.basename(target)}" To Folder`
+    title
   });
 
   if (!picked || picked.length === 0) {
     return;
   }
 
-  await moveItemToDirectory(provider, node, picked[0].fsPath);
+  for (const node of entries) {
+    await moveItemToDirectory(provider, node, picked[0].fsPath);
+  }
 }
 
 export async function moveItemToDirectory(provider: DotnetTreeProvider, node: TreeNode, destinationDirectory: string): Promise<boolean> {
@@ -109,30 +118,36 @@ export async function moveItemToDirectory(provider: DotnetTreeProvider, node: Tr
   return true;
 }
 
-export async function copyFullPath(node: TreeNode): Promise<void> {
-  const target = resolveResourcePath(node);
-  if (!target) {
+export async function copyFullPath(nodes: readonly TreeNode[]): Promise<void> {
+  const targets = nodes.map(resolveResourcePath).filter((target): target is string => Boolean(target));
+  if (targets.length === 0) {
     return;
   }
 
-  await vscode.env.clipboard.writeText(target);
-  vscode.window.showInformationMessage(`Copied path: ${target}`);
+  await vscode.env.clipboard.writeText(targets.join('\n'));
+  vscode.window.showInformationMessage(targets.length === 1 ? `Copied path: ${targets[0]}` : `Copied ${targets.length} paths.`);
 }
 
-export async function copyRelativePath(node: TreeNode): Promise<void> {
-  const target = resolveResourcePath(node);
+export async function copyRelativePath(nodes: readonly TreeNode[]): Promise<void> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!target || !workspaceRoot) {
+  if (!workspaceRoot) {
     return;
   }
 
-  const relativePath = path.relative(workspaceRoot, target).replace(/\\/g, '/');
-  await vscode.env.clipboard.writeText(relativePath);
-  vscode.window.showInformationMessage(`Copied relative path: ${relativePath}`);
+  const relativePaths = nodes
+    .map(resolveResourcePath)
+    .filter((target): target is string => Boolean(target))
+    .map(target => path.relative(workspaceRoot, target).replace(/\\/g, '/'));
+  if (relativePaths.length === 0) {
+    return;
+  }
+
+  await vscode.env.clipboard.writeText(relativePaths.join('\n'));
+  vscode.window.showInformationMessage(relativePaths.length === 1 ? `Copied relative path: ${relativePaths[0]}` : `Copied ${relativePaths.length} relative paths.`);
 }
 
-export async function revealInFileExplorer(node: TreeNode): Promise<void> {
-  const target = resolveResourcePath(node);
+export async function revealInFileExplorer(nodes: readonly TreeNode[]): Promise<void> {
+  const target = resolveResourcePath(nodes[0]);
   if (!target) {
     return;
   }

@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.5.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.0...dotnav-v0.5.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **dotnav:** stop scroll-jump on file click, support multi-select file ops ([567c9f8](https://github.com/nguyentuan0307/DotNav/commit/567c9f8ee6441b00b9342d658aabc5dc31b71f6d))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([7e7dc5f](https://github.com/nguyentuan0307/DotNav/commit/7e7dc5fa96671d3b070432cd871b0723832fe936))
+
+
 ## [0.5.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.4.0...dotnav-v0.5.0) (2026-07-17)
 
 
