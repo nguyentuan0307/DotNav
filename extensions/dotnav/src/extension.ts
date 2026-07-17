@@ -5,7 +5,7 @@ import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner'
 import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForProjects, runDotnetForSolution } from './dotnetCli';
 import { projectsUnderFolder, projectsUnderSolutionFolder } from './folderBuild';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
-import { copyFullPath, copyRelativePath, deleteItem, moveItem, renameItem, revealInFileExplorer } from './fileCommands';
+import { copyFullPath, copyRelativePath, deleteItems, moveItems, renameItem, revealInFileExplorer } from './fileCommands';
 import { formatSelection } from './format/formatSelection';
 import { ProjectModel, RunConfig, SolutionModel, TreeNode } from './models';
 import { isRunnableProject } from './projectCapabilities';
@@ -35,7 +35,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const treeView = vscode.window.createTreeView('dotnav', {
     treeDataProvider: provider,
     dragAndDropController: interaction,
-    showCollapseAll: true
+    showCollapseAll: true,
+    canSelectMany: true
   });
   const runConfigTreeView = vscode.window.createTreeView('dotnav.runConfigurations', {
     treeDataProvider: new RunConfigTreeProvider(provider),
@@ -100,12 +101,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.addFile', (node: TreeNode) => addFile(provider, node)),
     vscode.commands.registerCommand('dotnav.addFolder', (node: TreeNode) => addFolder(provider, node)),
     vscode.commands.registerCommand('dotnav.addExistingItem', (node: TreeNode) => addExistingItem(provider, node)),
-    vscode.commands.registerCommand('dotnav.renameItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => renameItem(provider, selected))),
-    vscode.commands.registerCommand('dotnav.moveItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => moveItem(provider, selected))),
-    vscode.commands.registerCommand('dotnav.deleteItem', (node?: TreeNode) => runSelectedFileCommand(interaction, node, selected => deleteItem(provider, selected))),
-    vscode.commands.registerCommand('dotnav.copyPath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyFullPath)),
-    vscode.commands.registerCommand('dotnav.copyRelativePath', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, copyRelativePath)),
-    vscode.commands.registerCommand('dotnav.revealInOs', (node?: TreeNode) => runSelectedResourceCommand(interaction, node, revealInFileExplorer)),
+    vscode.commands.registerCommand('dotnav.renameItem', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedFileCommand(interaction, node, allSelected, async selected => {
+      if (selected.length > 1) {
+        vscode.window.showInformationMessage('Select a single file or folder to rename.');
+        return;
+      }
+      await renameItem(provider, selected[0]);
+    })),
+    vscode.commands.registerCommand('dotnav.moveItem', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedFileCommand(interaction, node, allSelected, selected => moveItems(provider, selected))),
+    vscode.commands.registerCommand('dotnav.deleteItem', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedFileCommand(interaction, node, allSelected, selected => deleteItems(provider, selected))),
+    vscode.commands.registerCommand('dotnav.copyPath', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, copyFullPath)),
+    vscode.commands.registerCommand('dotnav.copyRelativePath', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, copyRelativePath)),
+    vscode.commands.registerCommand('dotnav.revealInOs', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, revealInFileExplorer)),
     vscode.commands.registerCommand('dotnav.addRunConfig', () => addRunConfig(context, provider)),
     vscode.commands.registerCommand('dotnav.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnav.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
@@ -171,7 +178,7 @@ async function openItem(provider: DotnetTreeProvider, treeView: vscode.TreeView<
   }
 
   await vscode.window.showTextDocument(vscode.Uri.file(node.resourcePath), { preview: false, preserveFocus: true });
-  await revealWithScrollPadding(provider, treeView, node);
+  await treeView.reveal(node, { select: true, focus: false, expand: false });
 }
 
 async function openProjectFile(node: TreeNode): Promise<void> {
@@ -202,7 +209,7 @@ async function selectOpenedFile(
     return;
   }
 
-  await treeView.reveal(node, { select: true, focus: false, expand: true });
+  await revealWithScrollPadding(provider, treeView, node);
 }
 
 async function openSolutionFile(provider: DotnetTreeProvider): Promise<void> {
@@ -416,13 +423,30 @@ async function openNavigatorSettings(): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.dotnav');
 }
 
+function resolveSelectedNodes(
+  interaction: ExplorerInteractionController,
+  node: TreeNode | undefined,
+  allSelected: TreeNode[] | undefined
+): TreeNode[] {
+  if (allSelected && allSelected.length > 0) {
+    return allSelected;
+  }
+
+  if (node) {
+    return [node];
+  }
+
+  return interaction.getSelection().slice();
+}
+
 async function runSelectedFileCommand(
   interaction: ExplorerInteractionController,
   node: TreeNode | undefined,
-  command: (selected: TreeNode) => Promise<void>
+  allSelected: TreeNode[] | undefined,
+  command: (selected: TreeNode[]) => Promise<void>
 ): Promise<void> {
-  const selected = node ?? interaction.getSelection();
-  if (!isMovableNode(selected)) {
+  const selected = resolveSelectedNodes(interaction, node, allSelected).filter(isMovableNode);
+  if (selected.length === 0) {
     vscode.window.showInformationMessage('Select a file or folder in .NET Navigator first.');
     return;
   }
@@ -433,10 +457,12 @@ async function runSelectedFileCommand(
 async function runSelectedResourceCommand(
   interaction: ExplorerInteractionController,
   node: TreeNode | undefined,
-  command: (selected: TreeNode) => Promise<void>
+  allSelected: TreeNode[] | undefined,
+  command: (selected: TreeNode[]) => Promise<void>
 ): Promise<void> {
-  const selected = node ?? interaction.getSelection();
-  if (!selected?.resourcePath || !['file', 'folder', 'project'].includes(selected.kind)) {
+  const selected = resolveSelectedNodes(interaction, node, allSelected)
+    .filter(candidate => candidate.resourcePath && ['file', 'folder', 'project'].includes(candidate.kind));
+  if (selected.length === 0) {
     vscode.window.showInformationMessage('Select a file, folder, or project in .NET Navigator first.');
     return;
   }
