@@ -76,6 +76,8 @@ export interface TreeNode {
   readonly id?: string;
   readonly resourcePath?: string;
   readonly project?: ProjectModel;
+  readonly packageId?: string;
+  readonly packageVersion?: string;
   readonly configId?: string;
   readonly children?: TreeNode[];
   readonly collapsibleState?: vscode.TreeItemCollapsibleState;

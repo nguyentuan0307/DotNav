@@ -92,13 +92,21 @@ export type GitOperationState = 'MERGING' | 'REBASING' | 'CHERRY-PICKING' | 'REV
 
 export interface GitLogFilter {
   readonly text?: string;
-  readonly regex?: boolean;
-  readonly matchCase?: boolean;
   readonly refs?: string[];
-  readonly author?: string;
+  readonly authors?: string[];
   readonly path?: string;
   readonly since?: string;
   readonly until?: string;
+}
+
+export interface GitFilterAuthor {
+  readonly name: string;
+  readonly email: string;
+}
+
+export interface GitFilterOptions {
+  readonly authors: GitFilterAuthor[];
+  readonly files: string[];
 }
 
 export interface GitLogPage {
