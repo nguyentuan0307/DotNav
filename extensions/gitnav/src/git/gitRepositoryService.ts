@@ -132,21 +132,25 @@ export class GitRepositoryService {
   async filterOptions(root: string, token?: vscode.CancellationToken): Promise<GitFilterOptions> {
     const cached = this.filterOptionsCache.get(root);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
-    const [authorsResult, filesResult] = await Promise.all([
-      this.git(root, ['shortlog', '-sne', '--all'], token),
-      this.git(root, ['ls-files', '-z'], token)
+    const [filesResult, deletedResult] = await Promise.all([
+      this.git(root, ['ls-files', '-co', '--exclude-standard', '-z'], token),
+      this.git(root, ['ls-files', '--deleted', '-z'], token)
     ]);
-    const authors = new Map<string, { name: string; email: string }>();
-    for (const line of authorsResult.stdout.split(/\r?\n/)) {
-      const match = /^\s*\d+\s+(.+?)\s+<([^>]+)>\s*$/.exec(line);
-      if (match) authors.set(match[2].toLowerCase(), { name: match[1].trim(), email: match[2].trim() });
-    }
+    const deleted = new Set(deletedResult.stdout.split('\0').filter(Boolean));
     const value = {
-      authors: [...authors.values()].sort((a, b) => a.name.localeCompare(b.name)),
-      files: filesResult.stdout.split('\0').filter(Boolean).sort()
+      authors: [],
+      files: filesResult.stdout.split('\0').filter(file => file && !deleted.has(file)).sort()
     };
     this.filterOptionsCache.set(root, { value, expiresAt: Date.now() + 30_000 });
     return value;
+  }
+
+  async searchAuthors(root: string, query: string, token?: vscode.CancellationToken): Promise<GitFilterOptions['authors']> {
+    const result = await this.git(root, [
+      'log', '--all', '--max-count=200', `--author=${query}`, '--regexp-ignore-case', '--fixed-strings',
+      '--format=%an%x00%ae%x00'
+    ], token);
+    return parseFilterAuthors(result.stdout);
   }
 
   async commitDetail(root: string, hash: string, parent?: number, token?: vscode.CancellationToken): Promise<GitCommitDetail> {
@@ -330,6 +334,17 @@ function buildFilterArgs(filter: GitLogFilter): string[] {
   if (filter.since) args.push(`--since=${filter.since}`);
   if (filter.until) args.push(`--until=${filter.until}`);
   return args;
+}
+
+function parseFilterAuthors(output: string): GitFilterOptions['authors'] {
+  const fields = output.split('\0');
+  const authors = new Map<string, { name: string; email: string }>();
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const name = fields[index].replace(/^\r?\n/, '').trim();
+    const email = fields[index + 1].trim();
+    if (email) authors.set(email.toLowerCase(), { name: name || email, email });
+  }
+  return [...authors.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function detectOperation(root: string): Promise<GitOperationState | undefined> {
