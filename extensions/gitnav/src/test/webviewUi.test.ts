@@ -26,6 +26,7 @@ test('uses one reusable webview UI foundation across GitNav surfaces', () => {
 
 test('avoids operating-system-native popup controls in visible GitNav UI', () => {
   const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const ui = read('media', 'webview', 'ui.css');
 
   assert.doesNotMatch(provider, /<select(?![^>]*\bhidden\b)/);
   assert.doesNotMatch(provider, /type="date"/);
@@ -34,6 +35,7 @@ test('avoids operating-system-native popup controls in visible GitNav UI', () =>
   assert.match(provider, /id="repoPicker"/);
   assert.match(provider, /id="parentMenu"/);
   assert.match(provider, /id="rebaseActionMenu"/);
+  assert.match(ui, /\[hidden\]\s*\{\s*display: none !important;/);
 });
 
 test('loads shared styles externally while allowing dynamic layout styles', () => {
@@ -55,4 +57,14 @@ test('generated webview markup does not depend on blocked inline handlers or sty
   assert.doesNotMatch(provider, /'<[^']+\sstyle="/);
   assert.match(provider, /row\.style\.top=/);
   assert.match(provider, /\.with\(\{ query: `v=\$\{nonce\}` \}\)/);
+});
+
+test('changed files defaults to list mode and uses one compact folder action', () => {
+  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(provider, /localStorage\.getItem\('gitLog\.fileMode'\)\|\|'flat'/);
+  assert.match(provider, /id="folderToggle"/);
+  assert.doesNotMatch(provider, /id="collapseFiles"|id="expandFiles"/);
+  assert.match(styles, /\.file-view-toggle button\s*\{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*justify-content: center;/s);
 });

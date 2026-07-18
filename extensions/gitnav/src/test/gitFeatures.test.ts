@@ -233,8 +233,9 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /function fileTree\(/);
   assert.match(source, /function renderFileNode\(/);
   assert.match(source, /data-file-folder/);
-  assert.match(source, /collapseFiles/);
-  assert.match(source, /expandFiles/);
+  assert.match(source, /id="folderToggle"/);
+  assert.match(source, /Collapse all changed-file folders/);
+  assert.match(source, /Expand all changed-file folders/);
   assert.match(source, /function fileStatus\(/);
   assert.match(source, /status-conflict/);
   assert.match(source, /file-add/);
