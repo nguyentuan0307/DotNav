@@ -14,6 +14,7 @@ import { RunConfigTreeProvider } from './runConfigTreeProvider';
 import * as runConfigStore from './runConfigStore';
 import { createStatusBar, updateStatusBar } from './statusBar';
 import { DotnetTreeProvider } from './treeProvider';
+import { addPackage, checkOutdated, removePackage, restorePackages, updatePackage } from './nugetCommands';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -67,6 +68,12 @@ export function activate(context: vscode.ExtensionContext): void {
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
     vscode.commands.registerCommand('dotnav.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('dotnav.addPackage', (node: TreeNode) => addPackage(provider, node)),
+    vscode.commands.registerCommand('dotnav.updatePackage', (node: TreeNode) => updatePackage(provider, node)),
+    vscode.commands.registerCommand('dotnav.removePackage', (node: TreeNode) => removePackage(provider, node)),
+    vscode.commands.registerCommand('dotnav.restorePackages', (node: TreeNode) => restorePackages(provider, node)),
+    vscode.commands.registerCommand('dotnav.checkOutdated', (node?: TreeNode) =>
+      checkOutdated(provider, node ?? { kind: 'solution', label: 'Solution' })),
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
