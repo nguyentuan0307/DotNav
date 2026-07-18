@@ -12,6 +12,7 @@ import { MutationBusyTracker, runMutationLifecycle } from './gitMutationLifecycl
 import { actionFeedback, actionLabel, GitContextAction, GitContextActionGroup } from './gitActionPolicy';
 import { matchingProtectedBranchPattern } from './gitBranchProtection';
 import { GitPushRecoveryPreferences, GitPushRecoveryStrategy } from './gitPushRecoveryPreferences';
+import { mapRevisionLineToWorktree } from './lineMapping';
 
 interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; action?: string; kind?: string; current?: boolean; remember?: boolean; strategy?: GitPushRecoveryStrategy; operation?: string; durationMs?: number; parent?: number; offset?: number; x?: number; y?: number; requestId?: number; generation?: number; filter?: GitLogFilter; plan?: GitRebasePlanItem[]; }
 
@@ -721,6 +722,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private async openWorkingTreeFile(root: string, filePath: string, hash?: string): Promise<void> {
     const uri = vscode.Uri.file(path.join(root, filePath));
+    const revision = this.activeRevisionLocation(root, filePath);
     try {
       await vscode.workspace.fs.stat(uri);
     } catch {
@@ -733,7 +735,23 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
       return;
     }
-    await vscode.window.showTextDocument(uri, { preview: false });
+    const editor = await vscode.window.showTextDocument(uri, { preview: false });
+    if (revision) {
+      const diff = await this.service.git(root, ['diff', '--no-ext-diff', '--unified=0', revision.ref, '--', filePath]);
+      const targetLine = Math.min(editor.document.lineCount, mapRevisionLineToWorktree(diff.stdout, revision.line)) - 1;
+      const position = new vscode.Position(Math.max(0, targetLine), 0);
+      editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    }
+  }
+
+  private activeRevisionLocation(root: string, filePath: string): { ref: string; line: number } | undefined {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'gitnav-revision') return undefined;
+    const query = new URLSearchParams(editor.document.uri.query);
+    const ref = query.get('ref');
+    if (query.get('root') !== root || query.get('path') !== filePath || !ref) return undefined;
+    return { ref, line: editor.selection.active.line + 1 };
   }
 
   private async openConflict(filePath: string): Promise<void> {

@@ -1,6 +1,6 @@
 import assert from 'assert/strict';
 import test from 'node:test';
-import { mapWorktreeRangeToHead } from '../git/lineMapping';
+import { mapRevisionLineToWorktree, mapWorktreeRangeToHead } from '../git/lineMapping';
 
 test('maps clean ranges without hunks', () => {
   assert.deepEqual(mapWorktreeRangeToHead('', 10, 12), { start: 10, end: 12 });
@@ -36,4 +36,13 @@ test('applies cumulative delta after multiple hunks', () => {
 test('keeps committed parts when a selection partially overlaps new lines', () => {
   const diff = '@@ -38,0 +39,2 @@\n+new\n+new\n';
   assert.deepEqual(mapWorktreeRangeToHead(diff, 38, 42), { start: 38, end: 40 });
+});
+
+test('maps a revision line forward to the working tree', () => {
+  const diff = '@@ -3,2 +3,4 @@\n@@ -10,3 +12,0 @@';
+  assert.equal(mapRevisionLineToWorktree(diff, 2), 2);
+  assert.equal(mapRevisionLineToWorktree(diff, 4), 4);
+  assert.equal(mapRevisionLineToWorktree(diff, 8), 10);
+  assert.equal(mapRevisionLineToWorktree(diff, 11), 12);
+  assert.equal(mapRevisionLineToWorktree(diff, 14), 13);
 });

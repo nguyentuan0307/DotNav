@@ -274,7 +274,7 @@ Khi search branch, current branch luôn được giữ như một lựa chọn d
 - Tree/flat mode, collapse/expand toàn bộ.
 - Status, additions/deletions và compact row.
 - Chọn file mở diff; context menu cho commit file hoặc working-tree file.
-- Hover file hiện `Open local file`; `Ctrl/Cmd+Enter` mở working-tree file trong editor để xem toàn bộ và chỉnh sửa.
+- Hover file hiện `Open local file`; `Ctrl/Cmd+Enter` mở working-tree file tại dòng tương ứng với vị trí đang xem trong diff để tiếp tục chỉnh sửa.
 - Nếu file không còn ở local, GitNav hiển thị thông báo ngắn và cho phép `Restore from Commit` khi có commit nguồn.
 - Merge commit hỗ trợ xem theo từng parent hoặc combined files.
 
