@@ -81,3 +81,14 @@ test('custom date range provides a themed calendar and themed filter chips', () 
   assert.match(styles, /\.date-calendar-grid/);
   assert.match(styles, /\.calendar-day\.selected/);
 });
+
+test('context submenu has a visible chevron and closes after pointer exit', () => {
+  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(provider, /class="context-more-chevron"/);
+  assert.match(provider, /function scheduleContextSubmenuClose\(\)/);
+  assert.match(provider, /\$\('contextSubmenu'\)\.onpointerenter=cancelContextSubmenuClose/);
+  assert.match(provider, /\$\('contextSubmenu'\)\.onpointerleave=scheduleContextSubmenuClose/);
+  assert.match(styles, /\.context-more-chevron svg/);
+});

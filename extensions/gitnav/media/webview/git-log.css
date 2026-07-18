@@ -1451,6 +1451,38 @@ mark.search-match {
   color: var(--vscode-errorForeground);
 }
 
+.context-menu button.context-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.context-more-chevron {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+}
+
+.context-more-chevron svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.context-menu button.context-more:hover .context-more-chevron,
+.context-menu button.context-more:focus .context-more-chevron {
+  color: currentColor;
+}
+
 .context-submenu {
   z-index: 1001;
 }
