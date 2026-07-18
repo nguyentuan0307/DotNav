@@ -312,6 +312,10 @@ test('builds professional commit filters with AND semantics', () => {
   assert.doesNotMatch(provider, /querySelector\('\.match-toggle'\)\?\.remove/);
   assert.match(provider, /until:state\.filterDraft\.until\?state\.filterDraft\.until\+' 23:59:59'/);
   assert.match(provider, /fuzzyMatch\(pathBase\(x\.path\),q\)/);
+  assert.match(provider, /class="filter-field author-filter"/);
+  assert.match(provider, /\.author-filter\{order:1\}#authorPicker\{order:2\}/);
+  assert.match(provider, /class="choice-check"/);
+  assert.match(provider, /font-family:var\(--vscode-font-family\)/);
 });
 
 test('reuses mutation state and keeps expensive refresh work off the action critical path', () => {

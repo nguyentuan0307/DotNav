@@ -259,6 +259,8 @@ Hỗ trợ:
 
 Các nhóm Search, Authors, File/Folder và Date luôn kết hợp bằng `AND`. Popup giữ thay đổi ở draft state và chỉ áp dụng một lần khi user click ra ngoài; không có Regex/Case-sensitive hay nút Apply/Close.
 
+Filter popup dùng trực tiếp typography và color token của VS Code. Mỗi điều kiện là một hàng gọn theo kiểu native menu/Quick Pick; danh sách chọn chỉ dùng border khi cần phân tách, có hover/focus rõ ràng và không hiển thị control thô kiểu form web.
+
 Khi search branch, current branch luôn được giữ như một lựa chọn dễ truy cập để user vẫn thao tác được với branch đang đứng.
 
 ### 7.4 Commit list
