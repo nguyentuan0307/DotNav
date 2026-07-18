@@ -15,8 +15,9 @@ export class GitRequestCoordinator {
   begin(channel: GitReadChannel, repositoryId: string, generation?: number): GitRequestIdentity {
     const current = this.generations.get(repositoryId) ?? 0;
     const effectiveGeneration = generation ?? current;
-    if (effectiveGeneration > current) this.generations.set(repositoryId, effectiveGeneration);
     const identity = { repositoryId, generation: effectiveGeneration, requestId: this.nextRequestId++ };
+    if (effectiveGeneration < current) return identity;
+    if (effectiveGeneration > current) this.generations.set(repositoryId, effectiveGeneration);
     this.active.set(channel, identity);
     return identity;
   }
@@ -118,10 +119,13 @@ export class CoalescedRefreshRunner {
   }
 
   private async drain(operation: () => Promise<void>): Promise<void> {
+    let failure: unknown;
     do {
       this.requested = false;
-      await operation();
+      try { await operation(); }
+      catch (error) { failure ??= error; }
     } while (this.requested);
+    if (failure) throw failure;
   }
 }
 

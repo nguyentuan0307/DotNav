@@ -33,6 +33,28 @@ export function mapWorktreeRangeToHead(diffU0: string, start: number, end: numbe
   };
 }
 
+export function mapRevisionLineToWorktree(diffU0: string, line: number): number {
+  const hunks = parseDiffHunks(diffU0).sort((a, b) => a.oldStart - b.oldStart);
+  let delta = 0;
+
+  for (const hunk of hunks) {
+    if (line < hunk.oldStart) {
+      break;
+    }
+
+    if (line < hunk.oldStart + hunk.oldCount) {
+      if (hunk.newCount === 0) {
+        return Math.max(1, hunk.newStart);
+      }
+      return hunk.newStart + Math.min(line - hunk.oldStart, hunk.newCount - 1);
+    }
+
+    delta += hunk.newCount - hunk.oldCount;
+  }
+
+  return Math.max(1, line + delta);
+}
+
 export function parseDiffHunks(diffU0: string): DiffHunk[] {
   const hunks: DiffHunk[] = [];
   for (const line of diffU0.split(/\r?\n/)) {

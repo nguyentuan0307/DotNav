@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as os from 'os';
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { promises as fs } from 'fs';
 import * as vscode from 'vscode';
 import { ProjectModel, SolutionModel } from './models';
@@ -8,6 +9,129 @@ import { ProcessManager } from './processManager';
 import { createFolderBuildProject, normalizeMaxParallelBuilds } from './folderBuild';
 
 export type SolutionOperation = 'build' | 'rebuild' | 'clean';
+
+export interface DotnetPackageCommandResult {
+  readonly exitCode: number | undefined;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export async function runDotnetPackageCommand(
+  cwd: string,
+  args: string[],
+  title: string
+): Promise<DotnetPackageCommandResult> {
+  return vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    cancellable: true,
+    title
+  }, async (_progress, token) => {
+    let terminal: CapturingDotnetTerminal | undefined;
+    const task = new vscode.Task(
+      { type: 'dotnet', task: 'package', args },
+      vscode.TaskScope.Workspace,
+      title,
+      '.NET Navigator',
+      new vscode.CustomExecution(async () => {
+        terminal = new CapturingDotnetTerminal(cwd, args);
+        return terminal;
+      })
+    );
+
+    let taskEndSubscription: vscode.Disposable | undefined;
+    const completion = new Promise<number | undefined>(resolve => {
+      taskEndSubscription = vscode.tasks.onDidEndTaskProcess(event => {
+        if (event.execution.task === task) {
+          taskEndSubscription?.dispose();
+          resolve(event.exitCode);
+        }
+      });
+    });
+
+    let execution: vscode.TaskExecution;
+    try {
+      execution = await vscode.tasks.executeTask(task);
+    } catch (error) {
+      taskEndSubscription?.dispose();
+      const message = `Could not start dotnet: ${error instanceof Error ? error.message : String(error)}`;
+      vscode.window.showErrorMessage(message);
+      return { exitCode: undefined, stdout: '', stderr: message };
+    }
+
+    const cancellation = token.onCancellationRequested(() => {
+      terminal?.close();
+      execution.terminate();
+    });
+    const exitCode = await completion;
+    cancellation.dispose();
+
+    const result = {
+      exitCode,
+      stdout: terminal?.stdout ?? '',
+      stderr: terminal?.stderr ?? ''
+    };
+    if (!token.isCancellationRequested && exitCode !== 0) {
+      const detail = result.stderr.trim().split(/\r?\n/).pop();
+      vscode.window.showErrorMessage(
+        `${title} failed${exitCode === undefined ? '' : ` (exit code ${exitCode})`}${detail ? `: ${detail}` : '.'}`
+      );
+    }
+    return result;
+  });
+}
+
+class CapturingDotnetTerminal implements vscode.Pseudoterminal {
+  private readonly writeEmitter = new vscode.EventEmitter<string>();
+  readonly onDidWrite = this.writeEmitter.event;
+  private readonly closeEmitter = new vscode.EventEmitter<number>();
+  readonly onDidClose = this.closeEmitter.event;
+  private process?: ChildProcessWithoutNullStreams;
+  private didClose = false;
+  stdout = '';
+  stderr = '';
+
+  constructor(private readonly cwd: string, private readonly args: string[]) {}
+
+  open(): void {
+    this.process = spawn('dotnet', this.args, { cwd: this.cwd, windowsHide: true });
+    this.process.stdout.on('data', chunk => {
+      const text = chunk.toString();
+      this.stdout += text;
+      this.writeEmitter.fire(toTerminalText(text));
+    });
+    this.process.stderr.on('data', chunk => {
+      const text = chunk.toString();
+      this.stderr += text;
+      this.writeEmitter.fire(toTerminalText(text));
+    });
+    this.process.on('error', error => {
+      const text = `${error.message}\n`;
+      this.stderr += text;
+      this.writeEmitter.fire(toTerminalText(text));
+      this.finish(1);
+    });
+    this.process.on('close', code => {
+      this.finish(code ?? 1);
+    });
+  }
+
+  close(): void {
+    if (this.process && !this.process.killed) {
+      this.process.kill();
+    }
+  }
+
+  private finish(exitCode: number): void {
+    if (!this.didClose) {
+      this.didClose = true;
+      this.closeEmitter.fire(exitCode);
+    }
+  }
+}
+
+function toTerminalText(value: string): string {
+  return value.replace(/\r?\n/g, '\r\n');
+}
 
 export async function runDotnetForProject(
   project: ProjectModel,

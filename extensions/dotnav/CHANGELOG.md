@@ -4,6 +4,22 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.6.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.1...dotnav-v0.6.0) (2026-07-18)
+
+
+### Features
+
+* **dotnav:** manage NuGet packages in tree ([30a19ad](https://github.com/nguyentuan0307/DotNav/commit/30a19ad02254a99164b14b4abed07b6165a1c241))
+
+### Bug Fixes
+
+* **dotnav:** avoid NuGet HTTP parser failure ([f9a237d](https://github.com/nguyentuan0307/DotNav/commit/f9a237dfd0373229a3fd5b529f9eda5c064498ac))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([c136b7e](https://github.com/nguyentuan0307/DotNav/commit/c136b7eb9712412f8bac1c9c896ce7f3760e1bb1))
+
+
 ## [0.5.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.0...dotnav-v0.5.1) (2026-07-17)
 
 

@@ -180,14 +180,15 @@ test('contributes Git Log safety and auto-fetch settings', () => {
 
 test('renders Git Log context actions inside the webview', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
-  assert.match(source, /class="context-menu" id="contextMenu"/);
+  const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
+  assert.match(source, /class="context-menu ui-menu" id="contextMenu"/);
   assert.match(source, /showInlineContextMenu/);
   assert.match(source, /window\.innerWidth-rect\.width/);
   assert.doesNotMatch(source, /showQuickPick\(actions/);
   assert.match(source, /const \{type,\.\.\.context\}=state\.contextPayload/);
   assert.match(source, /function requestContext\(data\)/);
-  assert.match(source, /body\{[^}]*user-select:none/);
-  assert.match(source, /input,textarea,\.detail \.message,\.detail \.meta,\.diff-preview\{user-select:text\}/);
+  assert.match(styles, /body\s*\{[^}]*user-select:\s*none/);
+  assert.match(styles, /input,\s*textarea,\s*\.detail \.message,\s*\.detail \.meta,\s*\.diff-preview\s*\{[^}]*user-select:\s*text/);
   assert.match(source, /addEventListener\('contextmenu',e=>\{e\.preventDefault\(\)/);
   assert.match(source, /context\.requestId!==state\.contextRequestId/);
   assert.match(source, /button\.disabled=true/);
@@ -198,7 +199,7 @@ test('renders Git Log context actions inside the webview', () => {
   assert.doesNotMatch(source, /branches'\)\.ondblclick/);
   assert.match(source, /<svg class="graph-overlay" id="graphSvg"/);
   assert.match(source, /class="graph-clip" id="graphClip"/);
-  assert.match(source, /\.graph-clip\{[^}]*overflow:hidden/);
+  assert.match(styles, /\.graph-clip\s*\{[^}]*overflow:\s*hidden/);
   assert.match(source, /function renderGraph\(/);
   assert.match(source, /clip\.style\.transform='translateY\('\+vp\.scrollTop\+'px\)'/);
   assert.doesNotMatch(source, /esc\(c\.graph/);
@@ -232,8 +233,9 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /function fileTree\(/);
   assert.match(source, /function renderFileNode\(/);
   assert.match(source, /data-file-folder/);
-  assert.match(source, /collapseFiles/);
-  assert.match(source, /expandFiles/);
+  assert.match(source, /id="folderToggle"/);
+  assert.match(source, /Collapse all changed-file folders/);
+  assert.match(source, /Expand all changed-file folders/);
   assert.match(source, /function fileStatus\(/);
   assert.match(source, /status-conflict/);
   assert.match(source, /file-add/);
@@ -264,6 +266,11 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /cancelAnimationFrame\(branchSearchFrame\)/);
   assert.match(source, /generation!==branchSearchGeneration/);
   assert.match(source, /branchSearch'\)\.oninput=scheduleBranchSearch/);
+  assert.match(source, /data-open-local/);
+  assert.match(source, /Open local file \(Ctrl\+Enter\)/);
+  assert.match(source, /if\(e\.ctrlKey\|\|e\.metaKey\)send\('openFile'/);
+  assert.match(source, /File is not available locally\./);
+  assert.match(source, /Restore from Commit/);
 });
 
 test('renders Git Log lane focus, action feedback, and worktree support', () => {
@@ -283,6 +290,48 @@ test('renders Git Log lane focus, action feedback, and worktree support', () => 
   assert.match(mutations, /case 'worktreeAdd'/);
   assert.match(mutations, /case 'worktreeRemove'/);
   assert.match(mutations, /case 'worktreePrune'/);
+});
+
+test('builds professional commit filters with AND semantics', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
+  const models = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitPanelModels.ts'), 'utf8');
+  const uiStyles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'ui.css'), 'utf8');
+  const viewStyles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
+  assert.match(models, /readonly authors\?: string\[\]/);
+  assert.doesNotMatch(models, /readonly regex\?:/);
+  assert.doesNotMatch(models, /readonly matchCase\?:/);
+  assert.match(service, /for \(const author of filter\.authors \?\? \[\]\)/);
+  assert.match(service, /'--regexp-ignore-case', '--fixed-strings'/);
+  assert.match(service, /filterOptions\(root: string/);
+  assert.match(service, /'ls-files', '-co', '--exclude-standard', '-z'/);
+  assert.match(service, /'ls-files', '--deleted', '-z'/);
+  assert.match(service, /searchAuthors\(root: string, query: string/);
+  assert.doesNotMatch(service, /'shortlog', '-sne', '--all'/);
+  assert.doesNotMatch(provider, /workingTreeFiles\(this\.root, read\.source\.token\), this\.service\.filterOptions/);
+  assert.match(provider, /void this\.loadFilterOptions\(this\.root\)/);
+  assert.match(provider, /m\.type!=='filterOptions'/);
+  assert.match(provider, /const channel = 'filter-options'/);
+  assert.match(provider, /filterOptions\(root, read\.source\.token\)/);
+  assert.match(provider, /const channel = 'filter-authors'/);
+  assert.match(provider, /searchAuthors\(root, query, read\.source\.token\)/);
+  assert.match(provider, /this\.requests\.isCurrent\(channel, read\.identity, this\.root\)/);
+  assert.match(provider, /function absorbAuthors\(commits=\[\]\)/);
+  assert.match(provider, /send\('searchAuthors',\{query\}\)/);
+  assert.doesNotMatch(provider, /querySelector\('\.match-toggle'\)\?\.remove/);
+  assert.match(provider, /until:state\.filterDraft\.until\?state\.filterDraft\.until\+' 23:59:59'/);
+  assert.match(provider, /fuzzyMatch\(pathBase\(x\.path\),q\)/);
+  assert.match(provider, /data-filter-view="author"/);
+  assert.match(provider, /data-filter-view="path"/);
+  assert.match(provider, /data-filter-view="date"/);
+  assert.match(provider, /data-date-preset="custom"/);
+  assert.doesNotMatch(provider, /id="datePreset"/);
+  assert.doesNotMatch(provider, /type="date"/);
+  assert.match(provider, /function setFilterView\(view\)/);
+  assert.match(viewStyles, /\.filters\[data-view="author"\] \.filter-author-view/);
+  assert.match(provider, /class="choice-check"/);
+  assert.match(uiStyles, /--gn-font:\s*var\(--vscode-font-family\)/);
+  assert.match(uiStyles, /\.ui-trigger/);
 });
 
 test('reuses mutation state and keeps expensive refresh work off the action critical path', () => {
@@ -305,6 +354,7 @@ test('reuses mutation state and keeps expensive refresh work off the action crit
 
 test('renders advanced Git Log UX and interactive rebase preview', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
   assert.match(source, /\['ready','refresh','loadLog'\]\.includes\(m\.scope\)/);
   assert.doesNotMatch(source, /id="historyMap"/);
   assert.doesNotMatch(source, /function renderHistoryMap\(/);
@@ -322,7 +372,7 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /Create Backup & Rebase/);
   assert.doesNotMatch(source, /<span id="status">/);
   assert.doesNotMatch(source, /class="quick-actions"/);
-  assert.match(source, /class="toolbar-action" data-action="fetch"/);
+  assert.match(source, /class="toolbar-action ui-button quiet" data-action="fetch"/);
   assert.match(source, /class="ui-icon" viewBox="0 0 24 24"/);
   assert.match(source, /function lockIcon\(\)/);
   assert.doesNotMatch(source, /class="action-icon">[↻⇣⇡↓]/);
@@ -334,8 +384,17 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /m\.repositories\.length>1\?'block':'none'/);
   assert.match(source, /id="fileSummary"/);
   assert.match(source, /function commitAge\(/);
-  assert.match(source, /class="filter-fields"/);
-  assert.match(source, /class="filter-options"/);
+  assert.match(source, /class="filter-root"/);
+  assert.match(source, /class="filter-view filter-author-view"/);
+  assert.match(source, /class="filter-view filter-path-view"/);
+  assert.match(source, /id="dateChoices"/);
+  assert.match(source, /id="dateCalendar"/);
+  assert.match(source, /class="filter-chip ui-chip"/);
+  assert.match(styles, /\.filter-root-row/);
+  assert.match(source, /function highlightText\(/);
+  assert.match(source, /document\.addEventListener\('pointerdown'/);
+  assert.doesNotMatch(source, /type="checkbox" id="regex"/);
+  assert.doesNotMatch(source, /type="checkbox" id="case"/);
   assert.match(source, /aria-expanded="false"/);
   assert.match(source, />Fetch<\/span>/);
   assert.match(source, />Push<\/span>/);
@@ -381,7 +440,10 @@ test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   const template = /function renderHtml[\s\S]*?return `([\s\S]*?)`;\r?\n\s*}/.exec(source)?.[1];
   assert.ok(template);
-  const html = new Function('nonce', 'webview', `return \`${template}\`;`)('test-nonce', { cspSource: 'test-csp' }) as string;
+  const html = new Function(
+    'nonce', 'webview', 'uiStyleUri', 'viewStyleUri', 'uiScriptUri',
+    `return \`${template}\`;`
+  )('test-nonce', { cspSource: 'test-csp' }, 'ui.css', 'git-log.css', 'ui.js') as string;
   const script = /<script nonce="test-nonce">([\s\S]*?)<\/script>/.exec(html)?.[1];
   assert.ok(script);
   assert.doesNotThrow(() => new Function(script));

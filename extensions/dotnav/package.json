@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -49,6 +49,11 @@
     "onView:dotnav",
     "onView:dotnav.runConfigurations",
     "onCommand:dotnav.refresh",
+    "onCommand:dotnav.addPackage",
+    "onCommand:dotnav.updatePackage",
+    "onCommand:dotnav.removePackage",
+    "onCommand:dotnav.restorePackages",
+    "onCommand:dotnav.checkOutdated",
     "onCommand:dotnav.searchSolutionTree",
     "onCommand:dotnav.buildSolution",
     "onCommand:dotnav.buildFolderProjects",
@@ -91,6 +96,31 @@
         "command": "dotnav.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "dotnav.addPackage",
+        "title": "Add NuGet Package...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dotnav.updatePackage",
+        "title": "Update NuGet Package...",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "dotnav.removePackage",
+        "title": "Remove NuGet Package",
+        "icon": "$(close)"
+      },
+      {
+        "command": "dotnav.restorePackages",
+        "title": "Restore NuGet Packages",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dotnav.checkOutdated",
+        "title": "Check for Outdated NuGet Packages",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "dotnav.selectSolution",
@@ -421,6 +451,11 @@
           "group": "navigation@4"
         },
         {
+          "command": "dotnav.checkOutdated",
+          "when": "view == dotnav",
+          "group": "navigation@3.5"
+        },
+        {
           "command": "dotnav.selectSolution",
           "when": "view == dotnav",
           "group": "2_view@3"
@@ -452,6 +487,51 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "dotnav.addPackage",
+          "when": "view == dotnav && (viewItem == dependencies || viewItem == packageReferences)",
+          "group": "inline@1"
+        },
+        {
+          "command": "dotnav.updatePackage",
+          "when": "view == dotnav && viewItem =~ /^packageReference(\\s|$)/ && viewItem =~ /outdated/",
+          "group": "inline@1"
+        },
+        {
+          "command": "dotnav.removePackage",
+          "when": "view == dotnav && viewItem =~ /^packageReference(\\s|$)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "dotnav.checkOutdated",
+          "when": "view == dotnav && (viewItem == solution || viewItem =~ /^project(\\s|$)/)",
+          "group": "inline@3"
+        },
+        {
+          "command": "dotnav.addPackage",
+          "when": "view == dotnav && (viewItem =~ /^project(\\s|$)/ || viewItem == dependencies || viewItem == packageReferences)",
+          "group": "8_nuget@1"
+        },
+        {
+          "command": "dotnav.updatePackage",
+          "when": "view == dotnav && viewItem =~ /^packageReference(\\s|$)/",
+          "group": "8_nuget@2"
+        },
+        {
+          "command": "dotnav.removePackage",
+          "when": "view == dotnav && viewItem =~ /^packageReference(\\s|$)/",
+          "group": "8_nuget@3"
+        },
+        {
+          "command": "dotnav.restorePackages",
+          "when": "view == dotnav && (viewItem == solution || viewItem =~ /^project(\\s|$)/)",
+          "group": "8_nuget@4"
+        },
+        {
+          "command": "dotnav.checkOutdated",
+          "when": "view == dotnav && (viewItem == solution || viewItem =~ /^project(\\s|$)/)",
+          "group": "8_nuget@5"
+        },
         {
           "command": "dotnav.runProject",
           "when": "view == dotnav && viewItem =~ /project/ && viewItem =~ /runnable/ && !(viewItem =~ /busy/)",
@@ -717,6 +797,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show project and NuGet dependencies under each project."
+        },
+        "dotnav.nuget.includePrerelease": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include prerelease versions in NuGet package searches and version pickers."
         },
         "dotnav.showProjectFiles": {
           "type": "boolean",

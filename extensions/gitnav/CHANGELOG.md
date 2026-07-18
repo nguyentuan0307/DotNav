@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## [0.9.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.4...gitnav-v0.9.0) (2026-07-18)
+
+
+### Features
+
+* **gitnav:** open local files from commits ([8e45c42](https://github.com/nguyentuan0307/DotNav/commit/8e45c429d13d186ecfde89deb6df4889d82a9e89))
+* **gitnav:** open local file at diff line ([d5aa410](https://github.com/nguyentuan0307/DotNav/commit/d5aa410cff08facc91c007a293eea0a303cfc4f4))
+* **gitnav:** redesign commit filters ([ed2be1c](https://github.com/nguyentuan0307/DotNav/commit/ed2be1cab7a05d9d96fc0533fd9097e8f3825cd8))
+
+### Bug Fixes
+
+* **gitnav:** load filter options in background ([3abce39](https://github.com/nguyentuan0307/DotNav/commit/3abce395f03065838e7b7e11703e19b6eca58e29))
+* **gitnav:** load filter metadata lazily ([611c9f3](https://github.com/nguyentuan0307/DotNav/commit/611c9f3ecb32e899f33a6948e3d2d9890ec49984))
+* **gitnav:** simplify changed files header ([e52d4df](https://github.com/nguyentuan0307/DotNav/commit/e52d4dfa8e9f283ca44cb9241c071e66f976cbe7))
+* **gitnav:** add date range calendar ([8f7ccf3](https://github.com/nguyentuan0307/DotNav/commit/8f7ccf301b40ad91228df2e22c04820c73749176))
+* **gitnav:** close context submenu on exit ([0b7baaf](https://github.com/nguyentuan0307/DotNav/commit/0b7baaf8ad11c8ca08026ec7bd9c42987242a90a))
+* **gitnav:** hide disabled commit columns ([9a2e129](https://github.com/nguyentuan0307/DotNav/commit/9a2e12919cae29b372f13ce17e31a1de2c8d40d7))
+
+### Changes
+
+* style(gitnav): unify filter visual design ([569053d](https://github.com/nguyentuan0307/DotNav/commit/569053da7e4166522f4a929d1097d9ddf48cf7ac))
+* refactor(gitnav): unify webview UI ([ce3c94b](https://github.com/nguyentuan0307/DotNav/commit/ce3c94b0adf99d2c4b4ec4fb5b995d38f57dfad9))
+* style(gitnav): replace column checkboxes ([b2e2142](https://github.com/nguyentuan0307/DotNav/commit/b2e21425086b96d84ea349b57e7399eec7a02ed0))
+* Merge remote-tracking branch 'origin/master' into release-candidate ([c136b7e](https://github.com/nguyentuan0307/DotNav/commit/c136b7eb9712412f8bac1c9c896ce7f3760e1bb1))
+
+
 ## [0.8.4](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.3...gitnav-v0.8.4) (2026-07-17)
 
 

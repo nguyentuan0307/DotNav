@@ -9,6 +9,7 @@ import { parseProject } from './projectParser';
 import * as runConfigStore from './runConfigStore';
 import { RunPhase } from './runSessionState';
 import { loadSolution, pickSolution } from './solutionParser';
+import { isNewerNugetVersion, OutdatedPackages } from './nugetService';
 
 const activeSolutionPathKey = 'activeSolutionPath';
 
@@ -30,6 +31,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private startupProjectPath?: string;
   private projectStateProvider?: (project: ProjectModel) => RunPhase | undefined;
   private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
+  private outdatedPackages: OutdatedPackages = new Map();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.startupProjectPath = context.workspaceState.get<string>('startupProjectPath');
@@ -46,6 +48,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private async loadWorkspaceSolution(): Promise<void> {
+    this.outdatedPackages.clear();
     this.solutionTree = undefined;
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
@@ -76,6 +79,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   fireChanged(): void {
     this.onDidChangeTreeDataEmitter.fire();
+  }
+
+  setOutdatedPackages(packages: OutdatedPackages): void {
+    this.outdatedPackages = packages;
+    this.fireChanged();
   }
 
   getTreeItem(node: TreeNode): vscode.TreeItem {
@@ -189,6 +197,8 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         kind: 'packageReference',
         label: reference.version ? `${reference.name} ${reference.version}` : reference.name,
         project: node.project,
+        packageId: reference.name,
+        packageVersion: reference.version,
         collapsibleState: vscode.TreeItemCollapsibleState.None
       }));
     }
@@ -686,6 +696,10 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private contextValueFor(node: TreeNode): string {
+    if (node.kind === 'packageReference') {
+      return this.outdatedVersionFor(node) ? 'packageReference outdated' : 'packageReference';
+    }
+
     if (node.kind === 'project' && node.project) {
       const values = ['project'];
       if (node.project.path === this.startupProjectPath) {
@@ -742,6 +756,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private descriptionFor(node: TreeNode): string | undefined {
+    if (node.kind === 'packageReference') {
+      const latestVersion = this.outdatedVersionFor(node);
+      return latestVersion ? `→ ${latestVersion}` : undefined;
+    }
+
     if (node.kind === 'solution' && this.solution) {
       const projectWord = this.solution.projects.length === 1 ? 'project' : 'projects';
       return `${this.solution.projects.length} ${projectWord}`;
@@ -768,6 +787,24 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     return undefined;
+  }
+
+  private outdatedVersionFor(node: TreeNode): string | undefined {
+    if (!node.project || !node.packageId) {
+      return undefined;
+    }
+
+    const projectPackages = [...this.outdatedPackages].find(([projectPath]) =>
+      samePath(projectPath, node.project!.path)
+    )?.[1];
+    if (!projectPackages) {
+      return undefined;
+    }
+
+    const match = [...projectPackages].find(([packageId]) =>
+      packageId.toLowerCase() === node.packageId!.toLowerCase()
+    );
+    return match && isNewerNugetVersion(match[1], node.packageVersion) ? match[1] : undefined;
   }
 
   private tooltipFor(node: TreeNode): string | undefined {
