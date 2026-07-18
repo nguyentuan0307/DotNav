@@ -1,0 +1,177 @@
+body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--commit-width, 320px) 5px minmax(0, 1fr);
+  height: 100vh;
+  min-width: 0;
+}
+
+.shell.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.shell.collapsed {
+  grid-template-columns: 0 7px minmax(0, 1fr);
+}
+
+.sidebar {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--vscode-sideBar-background);
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+.splitter {
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  background: var(--vscode-panel-border);
+}
+
+.splitter:hover,
+.shell.resizing .splitter {
+  background: var(--vscode-sash-hoverBorder, var(--gn-focus));
+}
+
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.title,
+.patch-head {
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.title {
+  overflow: hidden;
+  color: var(--gn-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-list {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+  outline: none;
+}
+
+.commit {
+  min-width: 0;
+  padding: 8px 12px;
+  border-left: 3px solid transparent;
+  cursor: default;
+}
+
+.commit:hover {
+  background: var(--gn-hover);
+}
+
+.commit[aria-selected="true"] {
+  color: var(--gn-active-fg);
+  background: var(--gn-active);
+  border-left-color: var(--gn-focus);
+}
+
+.subject,
+.patch-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta,
+.rename,
+.patch-meta {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--gn-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit[aria-selected="true"] .meta,
+.commit[aria-selected="true"] .rename {
+  color: inherit;
+  opacity: .86;
+}
+
+.patch-pane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.patch-head {
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.patch {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 10px 0 18px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  line-height: 1.45;
+}
+
+.hunk {
+  margin-bottom: 14px;
+}
+
+.hunk-header {
+  padding: 4px 10px;
+  color: var(--gn-muted);
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  border-top: 1px solid var(--vscode-panel-border);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  white-space: pre;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 62px 62px minmax(0, 1fr);
+  min-width: max-content;
+  white-space: pre;
+}
+
+.line.add {
+  background: var(--vscode-diffEditor-insertedTextBackground);
+}
+
+.line.del {
+  background: var(--vscode-diffEditor-removedTextBackground);
+}
+
+.num {
+  padding: 0 10px;
+  color: var(--vscode-editorLineNumber-foreground);
+  border-right: 1px solid var(--vscode-panel-border);
+  text-align: right;
+  user-select: none;
+}
+
+.code {
+  min-width: 0;
+  padding: 0 12px;
+}

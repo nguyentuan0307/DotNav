@@ -31,13 +31,18 @@ export class LineHistoryPanel {
     }
 
     LineHistoryPanel.panel.title = title;
-    LineHistoryPanel.panel.webview.html = renderHtml(LineHistoryPanel.panel.webview, { entries, header });
+    LineHistoryPanel.panel.webview.html = renderHtml(LineHistoryPanel.panel.webview, { entries, header }, extensionUri);
   }
 }
 
-function renderHtml(webview: vscode.Webview, state: PanelState): string {
+function renderHtml(webview: vscode.Webview, state: PanelState, extensionUri: vscode.Uri): string {
   const nonce = createNonce();
   const serializedState = JSON.stringify(state).replace(/</g, '\\u003c');
+  const assetUri = (name: string) => webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'webview', name)
+  ).with({ query: `v=${nonce}` });
+  const uiStyleUri = assetUri('ui.css');
+  const viewStyleUri = assetUri('line-history.css');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -46,7 +51,9 @@ function renderHtml(webview: vscode.Webview, state: PanelState): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>History for Selection</title>
-  <style>
+  <link rel="stylesheet" href="${uiStyleUri}">
+  <link rel="stylesheet" href="${viewStyleUri}">
+  <style media="not all">
     :root {
       color-scheme: light dark;
     }

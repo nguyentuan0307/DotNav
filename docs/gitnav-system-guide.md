@@ -113,7 +113,11 @@ Nguyên tắc phân lớp:
 | File | Trách nhiệm |
 |---|---|
 | `src/extension.ts` | Activate/deactivate, đăng ký provider/command, nối built-in Git extension |
-| `src/git/gitLogViewProvider.ts` | Controller trung tâm, message routing, UI HTML/CSS/JS, menu/action preparation, modal/toast |
+| `src/git/gitLogViewProvider.ts` | Controller trung tâm, message routing, HTML shell, state rendering và Git action preparation |
+| `media/webview/ui.css` | Design token và UI primitive dùng chung: control, trigger, popover, list, menu, chip, dialog |
+| `media/webview/ui.js` | Behavior dùng chung cho overlay positioning, close/focus và keyboard list navigation |
+| `media/webview/git-log.css` | Layout và component composition riêng của Git Log |
+| `media/webview/line-history.css` | Layout riêng của Line History trên cùng UI foundation |
 | `src/git/gitPanelModels.ts` | Kiểu dữ liệu snapshot, commit, file, filter, mutation |
 | `src/git/gitActionPolicy.ts` | Label, severity, progress mode, feedback mode và nhóm context action |
 | `src/git/gitPanelCoordinator.ts` | Request generation, per-repo state, mutation queue, coalesced refresh, duplicate guard |
@@ -157,7 +161,7 @@ Nguyên tắc phân lớp:
 
 ### 5.5 Tests
 
-Tests nằm tại `extensions/gitnav/src/test`. Các nhóm quan trọng bao phủ parser, graph paging, coordinator, action policy, mutation safety/lifecycle/recovery, push semantics/recovery, line mapping/history và integration với repository Git thật.
+Tests nằm tại `extensions/gitnav/src/test`. Các nhóm quan trọng bao phủ parser, graph paging, coordinator/race, UI contract, action policy, mutation safety/lifecycle/recovery, push semantics/recovery, line mapping/history và integration với repository Git thật.
 
 ## 6. Mô hình dữ liệu và read flow
 
@@ -259,7 +263,14 @@ Hỗ trợ:
 
 Các nhóm Search, Authors, File/Folder và Date luôn kết hợp bằng `AND`. Popup giữ thay đổi ở draft state và chỉ áp dụng một lần khi user click ra ngoài; không có Regex/Case-sensitive hay nút Apply/Close.
 
-Filter popup dùng trực tiếp typography và color token của VS Code. Mỗi điều kiện là một hàng gọn theo kiểu native menu/Quick Pick; danh sách chọn chỉ dùng border khi cần phân tách, có hover/focus rõ ràng và không hiển thị control thô kiểu form web.
+Filter popup dùng mô hình một panel–một màn hình. Màn hình gốc chỉ có ba hàng Author, File/Folder và Date; chọn một hàng sẽ thay nội dung panel bằng picker tương ứng thay vì mở accordion lồng bên dưới.
+
+- Author dùng multi-select search; quay lại màn hình gốc không làm mất lựa chọn.
+- File/Folder chỉ hiện full path như secondary text khi search; khi browse không lặp path trên mọi dòng.
+- Date dùng list preset do GitNav render. Custom range nhận `YYYY-MM-DD`; không dùng `<select>` hoặc calendar native của hệ điều hành.
+- Repository, branch, merge parent và interactive-rebase action cùng dùng trigger/menu component, nên chevron, height, hover và focus giống nhau.
+
+Toàn bộ webview dùng trực tiếp typography/color token của VS Code thông qua `media/webview/ui.css`. Git Log và Line History dùng chung foundation; CSS component được tải bằng `webview.asWebviewUri`. CSP vẫn cho phép inline style vì virtualization, graph và pane resizing cần cập nhật `top/left/width` động; script tiếp tục bị khóa bằng nonce.
 
 Khi search branch, current branch luôn được giữ như một lựa chọn dễ truy cập để user vẫn thao tác được với branch đang đứng.
 
@@ -613,6 +624,16 @@ Lưu trong `localStorage` của webview:
 
 JSON hỏng được reset thay vì làm webview crash. Khi đổi key/schema, cần migration hoặc fallback tương thích.
 
+### 18.3 Request identity và race guard
+
+- Refresh, log page, detail, repository status, filter options và author search đều có request identity/generation.
+- Request mới hủy `CancellationTokenSource` của request cũ trên cùng channel.
+- Message thuộc generation cũ bị từ chối trước khi chạm vào cancellation slot, nên không thể hủy request mới đang chạy.
+- Response chỉ được post khi repository, channel request và generation vẫn current.
+- Coalesced refresh vẫn chạy lượt đã được xếp hàng ngay cả khi lượt hiện tại lỗi; lỗi đầu tiên chỉ được trả sau khi drain xong.
+- Coalesced refresh luôn chạy lượt follow-up đã được queue, kể cả khi lượt trước kết thúc bằng lỗi; lỗi đầu tiên vẫn được trả về cho caller.
+- Mutation tiếp tục serialize theo repository và duplicate in-flight action bị chặn.
+
 ### 18.3 Extension state
 
 Push recovery preference được lưu theo repository qua VS Code extension storage, không dùng webview localStorage.
@@ -640,7 +661,13 @@ Debug trong VS Code:
 3. Nhấn `F5`.
 4. Trong host mới, mở workspace Git và mở bottom panel **GitNav**.
 
-Khi sửa UI inline trong `gitLogViewProvider.ts`, luôn compile và chạy toàn bộ test vì nhiều UX contract được kiểm tra bằng source assertions.
+Khi sửa UI:
+
+1. thay primitive/token trong `media/webview/ui.css` nếu thay đổi phải dùng chung;
+2. thay composition trong `git-log.css` hoặc `line-history.css` nếu chỉ thuộc một surface;
+3. không thêm native popup control như `<select>`/`<input type="date">`;
+4. compile, chạy toàn bộ test và mở Extension Development Host với repository thật;
+5. kiểm tra dark/light/high-contrast, keyboard, click-outside, Escape và viewport hẹp.
 
 ## 20. Packaging và release
 

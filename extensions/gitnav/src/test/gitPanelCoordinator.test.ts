@@ -24,6 +24,8 @@ test('recognizes only the latest filter generation for the selected repository',
   const stale = coordinator.begin('log:0', '/repo', 1);
   assert.equal(coordinator.isGenerationCurrent(current, '/repo'), true);
   assert.equal(coordinator.isGenerationCurrent(stale, '/repo'), false);
+  assert.equal(coordinator.isCurrent('log:0', current, '/repo'), true);
+  assert.equal(coordinator.isCurrent('log:0', stale, '/repo'), false);
   assert.equal(coordinator.isGenerationCurrent(current, '/other'), false);
 });
 
@@ -124,6 +126,29 @@ test('refresh runner accepts another request after a failure', async () => {
   let completed = false;
   await runner.run(async () => { completed = true; });
   assert.equal(completed, true);
+});
+
+test('does not drop a refresh queued while the current refresh is failing', async () => {
+  const runner = new CoalescedRefreshRunner();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let runs = 0;
+  const operation = async () => {
+    runs++;
+    if (runs === 1) {
+      await blocked;
+      throw new Error('first refresh failed');
+    }
+  };
+
+  const first = runner.run(operation);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  const queued = runner.run(operation);
+  release();
+
+  await assert.rejects(first, /first refresh failed/);
+  await assert.rejects(queued, /first refresh failed/);
+  assert.equal(runs, 2);
 });
 
 test('blocks only duplicate in-flight operations and releases completed keys', () => {
