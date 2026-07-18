@@ -92,3 +92,15 @@ test('context submenu has a visible chevron and closes after pointer exit', () =
   assert.match(provider, /\$\('contextSubmenu'\)\.onpointerleave=scheduleContextSubmenuClose/);
   assert.match(styles, /\.context-more-chevron svg/);
 });
+
+test('commit column visibility uses eye toggle buttons instead of checkboxes', () => {
+  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(provider, /function columnVisibilityIcon\(visible\)/);
+  assert.match(provider, /role="menuitemcheckbox" aria-checked="/);
+  assert.match(provider, /class="column-toggle"/);
+  assert.doesNotMatch(provider, /type="checkbox" data-column-toggle/);
+  assert.match(styles, /\.column-toggle-icon svg/);
+  assert.match(styles, /\.column-toggle\[aria-checked="false"\]/);
+});

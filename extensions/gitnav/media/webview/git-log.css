@@ -1421,23 +1421,50 @@ mark.search-match {
   outline: none;
 }
 
-.column-menu label {
-  display: flex;
-  min-height: 29px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 8px;
-}
-
-.column-menu input {
-  width: 16px;
-  height: 16px;
-}
-
 .column-menu small {
   display: block;
   margin: 6px 8px 2px;
   color: var(--gn-muted);
+}
+
+.column-menu button.column-toggle {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 9px;
+}
+
+.column-toggle-icon {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-foreground);
+}
+
+.column-toggle-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.column-toggle[aria-checked="false"] {
+  color: var(--vscode-descriptionForeground);
+}
+
+.column-toggle[aria-checked="false"] .column-toggle-icon {
+  color: var(--vscode-descriptionForeground);
+}
+
+.column-toggle:disabled {
+  opacity: .6;
+  cursor: default;
 }
 
 .menu-separator,
