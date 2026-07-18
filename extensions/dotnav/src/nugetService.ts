@@ -1,5 +1,3 @@
-import * as https from 'https';
-
 export interface NugetPackageSearchResult {
   readonly id: string;
   readonly latestVersion: string;
@@ -150,36 +148,31 @@ export function parseOutdated(stdout: string, defaultProjectPath?: string): Outd
   return result;
 }
 
-function getJson(url: URL): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const request = https.get(url, {
-      headers: { Accept: 'application/json', 'User-Agent': 'DotNav-VSCode' }
-    }, response => {
-      if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-        response.resume();
-        reject(new Error(`NuGet returned HTTP ${response.statusCode ?? 'unknown'}`));
-        return;
-      }
-
-      response.setEncoding('utf8');
-      let body = '';
-      response.on('data', chunk => {
-        body += chunk;
-      });
-      response.on('end', () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch {
-          reject(new Error('NuGet returned invalid JSON'));
-        }
-      });
+async function getJson(url: URL): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'DotNav-VSCode' },
+      signal: controller.signal
     });
+    if (!response.ok) {
+      throw new Error(`NuGet returned HTTP ${response.status}`);
+    }
 
-    request.setTimeout(requestTimeoutMs, () => {
-      request.destroy(new Error(`request timed out after ${requestTimeoutMs / 1000} seconds`));
-    });
-    request.on('error', reject);
-  });
+    try {
+      return await response.json();
+    } catch {
+      throw new Error('NuGet returned invalid JSON');
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`request timed out after ${requestTimeoutMs / 1000} seconds`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function compareNugetVersions(left: string, right: string): number {
@@ -278,5 +271,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const cause = error.cause;
+  return cause instanceof Error && cause.message !== error.message
+    ? `${error.message}: ${cause.message}`
+    : error.message;
 }
