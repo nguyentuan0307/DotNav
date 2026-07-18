@@ -267,7 +267,7 @@ Filter popup dùng mô hình một panel–một màn hình. Màn hình gốc ch
 
 - Author dùng multi-select search; quay lại màn hình gốc không làm mất lựa chọn.
 - File/Folder chỉ hiện full path như secondary text khi search; khi browse không lặp path trên mọi dòng.
-- Date dùng list preset do GitNav render. Custom range nhận `YYYY-MM-DD`; không dùng `<select>` hoặc calendar native của hệ điều hành.
+- Date dùng list preset do GitNav render. Custom range có calendar theo theme để chọn From/To nhanh, đồng thời vẫn nhận `YYYY-MM-DD`; không dùng `<select>` hoặc calendar native của hệ điều hành.
 - Repository, branch, merge parent và interactive-rebase action cùng dùng trigger/menu component, nên chevron, height, hover và focus giống nhau.
 
 Toàn bộ webview dùng trực tiếp typography/color token của VS Code thông qua `media/webview/ui.css`. Git Log và Line History dùng chung foundation; CSS component được tải bằng `webview.asWebviewUri`. CSP vẫn cho phép inline style vì virtualization, graph và pane resizing cần cập nhật `top/left/width` động; script tiếp tục bị khóa bằng nonce.

@@ -388,6 +388,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /class="filter-view filter-author-view"/);
   assert.match(source, /class="filter-view filter-path-view"/);
   assert.match(source, /id="dateChoices"/);
+  assert.match(source, /id="dateCalendar"/);
+  assert.match(source, /class="filter-chip ui-chip"/);
   assert.match(styles, /\.filter-root-row/);
   assert.match(source, /function highlightText\(/);
   assert.match(source, /document\.addEventListener\('pointerdown'/);

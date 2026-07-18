@@ -68,3 +68,16 @@ test('changed files defaults to list mode and uses one compact folder action', (
   assert.doesNotMatch(provider, /id="collapseFiles"|id="expandFiles"/);
   assert.match(styles, /\.file-view-toggle button\s*\{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*justify-content: center;/s);
 });
+
+test('custom date range provides a themed calendar and themed filter chips', () => {
+  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(provider, /id="dateCalendar"/);
+  assert.match(provider, /data-calendar-for="since"/);
+  assert.match(provider, /data-calendar-for="until"/);
+  assert.match(provider, /data-calendar-date/);
+  assert.match(provider, /class="filter-chip ui-chip"/);
+  assert.match(styles, /\.date-calendar-grid/);
+  assert.match(styles, /\.calendar-day\.selected/);
+});
