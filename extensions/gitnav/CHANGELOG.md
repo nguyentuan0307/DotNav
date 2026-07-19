@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.10.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.9.0...gitnav-v0.10.0) (2026-07-19)
+
+
+### Features
+
+* **gitnav:** add branches and stashes toggle ([f85b4e9](https://github.com/nguyentuan0307/DotNav/commit/f85b4e9e616fae0f8d638b1757d376a59c3fc80d))
+
+### Bug Fixes
+
+* **gitnav:** polish stash pane layout ([1db4e3c](https://github.com/nguyentuan0307/DotNav/commit/1db4e3c2b13fc86ddae50ff036a2f3bc1fbf4d52))
+* **gitnav:** repair stash pane interactions ([93c01a9](https://github.com/nguyentuan0307/DotNav/commit/93c01a98ab0fce3eb33b72f3a0bead95dab273fb))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([97e487f](https://github.com/nguyentuan0307/DotNav/commit/97e487f682f615482c4081df146e7fdc7300ac9e))
+
+
 ## [0.9.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.8.4...gitnav-v0.9.0) (2026-07-18)
 
 
