@@ -54,6 +54,8 @@
     "onCommand:dotnav.removePackage",
     "onCommand:dotnav.restorePackages",
     "onCommand:dotnav.checkOutdated",
+    "onCommand:dotnav.addProjectReference",
+    "onCommand:dotnav.removeProjectReference",
     "onCommand:dotnav.searchSolutionTree",
     "onCommand:dotnav.buildSolution",
     "onCommand:dotnav.buildFolderProjects",
@@ -121,6 +123,16 @@
         "command": "dotnav.checkOutdated",
         "title": "Check for Outdated NuGet Packages",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "dotnav.addProjectReference",
+        "title": "Add Project Reference",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dotnav.removeProjectReference",
+        "title": "Remove Reference",
+        "icon": "$(close)"
       },
       {
         "command": "dotnav.selectSolution",
@@ -508,6 +520,16 @@
           "group": "inline@3"
         },
         {
+          "command": "dotnav.addProjectReference",
+          "when": "view == dotnav && (viewItem == dependencies || viewItem == projectReferences)",
+          "group": "inline@2"
+        },
+        {
+          "command": "dotnav.removeProjectReference",
+          "when": "view == dotnav && viewItem == projectReference",
+          "group": "inline@1"
+        },
+        {
           "command": "dotnav.addPackage",
           "when": "view == dotnav && (viewItem =~ /^project(\\s|$)/ || viewItem == dependencies || viewItem == packageReferences)",
           "group": "8_nuget@1"
@@ -531,6 +553,16 @@
           "command": "dotnav.checkOutdated",
           "when": "view == dotnav && (viewItem == solution || viewItem =~ /^project(\\s|$)/)",
           "group": "8_nuget@5"
+        },
+        {
+          "command": "dotnav.addProjectReference",
+          "when": "view == dotnav && (viewItem =~ /^project(\\s|$)/ || viewItem == dependencies || viewItem == projectReferences)",
+          "group": "9_reference@1"
+        },
+        {
+          "command": "dotnav.removeProjectReference",
+          "when": "view == dotnav && viewItem == projectReference",
+          "group": "9_reference@2"
         },
         {
           "command": "dotnav.runProject",
