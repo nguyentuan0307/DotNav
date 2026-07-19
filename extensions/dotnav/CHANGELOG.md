@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.7.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.6.0...dotnav-v0.7.0) (2026-07-19)
+
+
+### Features
+
+* **dotnav:** manage project references in tree ([8bf26cf](https://github.com/nguyentuan0307/DotNav/commit/8bf26cff70d85a389c713fd905f87ad09383a23a))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([97e487f](https://github.com/nguyentuan0307/DotNav/commit/97e487f682f615482c4081df146e7fdc7300ac9e))
+
+
 ## [0.6.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.1...dotnav-v0.6.0) (2026-07-18)
 
 
