@@ -1340,6 +1340,14 @@ mark.search-match {
   margin: 5px;
 }
 
+#branchPickerItems,
+#repoPickerItems {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .picker-group {
   padding: 8px 8px 4px;
   color: var(--gn-muted);

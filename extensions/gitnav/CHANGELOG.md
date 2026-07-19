@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.10.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.0...gitnav-v0.10.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **gitnav:** contain picker scrolling ([ec94fbc](https://github.com/nguyentuan0307/DotNav/commit/ec94fbc25cb22eaa842b764f4c039c5e316673d4))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([ca5b5f8](https://github.com/nguyentuan0307/DotNav/commit/ca5b5f8f60078c18c1008dc4223bcfeff4aaf537))
+
+
 ## [0.10.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.9.0...gitnav-v0.10.0) (2026-07-19)
 
 
