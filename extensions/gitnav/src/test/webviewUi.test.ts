@@ -93,6 +93,12 @@ test('context submenu has a visible chevron and closes after pointer exit', () =
   assert.match(styles, /\.context-more-chevron svg/);
 });
 
+test('branch and repository picker lists scroll without chaining to the log', () => {
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(styles, /#branchPickerItems,\s*#repoPickerItems\s*\{[^}]*min-height:\s*0;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
+});
+
 test('commit column visibility uses eye toggle buttons instead of checkboxes', () => {
   const provider = read('src', 'git', 'gitLogViewProvider.ts');
   const styles = read('media', 'webview', 'git-log.css');
