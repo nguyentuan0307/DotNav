@@ -99,6 +99,15 @@ test('branch and repository picker lists scroll without chaining to the log', ()
   assert.match(styles, /#branchPickerItems,\s*#repoPickerItems\s*\{[^}]*min-height:\s*0;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
 });
 
+test('branch selection uses native list colors while current branch keeps a small edge marker', () => {
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(styles, /\.item\.viewing\s*\{[^}]*color:\s*var\(--gn-active-fg\);[^}]*background:\s*var\(--gn-active\);/s);
+  assert.match(styles, /\.item\.active\s*\{[^}]*border-left-color:\s*var\(--gn-focus\);/s);
+  assert.doesNotMatch(styles, /\.current-indicator/);
+  assert.doesNotMatch(styles, /\.item\.viewing\s*\{[^}]*box-shadow:\s*inset/s);
+});
+
 test('commit column visibility uses eye toggle buttons instead of checkboxes', () => {
   const provider = read('src', 'git', 'gitLogViewProvider.ts');
   const styles = read('media', 'webview', 'git-log.css');

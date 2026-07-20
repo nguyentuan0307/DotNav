@@ -257,9 +257,12 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /m\.repositoryId!==state\.repository\.root/);
   assert.match(source, /function renderStatusBadges\(/);
   assert.match(source, /id="repoBadges"/);
-  assert.match(source, /state\.selectedRef===x\.name\?'viewing'/);
+  assert.match(source, /const selected=state\.selectedRef===x\.name/);
   assert.match(source, /state\.selectedRef===x\.ref\?'viewing'/);
   assert.match(source, /\.item\.viewing/);
+  assert.match(source, /role="option" aria-current="/);
+  assert.match(source, /aria-selected="/);
+  assert.doesNotMatch(source, /function currentIndicator\(\)/);
   assert.match(source, /class="filter-chips"/);
   assert.match(source, /item\.dataset\.kind==='stash'&&item\.dataset\.ref/);
   assert.match(source, /state\.selectedRef=state\.selectedRef===item\.dataset\.ref\?undefined:item\.dataset\.ref;renderBranches\(\);loadFiltered\(\);return/);
