@@ -293,13 +293,24 @@ textarea,
 }
 
 .item.active {
-  background: color-mix(in srgb, var(--gn-active) 45%, transparent);
   border-left-color: var(--gn-focus);
   font-weight: 500;
 }
 
 .item.viewing {
-  box-shadow: inset -2px 0 var(--gn-focus);
+  color: var(--gn-active-fg);
+  background: var(--gn-active);
+  box-shadow: none;
+}
+
+.item.viewing:hover {
+  background: var(--gn-active);
+}
+
+.item.viewing .ref-icon,
+.item.viewing .protected-icon,
+.item.viewing .badge {
+  color: currentColor;
 }
 
 .item.folder {
