@@ -91,7 +91,7 @@ Open **Settings** and search for `GitNav`.
 
 ## Feedback
 
-[Open an issue](https://github.com/nguyentuan0307/DotNav/issues) and include reproduction steps, your operating system, VS Code version, Git version, and relevant output logs.
+[Open an issue](https://github.com/nguyentuan0307/DotNav/issues) and include clear reproduction steps, your operating system, VS Code version, Git version, and relevant output logs.
 
 ## License
 
