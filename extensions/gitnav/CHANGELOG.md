@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.10.3](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.2...gitnav-v0.10.3) (2026-07-21)
+
+
+### Bug Fixes
+
+* **gitnav:** clarify issue reporting guidance ([760cd49](https://github.com/nguyentuan0307/DotNav/commit/760cd4990c17a8604ee34421c671e296a18d57a3))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([f31764f](https://github.com/nguyentuan0307/DotNav/commit/f31764f00193d4d6fea0e695c126549f1e8683b9))
+
+
 ## [0.10.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.1...gitnav-v0.10.2) (2026-07-20)
 
 
