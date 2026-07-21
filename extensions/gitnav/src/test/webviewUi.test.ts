@@ -93,6 +93,14 @@ test('context submenu has a visible chevron and closes after pointer exit', () =
   assert.match(styles, /\.context-more-chevron svg/);
 });
 
+test('stash actions are available only from the context menu', () => {
+  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+
+  assert.match(provider, /if \(kind === 'stash'\) return \[contextAction\('stashApply'/);
+  assert.match(provider, /\$\('branches'\)\.oncontextmenu=/);
+  assert.doesNotMatch(provider, /data-stash-action|stash-actions|function stashAction/);
+});
+
 test('branch and repository picker lists scroll without chaining to the log', () => {
   const styles = read('media', 'webview', 'git-log.css');
 

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.10.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.1...gitnav-v0.10.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **gitnav:** clarify branch graph selection ([ed33053](https://github.com/nguyentuan0307/DotNav/commit/ed330539bb5ad6c0d3d82e6ecb053bec3d31dae1))
+* **gitnav:** remove stash hover actions ([b4591f7](https://github.com/nguyentuan0307/DotNav/commit/b4591f791d34118e8e0b4d3260897cf48d82bcfb))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([9f0a392](https://github.com/nguyentuan0307/DotNav/commit/9f0a392067b3e5727f571920bf029170e852df99))
+
+
 ## [0.10.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.0...gitnav-v0.10.1) (2026-07-19)
 
 
