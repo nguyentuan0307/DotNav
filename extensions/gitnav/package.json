@@ -2,7 +2,7 @@
   "name": "gitnav-workflows",
   "displayName": "GitNav: Visual Git History & Workflows",
   "description": "Explore visual Git history, compare branches and code, and run guarded Git workflows directly in Visual Studio Code.",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
