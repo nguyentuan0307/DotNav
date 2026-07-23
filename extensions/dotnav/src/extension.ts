@@ -14,6 +14,7 @@ import { RunConfigTreeProvider } from './runConfigTreeProvider';
 import * as runConfigStore from './runConfigStore';
 import { createStatusBar, updateStatusBar } from './statusBar';
 import { DotnetTreeProvider } from './treeProvider';
+import { activateEfCore } from './ef/efMain';
 import { addPackage, checkOutdated, removePackage, restorePackages, updatePackage } from './nugetCommands';
 import { addProjectReference, removeProjectReference } from './projectReferenceCommands';
 
@@ -177,6 +178,7 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
   registerWorkspaceFileWatcher(context, provider);
+  activateEfCore(context, provider, processManager);
 }
 
 export async function deactivate(): Promise<void> {

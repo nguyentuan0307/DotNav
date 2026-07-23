@@ -22,14 +22,18 @@ Không nằm trong scope v1: `dbcontext scaffold` (reverse engineering), `migrat
 
 ```
 src/ef/
-├── efDetection.ts      # Quét csproj, phân loại project, discovery DbContext
-├── efCli.ts            # Wrap `dotnet ef`, parse --json output, queue tuần tự
+├── efJsonParser.ts     # Pure: parse --json output, classify lỗi, mask secret, validate tên
+├── efQueue.ts          # Pure: SerialQueue + GenerationTracker
+├── efProcess.ts        # Spawn dotnet + kill process tree, timeout
+├── efDetection.ts      # Pure: phân loại project từ metadata csproj
+├── efCli.ts            # Wrap `dotnet ef`: queue, guards R1/R2, no-build auto, progress
 ├── efToolManager.ts    # Check/cài dotnet-ef tool, check version compatibility
-├── efMigrationStore.ts # Nguồn dữ liệu migrations: CLI + fallback parse file
+├── efMigrationStore.ts # Cache contexts/migrations + generation + fallback parse file
 ├── efTreeProvider.ts   # TreeDataProvider cho view "EF Core"
 ├── efCommands.ts       # Đăng ký commands, quickpick flows, confirm dialogs
 ├── efConfigStore.ts    # Persist cặp project, context mặc định (workspaceState)
-└── efStatusBar.ts      # Status bar item khi có lệnh EF đang chạy
+├── efStatusBar.ts      # Status bar item khi có lệnh EF đang chạy
+└── efMain.ts           # EfFeature: wiring, watcher, detection cache, context key
 ```
 
 Nguyên tắc:
