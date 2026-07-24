@@ -68,7 +68,7 @@ test('separates solution and run configuration views', () => {
   const views = manifest.contributes.views.dotnavContainer;
   assert.deepEqual(
     views.map((view: { id: string }) => view.id),
-    ['dotnav', 'dotnav.runConfigurations']
+    ['dotnav', 'dotnav.runConfigurations', 'dotnav.efCore']
   );
 
   const titleItems = manifest.contributes.menus['view/title'];
