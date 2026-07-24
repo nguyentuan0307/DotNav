@@ -1,3 +1,4 @@
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { normalizePath, samePath } from '../pathUtils';
@@ -90,10 +91,22 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
       )
     );
 
-    const detections = migrationProjectCandidates(
-      detectEfProjects({ ...solution, projects })
-    );
+    const migrationFolderProjects = new Set<string>();
+    await Promise.all(projects.map(async project => {
+      if (await hasMigrationsFolder(project.directory)) {
+        migrationFolderProjects.add(normalizePath(project.path));
+      }
+    }));
+
+    const all = detectEfProjects({ ...solution, projects }, migrationFolderProjects);
+    const detections = migrationProjectCandidates(all);
     this.detectionsCache = { at: Date.now(), detections };
+    this.cli.appendOutput(
+      `detection: ${detections.length} EF project(s)` +
+      (detections.length > 0
+        ? ` — ${detections.map(detection => detection.project.name).join(', ')}`
+        : ` (scanned ${projects.length} project(s); no EntityFrameworkCore package references or Migrations folders found)`)
+    );
     return detections;
   }
 
@@ -213,6 +226,17 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
         // Best-effort cleanup.
       }
     }
+  }
+}
+
+/** True when the directory holds an EF `Migrations` folder with generated files. */
+async function hasMigrationsFolder(projectDirectory: string): Promise<boolean> {
+  const migrationsDir = path.join(projectDirectory, 'Migrations');
+  try {
+    const entries = await fs.readdir(migrationsDir);
+    return entries.some(entry => /ModelSnapshot\.cs$/i.test(entry) || /^\d{14}_.+\.cs$/i.test(entry));
+  } catch {
+    return false;
   }
 }
 

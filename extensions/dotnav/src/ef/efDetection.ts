@@ -8,12 +8,17 @@ export interface EfProjectDetection {
   readonly project: ProjectModel;
   /** References Microsoft.EntityFrameworkCore.Design or .Tools. */
   readonly hasDesignPackage: boolean;
+  /** A Migrations folder with generated files exists on disk (design §3.1). */
+  readonly hasMigrationsFolder: boolean;
   /** Executable projects (including the project itself) that can host design-time services. */
   readonly startupCandidates: readonly ProjectModel[];
 }
 
 const designPackagePattern = /^Microsoft\.EntityFrameworkCore\.(Design|Tools)$/i;
-const efPackagePattern = /^Microsoft\.EntityFrameworkCore($|\.)/i;
+// Any EF-family package counts: Microsoft.EntityFrameworkCore.*, provider
+// packages such as Npgsql.EntityFrameworkCore.PostgreSQL or
+// Pomelo.EntityFrameworkCore.MySql, and third-party extensions.
+const efPackagePattern = /EntityFrameworkCore/i;
 
 export function referencesEfCore(project: ProjectModel): boolean {
   return project.packageReferences.some(pkg => efPackagePattern.test(pkg.name));
@@ -31,7 +36,10 @@ function isExecutable(project: ProjectModel): boolean {
  * Detects EF migration project candidates and, for each, the executable
  * projects whose transitive reference closure contains it.
  */
-export function detectEfProjects(solution: SolutionModel): EfProjectDetection[] {
+export function detectEfProjects(
+  solution: SolutionModel,
+  extraEfProjectPaths?: ReadonlySet<string>
+): EfProjectDetection[] {
   const byPath = new Map<string, ProjectModel>();
   for (const project of solution.projects) {
     byPath.set(normalizePath(project.path), project);
@@ -71,7 +79,9 @@ export function detectEfProjects(solution: SolutionModel): EfProjectDetection[] 
   const detections: EfProjectDetection[] = [];
 
   for (const project of solution.projects) {
-    if (!referencesEfCore(project)) {
+    // Package reference is the primary signal; an existing Migrations folder
+    // (design §3.1) covers projects that get EF transitively.
+    if (!referencesEfCore(project) && !extraEfProjectPaths?.has(normalizePath(project.path))) {
       continue;
     }
 
@@ -94,6 +104,7 @@ export function detectEfProjects(solution: SolutionModel): EfProjectDetection[] 
     detections.push({
       project,
       hasDesignPackage: referencesEfDesign(project),
+      hasMigrationsFolder: extraEfProjectPaths?.has(projectPath) ?? false,
       startupCandidates
     });
   }
@@ -102,14 +113,14 @@ export function detectEfProjects(solution: SolutionModel): EfProjectDetection[] 
 }
 
 /**
- * The subset worth showing in the EF tree: projects that either carry the
- * design-time package themselves or are plain EF projects reachable from an
- * executable (single-project apps included).
+ * The subset worth showing in the EF tree: projects that carry the design-time
+ * package, already hold a Migrations folder, or — as a last resort — plain EF
+ * projects reachable from an executable (single-project apps included).
  */
 export function migrationProjectCandidates(detections: readonly EfProjectDetection[]): EfProjectDetection[] {
-  const withDesign = detections.filter(detection => detection.hasDesignPackage);
-  if (withDesign.length > 0) {
-    return withDesign;
+  const strong = detections.filter(detection => detection.hasDesignPackage || detection.hasMigrationsFolder);
+  if (strong.length > 0) {
+    return strong;
   }
 
   return detections.filter(detection => detection.startupCandidates.length > 0);
