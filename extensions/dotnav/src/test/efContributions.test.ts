@@ -31,6 +31,7 @@ test('EF actions hang off the project context menu, not a separate view', () => 
   assert.equal(anchors.length, 1);
   assert.match(anchors[0].when ?? '', /view == dotnav\b/);
   assert.match(anchors[0].when ?? '', /viewItem =~ \/\^project/);
+  assert.match(anchors[0].when ?? '', /ef/);
 });
 
 test('every submenu entry maps to a declared command', () => {
@@ -52,6 +53,21 @@ test('the destructive action sits in its own trailing group', () => {
   assert.ok(others.every(item => !/^9_/.test(item.group ?? '')));
 });
 
+test('the project submenu contains nine contextual actions and keeps maintenance in the Center toolbar', () => {
+  const entries = manifest.contributes.menus['dotnav.efCore'];
+  assert.equal(entries.length, 9);
+  for (const maintenance of [
+    'dotnav.ef.refresh',
+    'dotnav.ef.showOutput',
+    'dotnav.ef.openSettings',
+    'dotnav.ef.installTool'
+  ]) {
+    assert.ok(!entries.some(item => item.command === maintenance), `${maintenance} belongs in the Center toolbar`);
+  }
+  assert.ok(entries.some(item => item.command === 'dotnav.ef.openCenter'));
+  assert.ok(entries.some(item => item.command === 'dotnav.ef.pendingModelChanges'));
+});
+
 test('no menu entry references a command that was removed with the tree view', () => {
   const declared = new Set(manifest.contributes.commands.map(command => command.command));
   for (const [menu, items] of Object.entries(manifest.contributes.menus)) {
@@ -71,6 +87,18 @@ test('EF commands share the "EF Core" palette category', () => {
   assert.ok(efCommands.length > 0);
   for (const command of efCommands) {
     assert.equal(command.category, 'EF Core', `${command.command} must be grouped under EF Core`);
+  }
+});
+
+test('declares the complete Center, diagnostics, and advanced command set', () => {
+  const declared = new Set(efCommands.map(command => command.command));
+  for (const expected of [
+    'dotnav.ef.openCenter',
+    'dotnav.ef.pendingModelChanges',
+    'dotnav.ef.migrationsBundle',
+    'dotnav.ef.optimizeDbContext'
+  ]) {
+    assert.ok(declared.has(expected), `missing ${expected}`);
   }
 });
 

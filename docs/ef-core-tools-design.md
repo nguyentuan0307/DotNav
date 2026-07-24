@@ -1,410 +1,229 @@
-# DotNav — EF Core Tools: Design Document
+# DotNav — EF Core Tools
 
-Trạng thái: Draft — chờ duyệt trước khi implement.
-Phạm vi: extension `dotnav`, module mới `src/ef/`.
-
----
+Trạng thái: Implemented
+Phạm vi: `extensions/dotnav/src/ef`
 
 ## 1. Mục tiêu
 
-Mang trải nghiệm EF Core plugin của Rider vào VS Code, dựa hoàn toàn trên `dotnet ef` CLI:
+DotNav cung cấp một EF Core workbench trong VS Code dựa trên `dotnet ef`:
 
-- Tự detect project có EF Core, DbContext, cặp migrations project ↔ startup project.
-- Quản lý migrations: add / remove / list / script / update / rollback / drop database.
-- UI tree riêng, trạng thái applied/pending, thao tác qua context menu + Command Palette.
-- Không yêu cầu user cấu hình tay khi solution theo convention chuẩn.
+- Phát hiện migrations project, startup project và DbContext mà không build.
+- Add/remove/browse migration.
+- Apply hoặc rollback database có phân loại mức độ nguy hiểm.
+- Sinh SQL script, migration bundle và compiled model.
+- Kiểm tra pending model changes và đọc DbContext info.
+- Không tự động kết nối hoặc thay đổi database.
 
-Không nằm trong scope v1: `dbcontext scaffold` (reverse engineering), `migrations bundle`, EF6.
+`dbcontext scaffold` không nằm trong phạm vi này vì reverse engineering cần một
+workflow riêng cho schema/table selection, credential và overwrite.
 
----
+## 2. Entry points
 
-## 2. Kiến trúc tổng quan
+### Project context menu
 
+Submenu **Entity Framework Core** chỉ xuất hiện trên project đã được phát hiện
+có EF Core. Menu có đúng chín action:
+
+1. Add Migration...
+2. Remove Last Migration
+3. Browse Migrations
+4. Update Database
+5. Generate SQL Script...
+6. DbContext Info
+7. Check Pending Model Changes
+8. Open EF Core Center
+9. Drop Database...
+
+Refresh, Output, Settings và tool management nằm trên toolbar của Center và
+Command Palette; chúng không chiếm chỗ trong project menu.
+
+### Command Palette
+
+Mọi command có category `EF Core`. Advanced actions Migration Bundle và
+Optimize DbContext chỉ có trong Center/Command Palette.
+
+## 3. EF Core Center
+
+Center là một webview editor tab duy nhất. Mở action khác sẽ reveal và thay nội
+dung tab hiện tại, không tạo thêm tab.
+
+```text
+┌ EF Core Center ─ Project ─ DbContext ─ EF version ─ Toolbar ┐
+│ Migrations    │ Action form                                 │
+│ Database      │                                             │
+│ Scripts       │ Command preview                             │
+│ Advanced      │ Status                         Run · Cancel  │
+│ Danger zone   │                                             │
+└───────────────┴─────────────────────────────────────────────┘
 ```
-src/ef/
-├── efJsonParser.ts     # Pure: parse --json output, classify lỗi, mask secret, validate tên
-├── efModel.ts          # Pure: discovery TỨC THÌ từ source (DbContext + migrations), có cache
-├── efQueue.ts          # Pure: SerialQueue + GenerationTracker
-├── efProcess.ts        # Spawn dotnet + kill process tree, timeout
-├── efDetection.ts      # Pure: phân loại project từ metadata csproj
-├── efCli.ts            # Wrap `dotnet ef`: queue, guards R1/R2, no-build, progress
-├── efToolManager.ts    # Check/cài dotnet-ef tool, check version compatibility
-├── efDialogHtml.ts     # Pure: render form webview kiểu Rider (escape, CSP, field types)
-├── efDialog.ts         # Host webview panel, message protocol, preview command line
-├── efCommands.ts       # Đăng ký commands, mở dialog, chạy đúng 1 lệnh CLI
-├── efConfigStore.ts    # Persist cặp project, context mặc định (workspaceState)
-├── efStatusBar.ts      # Status bar item khi có lệnh EF đang chạy
-└── efMain.ts           # EfFeature: wiring, watcher, detection cache
+
+Center có responsive breakpoint ở 760px. Khi editor hẹp, navigation trở thành
+một hàng cuộn ngang. Mọi màu lấy từ VS Code theme tokens; forced-colors có
+border rõ cho input, dropdown, warning và button.
+
+### Toolbar
+
+- **Refresh**: rescan csproj, source DbContext và migration files; không kết nối DB.
+- **Output**: focus Output channel `DotNav EF Core`.
+- **Tool**: xem resolved version và install/update local hoặc global `dotnet-ef`.
+- **Settings**: mở Settings với query `dotnav.ef`.
+
+### Button rules
+
+- Tối đa một primary action, một Cancel và một secondary/inline action.
+- Cancel không bị disable trong loading state.
+- Host validation có quyền disable primary action.
+- Database rollback/revert và destructive operations dùng danger style.
+- Update Database sau khi Check Database đổi label theo kết quả:
+  `Apply N Migrations`, `Database Is Up to Date`,
+  `Roll Back N Migrations`, hoặc `Revert All Migrations`.
+
+## 4. Discovery và dependent fields
+
+UI không chạy CLI trên đường mở form:
+
+1. Đọc metadata csproj để tìm EF package và reference graph.
+2. Scan source để tìm class kế thừa DbContext.
+3. Đọc migration file và `[DbContext(typeof(...))]` để group theo context.
+4. Cache theo file signature; watcher invalidate sau debounce.
+
+Khi migrations project thay đổi, `EfTargetCascade` cập nhật theo thứ tự:
+
+```text
+project
+  → startup candidates
+  → DbContexts
+  → selected/remembered context
+  → migrations for that context
+  → validation and preview
 ```
 
-### 2.1 Nguyên tắc hiệu năng (đo trên ELDesk, 117 project)
+Mỗi cascade có revision. Kết quả async cũ không được ghi đè lựa chọn mới.
 
-| Nguồn dữ liệu | Thời gian |
-|---|---|
-| `dotnet ef dbcontext list` (có build) | **54.000ms** |
-| `dotnet ef dbcontext list --no-build` | 3.200ms |
-| `loadEfModel()` — quét source | **80ms** (warm 8ms) |
+## 5. Actions
 
-**Không lệnh CLI nào được nằm trên đường vẽ UI.** Giống Rider: mọi dropdown
-(project / startup / DbContext / migration) lấy từ `efModel`, dialog mở tức thì.
-CLI chỉ chạy khi user bấm nút thực thi — đúng 1 lần cho mỗi thao tác.
-Trạng thái applied/pending là thứ duy nhất bắt buộc chạm DB, nên chỉ fetch khi
-user bấm nút "Check database" trong dialog Update Database.
-
-Nguyên tắc:
-
-- **Mọi lệnh EF đi qua một hàng đợi tuần tự duy nhất** (chi tiết §7.1). Không bao giờ chạy song song hai lệnh `dotnet ef`.
-- Tái sử dụng `processManager.ts` để spawn, `projectParser.ts` để đọc csproj, pattern `runConfigStore.ts` cho persistence.
-- Output đầy đủ vào Output channel **"DotNav EF Core"**; notification chỉ hiện tóm tắt.
-
----
-
-## 3. Detection
-
-### 3.1 Phân loại project (đọc csproj, không cần build)
-
-| Loại | Điều kiện |
-|---|---|
-| Migrations project | Reference `Microsoft.EntityFrameworkCore.Design` hoặc `Microsoft.EntityFrameworkCore.Tools`, hoặc đã có folder `Migrations/` chứa `*.Designer.cs` |
-| Startup project candidate | `OutputType=Exe` / Web SDK, và reference (trực tiếp hoặc bắc cầu) tới migrations project |
-| EF project (chung) | Reference bất kỳ package `Microsoft.EntityFrameworkCore*` |
-
-Transitive reference resolve từ graph đã có trong `solutionParser.ts`.
-
-### 3.2 DbContext discovery
-
-- Nguồn chính: `dotnet ef dbcontext list --json --no-build` (fallback có build nếu fail).
-- Chạy **lazy**: chỉ khi user mở view EF Core lần đầu hoặc bấm Refresh — không chạy lúc activate extension.
-- Cache kết quả theo (project, configuration); invalidate khi csproj hoặc file `*.cs` chứa `DbContext` thay đổi (watcher, debounce 2s).
-- Fallback tĩnh khi CLI fail: regex quét `class X : DbContext` trong project để vẫn render tree (đánh dấu "unverified").
-
-### 3.3 Chọn cặp migrations ↔ startup project
-
-1. Nếu chỉ có 1 candidate mỗi loại → auto chọn, không hỏi.
-2. Nhiều candidate → quickpick lần đầu, lưu vào `workspaceState` (`efConfigStore`).
-3. Override được qua settings `dotnav.ef.startupProject` / context menu "Set as Startup Project for EF".
-
-### 3.4 Tool check (`efToolManager`)
-
-- `dotnet ef --version` (ưu tiên local tool manifest `.config/dotnet-tools.json`, sau đó global).
-- Chưa cài → notification 2 nút: **Install local tool** (`dotnet new tool-manifest` nếu chưa có + `dotnet tool install dotnet-ef`) / **Install global**.
-- So version tool với version package `Microsoft.EntityFrameworkCore.Design` trong project: lệch major → warning kèm nút update tool.
-- Kết quả cache trong session; invalidate khi user bấm install/update.
-
----
-
-## 4. Danh sách tính năng
-
-### Phase 1 — MVP (Command Palette, chưa có tree)
-
-| # | Tính năng | Lệnh CLI | Ghi chú |
+| Action | CLI | Primary button | Guard |
 |---|---|---|---|
-| F1 | Detect EF projects + tool check | — | Activation event: có csproj chứa `EntityFrameworkCore` |
-| F2 | Add Migration | `migrations add <name>` | Input validate tên (identifier hợp lệ, chưa trùng); mở file migration sau khi tạo |
-| F3 | Remove Last Migration | `migrations remove` | Cảnh báo nếu migration đã applied (thêm `--force` chỉ khi user xác nhận) |
-| F4 | List Migrations | `migrations list --json` | Hiện quickpick read-only kèm trạng thái |
+| Add Migration | `migrations add` | Create Migration | Tên là C# identifier và chưa trùng |
+| Remove Last | `migrations remove` | Remove | Hiện migration sẽ xóa; Force/Offline loại trừ nhau |
+| Browse | source model | Open | Quick Pick searchable, Copy Name item button |
+| Update DB | `database update` | Dynamic | Check DB phân loại apply/no-op/rollback |
+| SQL Script | `migrations script` | Generate | From/To, idempotent, temp output mở SQL editor |
+| Pending Model | `migrations has-pending-model-changes` | Check Model | EF Core 8+ |
+| DbContext Info | `dbcontext info --json` | Read Info | Không nhận connection override không hợp lệ |
+| Drop DB | `database drop --force` | Drop Database | Identify DB rồi gõ đúng database name |
+| Bundle | `migrations bundle` | Create Bundle | Output, force, self-contained, runtime |
+| Optimize | `dbcontext optimize` | Generate Optimized Model | Output dir, namespace, suffix |
 
-### Phase 2 — Tree view
+## 6. Connection handling
 
-| # | Tính năng | Ghi chú |
-|---|---|---|
-| F5 | View "EF Core" trong container `dotnavContainer` | TreeDataProvider, chi tiết §5 |
-| F6 | Trạng thái applied / pending / unknown per migration | Nguồn: `migrations list --json`; DB không connect được → fallback parse folder `Migrations/`, badge "unknown" |
-| F7 | Refresh (toàn bộ / per node) | Nút title bar + context menu |
-| F8 | Reveal migration file trong editor | Click node migration |
+Update, Drop và các CLI hỗ trợ `--connection` có password field:
 
-### Phase 3 — Database operations
+- Rỗng: dùng startup project configuration.
+- Chấp nhận `Name=ConnectionStrings:X`.
+- Chấp nhận connection string đầy đủ.
+- Không persist vào workspace/global/webview state.
+- `retainContextWhenHidden` bị tắt; DOM bị hủy khi webview ẩn.
+- Preview, Output và error đi qua masking.
+- Password field có Show/Hide tạm thời.
 
-| # | Tính năng | Lệnh CLI | Guard |
-|---|---|---|---|
-| F9 | Update Database (latest) | `database update` | Confirm modal kèm tên DB nếu lấy được từ `dbcontext info` |
-| F10 | Update / Rollback tới migration cụ thể | `database update <name>` | Context menu trên node migration: "Update Database to This Migration". Rollback (target cũ hơn) → confirm modal riêng, nêu rõ các migration sẽ bị revert |
-| F11 | Generate SQL Script | `migrations script [from] [to] [--idempotent]` | Quickpick chọn range; output mở tab editor `.sql` (untitled) hoặc save file |
-| F12 | Drop Database | `database drop --force` | Confirm modal **gõ lại tên database** mới cho chạy (kiểu GitHub delete repo) |
-| F13 | DbContext Info | `dbcontext info --json` | Hiện provider, connection string (mask password), hover/tooltip node context |
+`dotnet ef` vẫn nhận connection bằng process argument. DotNav không mô tả cơ
+chế này là secret storage an toàn tuyệt đối; process owner có thể quan sát
+argument trong thời gian process chạy.
 
-### Phase 4 — Polish
+Drop Database không enable dựa trên DbContext name. User phải bấm
+**Identify database**:
 
-| # | Tính năng | Ghi chú |
-|---|---|---|
-| F14 | Settings `dotnav.ef.*` | §8 |
-| F15 | Multi-context: mọi lệnh tự thêm `--context` | Quickpick khi ambiguous, nhớ lựa chọn |
-| F16 | Multi-root workspace | Mỗi root một nhánh tree, state per-root |
-| F17 | Status bar spinner khi lệnh EF chạy | Click → focus Output channel |
-| F18 | Optimize DbContext (`dbcontext optimize`) | Compiled models, optional |
-| F19 | Cancel lệnh đang chạy | Nút trên notification progress; kill process tree |
+- Full connection có `Database`/`Initial Catalog`: lấy identity trực tiếp.
+- Không có explicit connection: gọi `dbcontext info`.
+- Không xác định được database name: Drop tiếp tục bị khóa.
 
----
+## 7. EF version capability
 
-## 5. UI Design
+Capability dùng major thấp hơn giữa project Design package và resolved
+`dotnet-ef`, tránh global tool mới làm lộ option runtime cũ không hiểu.
 
-### 5.1 Entry point: context menu (Rider parity)
+| Capability | Minimum |
+|---|---:|
+| Migration Bundle | EF Core 6 |
+| Optimize DbContext | EF Core 6 |
+| Pending Model Changes | EF Core 8 |
+| Remove `--offline` | EF Core 11 |
+| Remove `--connection` | EF Core 11 |
+| Drop `--connection` | EF Core 11 |
+| Database Update `--add` | EF Core 11 |
+| Optimize precompiled queries / NativeAOT | EF Core 9 |
 
-Không có tool window riêng — giống Rider. Chuột phải một project trong view
-`dotnav` (Solution) → submenu **Entity Framework Core**:
+EF Core 6–11 được nhận diện; option chỉ render khi capability hiện tại hỗ trợ.
+Version mismatch hiện warning và remediation cài local tool cùng major.
 
+## 8. Command execution
+
+- Mọi `dotnet ef` command đi qua một `SerialQueue`.
+- Không chạy song song hai EF commands.
+- Write command đang chạy thì write command tiếp theo phải được xác nhận queue.
+- Guard với DotNav build/run cùng project.
+- `--no-build` auto retry bằng full build khi assembly stale.
+- Notification progress có Cancel; process tree bị kill.
+- Write attempt luôn invalidate source model dù success, fail hay cancel.
+- Status bar chỉ hiện trong thời gian running/queued.
+- Output luôn ghi command, stdout/stderr đã mask, exit code và duration.
+
+Additional arguments dùng parser shell-like nội bộ, không chạy shell. Quoted
+value được giữ nguyên. Các option DotNav quản lý như `--project`,
+`--startup-project`, `--context`, `--connection`, `--output` bị từ chối trong
+raw additional arguments.
+
+## 9. Accessibility
+
+- Navigation có accessible label và active action.
+- Searchable combo dùng combobox/listbox/option roles.
+- `aria-controls`, `aria-expanded`, `aria-activedescendant`,
+  `aria-selected` được cập nhật theo keyboard selection.
+- Status dùng `aria-live="polite"`.
+- Escape đóng popup trước, sau đó đóng Center.
+- Arrow keys và Enter chọn combo item; Enter không submit khi list đang mở.
+- Autofocus bỏ qua combo và collapsed Advanced content.
+- Host validation và required validation cùng kiểm soát submit.
+
+## 10. Settings
+
+- `dotnav.ef.enable`
+- `dotnav.ef.startupProject`
+- `dotnav.ef.configuration`
+- `dotnav.ef.noBuild`
+- `dotnav.ef.verbose`
+- `dotnav.ef.discoverOnStartup`
+- `dotnav.ef.migrationsSortOrder`
+- `dotnav.ef.environmentVariables`
+- `dotnav.ef.commandTimeout`
+
+`dotnav.ef.checkPendingOnStartup` đã deprecated và chỉ còn làm compatibility
+alias cho `discoverOnStartup`.
+
+## 11. Safety boundary
+
+DotNav không chạy `database update`, `database drop`, migration apply hoặc bất
+kỳ database write nào nếu user chưa bấm primary action tương ứng. Refresh,
+discovery và mở Center không kết nối database. Check Database và Identify
+Database là explicit reads.
+
+Không có “do not ask again” cho Drop Database, rollback all hoặc remove
+applied migration.
+
+## 12. Test matrix
+
+- Pure: parser JSON, error classification, masking, connection identity,
+  argument quoting, capability matrix, database update planning.
+- Source model: multi-context, large generated files, cache invalidation.
+- UI HTML: CSP escaping, Center navigation, toolbar, responsive CSS,
+  accessibility wiring, busy/Cancel, host validation, password reveal.
+- Contributions: nine context actions, correct grouping, declared commands,
+  maintenance excluded from project submenu.
+- Queue/process: ordering, cancellation, stale generation, no-build retry.
+
+Full extension test command:
+
+```console
+npm test --workspace extensions/dotnav
 ```
-ELDesk.CustomApp.Infrastructure   [right-click]
-  ├─ Build / Rebuild / Clean
-  ├─ Add ▸ · Project ▸ · Copy ▸
-  ├─ Entity Framework Core ▸
-  │    ├─ Add Migration...
-  │    ├─ Remove Last Migration
-  │    ├─ List Migrations
-  │    ├─────────────────────────
-  │    ├─ Update Database...
-  │    ├─ Generate SQL Script...
-  │    ├─ DbContext Info
-  │    ├─────────────────────────
-  │    ├─ Refresh · Show Output · EF Core Settings
-  │    ├─────────────────────────
-  │    └─ Drop Database...          (nhóm 9_danger, tách riêng)
-  └─ ...
-```
-
-Anchor: `view == dotnav && viewItem =~ /^project(\s|$)/`.
-Mọi lệnh vẫn có trong Command Palette với category `EF Core`.
-
-### 5.2 Dialog (webview, một form duy nhất)
-
-Mỗi lệnh mở **một** dialog kiểu Rider, hiện **tức thì** vì mọi dropdown lấy từ
-`efModel` (quét source, không build):
-
-```
-┌─ Add Migration ─────────────────────────────┐
-│ Migration name      [AddOrderTable________] │
-│ Migrations project  [CustomApp.Infra     ▾] │
-│ Startup project     [ELDesk.CustomApp    ▾] │
-│ DbContext           [CustomAppDbContext  ▾] │
-│ Configuration       [Debug_______________]  │
-│ [ ] Skip build (--no-build)                 │
-│ Additional arguments [__________________]   │
-│                                             │
-│ dotnet ef migrations add AddOrderTable      │
-│   --project ... --startup-project ...       │
-│                                             │
-│ [ Create ] [ Cancel ]                       │
-└─────────────────────────────────────────────┘
-```
-
-- Command line preview ở đáy, cập nhật realtime theo từng field.
-- Validate realtime (tên migration trùng/không hợp lệ) hiện ở dòng status.
-- `Esc` = huỷ, `Enter` = submit.
-- Lựa chọn project/startup/context được nhớ lại cho lần sau (`efConfigStore`).
-- Dialog huỷ → không có lệnh CLI nào chạy.
-
-Bảng dialog theo lệnh:
-
-| Lệnh | Field riêng | Nút phụ | Style |
-|---|---|---|---|
-| Add Migration | Migration name (bắt buộc) | — | thường |
-| Remove Last Migration | `--force` checkbox | — | danger + warning |
-| Update Database | Target migration (combo, autocomplete từ file) | **Check database** | danger + warning |
-| Generate SQL Script | From / To (combo), `--idempotent` | — | thường |
-| Drop Database | Ô gõ lại tên DbContext để xác nhận | — | danger + warning |
-| DbContext Info | — | — | thường |
-
-Field chung mọi dialog: Migrations project, Startup project, DbContext,
-Configuration, Skip build, Additional arguments.
-
-### 5.3 Nút "Check database" (trạng thái applied/pending)
-
-Đây là **nơi duy nhất** chạm database. Trong dialog Update Database, bấm
-"Check database" → chạy `migrations list --json` → dropdown target migration
-được gắn nhãn `applied` / `pending`, dòng status hiện tóm tắt
-("12 applied, 3 pending. Next: AddOrders"). Không bấm thì không tốn giây nào.
-
-### 5.4 Command Palette
-
-Mọi lệnh prefix `EF Core: ` — Add Migration, Remove Last Migration,
-List Migrations, Update Database, Generate SQL Script, DbContext Info,
-Drop Database, Install/Update dotnet-ef Tool, Refresh, Show Output, Settings.
-Gọi từ palette mà solution có nhiều EF project → quickpick chọn project trước
-(tức thì), rồi mở dialog.
-
-### 5.5 Luồng chuẩn của mọi lệnh
-
-1. Resolve project (từ node context menu, hoặc quickpick nếu gọi từ palette).
-2. `loadEfModel()` — 80ms cold / 8ms warm.
-3. Mở dialog, điền sẵn giá trị đã nhớ.
-4. User confirm → check `dotnet ef` tool → chạy **đúng một** lệnh CLI.
-5. Kết quả: notification + hành động tiếp theo (mở file migration vừa tạo,
-   mở tab `.sql`, …). Thất bại → notification phân loại lỗi + nút Show Output.
-
-### 5.6 Nhóm nguy hiểm
-
-Drop Database và Remove Last Migration dùng style `danger` (nút đỏ) kèm banner
-cảnh báo trong dialog. Drop Database còn bắt gõ lại tên DbContext mới bật nút.
-Không có tuỳ chọn "đừng hỏi lại" cho nhóm này.
-### 5.7 Status bar (`efStatusBar`)
-
-- Chỉ hiện khi có lệnh EF chạy: `$(sync~spin) EF: Adding migration…`
-- Click → focus Output channel "DotNav EF Core".
-- Có lệnh đang queue: `$(sync~spin) EF: Updating database… (+1 queued)`.
-
-### 5.8 Output channel
-
-- Tên: `DotNav EF Core`.
-- Mỗi lệnh log: dòng header `── dotnet ef migrations add AddOrders --project … ──` + full stdout/stderr + exit code + duration.
-- Setting `dotnav.ef.verbose` → thêm `--verbose` vào CLI.
-
----
-
-## 6. Command layer (`efCli.ts`)
-
-### 6.1 Thực thi
-
-- Spawn `dotnet ef …` qua `ProcessManager` (track PID, kill được cả process tree khi cancel).
-- `cwd` = thư mục migrations project. Luôn truyền tường minh: `--project`, `--startup-project`, `--context` (khi >1), `--configuration` (theo setting), `--no-color`, `--prefix-output` khi cần tách stream.
-- `--json`: parse các dòng prefix `data:` (format chuẩn của dotnet-ef), bỏ qua dòng build noise. Parse fail → coi như lỗi, log raw output.
-
-### 6.2 Build strategy
-
-- Mặc định để `dotnet ef` tự build (an toàn nhất).
-- Setting `dotnav.ef.noBuild: "auto" | "always" | "never"`:
-  - `auto` (default): thêm `--no-build` nếu DotNav vừa build thành công project đó và chưa có file thay đổi kể từ đó (dựa vào state build sẵn có của DotNav); fail vì thiếu assembly → tự retry một lần không có `--no-build`.
-  - `always` / `never`: ép theo user.
-
-### 6.3 Kết quả chuẩn hóa
-
-```ts
-interface EfCommandResult<T = void> {
-  readonly kind: 'success' | 'cliError' | 'buildError' | 'toolMissing' | 'cancelled';
-  readonly exitCode?: number;
-  readonly data?: T;          // parsed từ --json
-  readonly errorSummary?: string; // dòng lỗi cuối, đã lọc stack trace
-  readonly duration: number;
-}
-```
-
-Phân loại lỗi từ stderr pattern: build fail (`Build failed`), tool missing, DB connect fail (`A network-related…`, `Login failed`, provider-specific), pending model changes, v.v. → message thân thiện + nút hành động phù hợp.
-
----
-
-## 7. Concurrency, race conditions & cách xử lý
-
-Đây là phần dễ sai nhất. Nguyên tắc gốc: **một mutex tuần tự cho mọi lệnh `dotnet ef` ghi-trạng-thái, cache bất biến theo generation, mọi async callback phải check generation trước khi commit kết quả vào state.**
-
-### 7.1 R1 — Hai lệnh EF chạy đồng thời
-
-**Kịch bản:** User bấm "Add Migration" rồi bấm tiếp "Update Database" khi lệnh đầu chưa xong. Hai `dotnet ef` cùng build một project → MSBuild file lock, hoặc migration được add giữa chừng khiến update apply thiếu.
-
-**Xử lý:** `efCli` giữ một **promise queue tuần tự** (per workspace). Lệnh mới enqueue, status bar hiện `(+N queued)`. Lệnh read-only thuần cache (render tree) không vào queue; lệnh CLI read-only (`dbcontext info`) vẫn vào queue vì cũng trigger build. Queue có giới hạn: user gọi lệnh ghi khi đang có lệnh ghi chạy → hỏi "Queue or Cancel current?" thay vì âm thầm xếp hàng.
-
-### 7.2 R2 — Lệnh EF chạy đồng thời với Build/Run của DotNav
-
-**Kịch bản:** User bấm Build trên tree solution trong khi `dotnet ef` đang build cùng project → MSBuild node conflict, output DLL bị lock (nhất là khi app đang chạy/debug).
-
-**Xử lý:**
-- `efCli` hỏi `ProcessManager`: project (hoặc dependency) đang build/run/debug → chặn với message `Project is currently building/running. Stop it first?` + nút Stop & Continue.
-- Ngược lại, khi lệnh EF đang chạy, các lệnh build của DotNav trên cùng project hiện cảnh báo tương tự (soft-block, user override được).
-- App đang chạy giữ file lock DB (SQLite) → lỗi CLI được phân loại và gợi ý stop app.
-
-### 7.3 R3 — Tree refresh vs. lệnh đang chạy (stale cache)
-
-**Kịch bản:** `migrations list` (populate tree) đang chạy; user "Add Migration" xong trước khi list trả về → list cũ ghi đè lên state mới → tree thiếu migration vừa tạo.
-
-**Xử lý:** `efMigrationStore` giữ `generation: number` per DbContext. Mọi lệnh **ghi** thành công → `generation++` + invalidate. Kết quả đọc về chỉ được commit nếu generation lúc bắt đầu == generation hiện tại; lệch → vứt, tự re-fetch. Kết hợp với queue tuần tự (§7.1), cửa sổ race chỉ còn ở các đọc-ngoài-queue và bị generation chặn nốt.
-
-### 7.4 R4 — File watcher vs. `migrations add`
-
-**Kịch bản:** `migrations add` tự sinh 3 file trong `Migrations/` → watcher (invalidate DbContext cache, §3.2) bắn ngay giữa lúc lệnh chưa xong → refresh đọc trạng thái nửa vời; đồng thời watcher chung của solution tree cũng bắn.
-
-**Xử lý:** Khi có lệnh EF trong queue đang chạy, watcher events cho project đó **treo lại** (buffer), xả một lần sau khi lệnh kết thúc. Debounce 2s cho edit tay của user.
-
-### 7.5 R5 — Cancel giữa chừng
-
-**Kịch bản:** User cancel `database update` → SQL đang chạy nửa migration; hoặc cancel `migrations add` sau khi file đã ghi ra disk.
-
-**Xử lý:**
-- Kill cả process tree (dotnet ef spawn con).
-- Sau cancel bất kỳ lệnh ghi nào → **ép full refresh** DbContext đó (không tin cache), tree hiện trạng thái thực tế.
-- Cancel `database update`: notification cảnh báo `Update was cancelled mid-run. Database may be in a partial state — run 'migrations list' to verify.` (EF chạy mỗi migration trong transaction riêng trên đa số provider, nhưng không đảm bảo tuyệt đối — không hứa gì với user).
-- Cancel `migrations add`: check disk, nếu file migration đã sinh → hỏi user giữ hay xóa (xóa cả 2–3 file: migration, Designer, snapshot revert qua `migrations remove`... — an toàn nhất là chạy `migrations remove` chuẩn thay vì tự xóa file).
-
-### 7.6 R6 — User sửa/xóa file migration bằng tay
-
-**Kịch bản:** User xóa file migration trên disk nhưng snapshot (`*ModelSnapshot.cs`) không sync → mọi lệnh EF sau đó lỗi khó hiểu.
-
-**Xử lý:** Không tự can thiệp. Phát hiện mismatch (file trong `Migrations/` không khớp `migrations list`) → node warning trong tree: `Migrations folder out of sync with model snapshot` + link docs. Đây là guard, không phải fix tự động.
-
-### 7.7 R7 — Nhiều VS Code window / process ngoài cùng ghi một DB
-
-**Kịch bản:** Hai cửa sổ VS Code mở cùng repo, hoặc teammate/CI chạy migration cùng DB. Trạng thái applied trong tree sai.
-
-**Xử lý:** Không lock được — chấp nhận. Giảm thiểu: trạng thái applied luôn fetch mới ngay trước khi hiện confirm dialog của lệnh ghi DB (không dùng cache cho quyết định nguy hiểm); confirm dialog hiện số liệu vừa fetch. `database update` fail vì trạng thái đổi → message rõ ràng + Refresh.
-
-### 7.8 R8 — Activate/dispose race
-
-**Kịch bản:** User đóng workspace / disable extension khi lệnh EF đang chạy → orphan process, hoặc callback đụng vào object đã dispose.
-
-**Xử lý:** `deactivate()` gọi `ProcessManager.killAll()` cho process EF (đã có pattern). Mọi callback async check `token.isCancellationRequested` / flag disposed trước khi đụng UI. Không giữ orphan `dotnet` / MSBuild node (`-nodeReuse:false` khi tự build).
-
-### 7.9 R9 — Solution reload / branch switch giữa chừng
-
-**Kịch bản:** User đổi git branch → csproj/Migrations đổi hàng loạt trong khi tree đang load hoặc lệnh đang queue.
-
-**Xử lý:** Solution reload event (đã có trong DotNav) → clear toàn bộ queue **pending** (lệnh đang chạy vẫn chạy nốt, kết quả bị generation vứt), reset generation, re-discovery. Lệnh pending bị hủy → notification ngắn.
-
-### 7.10 R10 — Multi-root / nhiều solution
-
-**Kịch bản:** Hai root cùng chứa project trùng tên; state per-project key bằng tên → lẫn.
-
-**Xử lý:** Mọi key state/cache dùng **đường dẫn tuyệt đối normalize** (`pathUtils.samePath` sẵn có), không dùng tên. Queue vẫn một — tránh hai build MSBuild song song ăn RAM.
-
----
-
-## 8. Settings (`dotnav.ef.*`)
-
-| Key | Type | Default | Mô tả |
-|---|---|---|---|
-| `dotnav.ef.enable` | boolean | `true` | Bật/tắt toàn bộ tính năng EF |
-| `dotnav.ef.startupProject` | string | `""` | Path csproj startup; rỗng = auto/đã nhớ |
-| `dotnav.ef.configuration` | string | `"Debug"` | `--configuration` |
-| `dotnav.ef.noBuild` | enum `auto/always/never` | `auto` | §6.2 |
-| `dotnav.ef.verbose` | boolean | `false` | Thêm `--verbose`, log full |
-| `dotnav.ef.checkPendingOnStartup` | boolean | `false` | Discovery ngay khi mở workspace (mặc định lazy) |
-| `dotnav.ef.migrationsSortOrder` | enum `oldestFirst/newestFirst` | `oldestFirst` | Thứ tự tree |
-| `dotnav.ef.environmentVariables` | object | `{}` | Env truyền vào process (vd `ASPNETCORE_ENVIRONMENT`) |
-| `dotnav.ef.commandTimeout` | number | `300` | Giây; quá → hỏi kill |
-
----
-
-## 9. Rủi ro triển khai (ngoài race)
-
-| # | Rủi ro | Mức | Giảm thiểu |
-|---|---|---|---|
-| RK1 | `dotnet ef` chậm (build mỗi lần) → cảm giác extension lag | Cao | Lazy discovery, cache + generation, `--no-build` auto, mọi thứ async + progress UI, không bao giờ block activate |
-| RK2 | Format `--json` output đổi giữa các version dotnet-ef | Trung | Parser khoan dung (bỏ qua field lạ), test fixture output của EF 6/7/8/9/10, parse fail → fallback raw + vẫn hoạt động ở mức degraded |
-| RK3 | Version mismatch tool ↔ runtime project (`dotnet-ef` 10 vs project EF 8…) | Trung | `efToolManager` so version, warning + nút cài đúng version dạng local tool per-repo |
-| RK4 | Connection string chứa secret bị lộ (log/tooltip) | Cao | Mask password/token trong mọi output hiển thị; Output channel chỉ ghi khi verbose và vẫn mask; không bao giờ ghi vào state/file |
-| RK5 | Lệnh phá hủy (drop, rollback) chạy nhầm DB production | Cao | Confirm modal nêu tên DB + provider, drop phải gõ lại tên DB, không có "don't ask again" cho nhóm lệnh này |
-| RK6 | Startup project detect sai → migration sinh vào project sai / connection string sai environment | Trung | Luôn hiện startup project trong description node + trong confirm dialog; đổi được 1 click |
-| RK7 | Solution lớn: nhiều DbContext × nhiều project → discovery lâu | Trung | Discovery per-project song song ở mức parse file (không CLI), CLI vẫn tuần tự; hiện partial tree ngay khi có dữ liệu |
-| RK8 | User không có `dotnet` trên PATH / SDK version cũ | Thấp | Tái dùng detect sẵn có của DotNav; degrade thành node hướng dẫn cài |
-| RK9 | Provider đặc thù (SQLite file lock, Cosmos không hỗ trợ migrations…) | Trung | Cosmos: ẩn nhóm lệnh migrations, hiện note. SQLite lock: phân loại lỗi, gợi ý stop app |
-| RK10 | Orphan MSBuild/VBCSCompiler ăn RAM (đã từng xảy ra trên máy dev) | Trung | Mọi build tự phát thêm `-p:UseSharedCompilation=false -nodeReuse:false`; kill process tree khi cancel/deactivate |
-| RK11 | Windows path/quoting (space, unicode) trong args | Thấp | Luôn spawn array-args (không shell string); test path có space |
-| RK12 | Migration name user nhập gây lỗi (trùng, ký tự lạ) | Thấp | Validate realtime tại InputBox (§5.5) |
-
----
-
-## 10. Testing
-
-- **Unit:** parser `--json` (fixtures nhiều version EF), phân loại lỗi stderr, generation logic của `efMigrationStore`, validate migration name, mask connection string.
-- **Integration (test workspace):** solution mẫu trong `src/test/fixtures/` với 2 project (Data + Web), SQLite provider (không cần DB server) — chạy thật add/list/remove/update/rollback/script trên CI.
-- **Race tests:** enqueue 2 lệnh liên tiếp, cancel giữa chừng, generation mismatch — assert state cuối đúng.
-- **Manual matrix:** SqlServer + Npgsql + SQLite; EF 8/9/10; global vs local tool; multi-context; multi-root.
-
----
-
-## 11. Thứ tự triển khai
-
-| Bước | Nội dung | Kết quả bàn giao |
-|---|---|---|
-| 1 | `efDetection` + `efToolManager` + `efCli` (queue, parser) + F2/F3/F4 qua palette | MVP dùng được, có test parser + queue |
-| 2 | `efMigrationStore` (generation) + `efTreeProvider` + F5–F8 | Tree đầy đủ trạng thái |
-| 3 | F9–F13 + confirm dialogs + status bar | Database ops an toàn |
-| 4 | F14–F19 + race hardening (R4, R5, R9) + test matrix | Release-ready |
-
-Mỗi bước một PR riêng, releasable độc lập.

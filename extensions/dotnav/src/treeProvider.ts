@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { isInside, readDirectoryNodes, readDockerProjectNodes } from './fileTree';
 import { ProjectModel, SolutionModel, TreeNode } from './models';
-import { samePath } from './pathUtils';
+import { normalizePath, samePath } from './pathUtils';
 import { isRunnableProject, isTestProject } from './projectCapabilities';
 import { parseProject } from './projectParser';
 import * as runConfigStore from './runConfigStore';
@@ -32,6 +32,19 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private projectStateProvider?: (project: ProjectModel) => RunPhase | undefined;
   private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
   private outdatedPackages: OutdatedPackages = new Map();
+  private efProjectPaths = new Set<string>();
+
+  setEfProjectPaths(paths: readonly string[]): void {
+    const next = new Set(paths.map(normalizePath));
+    const unchanged = next.size === this.efProjectPaths.size &&
+      [...next].every(projectPath => this.efProjectPaths.has(projectPath));
+    if (unchanged) {
+      return;
+    }
+
+    this.efProjectPaths = next;
+    this.fireChanged();
+  }
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.startupProjectPath = context.workspaceState.get<string>('startupProjectPath');
@@ -702,6 +715,9 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     if (node.kind === 'project' && node.project) {
       const values = ['project'];
+      if (this.efProjectPaths.has(normalizePath(node.project.path))) {
+        values.push('ef');
+      }
       if (node.project.path === this.startupProjectPath) {
         values.push('startup');
       }

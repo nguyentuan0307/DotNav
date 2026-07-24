@@ -438,6 +438,27 @@
         "command": "dotnav.ef.showOutput",
         "title": "Show Output",
         "category": "EF Core"
+      },
+      {
+        "command": "dotnav.ef.openCenter",
+        "title": "Open EF Core Center",
+        "category": "EF Core",
+        "icon": "$(database)"
+      },
+      {
+        "command": "dotnav.ef.pendingModelChanges",
+        "title": "Check Pending Model Changes",
+        "category": "EF Core"
+      },
+      {
+        "command": "dotnav.ef.migrationsBundle",
+        "title": "Create Migration Bundle...",
+        "category": "EF Core"
+      },
+      {
+        "command": "dotnav.ef.optimizeDbContext",
+        "title": "Optimize DbContext...",
+        "category": "EF Core"
       }
     ],
     "submenus": [
@@ -793,7 +814,7 @@
         },
         {
           "submenu": "dotnav.efCore",
-          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/",
+          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/ && viewItem =~ /(^|\\s)ef(\\s|$)/",
           "group": "7_ef@1"
         }
       ],
@@ -881,16 +902,12 @@
           "group": "2_database@3"
         },
         {
-          "command": "dotnav.ef.refresh",
+          "command": "dotnav.ef.pendingModelChanges",
+          "group": "2_database@4"
+        },
+        {
+          "command": "dotnav.ef.openCenter",
           "group": "3_tools@1"
-        },
-        {
-          "command": "dotnav.ef.showOutput",
-          "group": "3_tools@2"
-        },
-        {
-          "command": "dotnav.ef.openSettings",
-          "group": "3_tools@3"
         },
         {
           "command": "dotnav.ef.dropDatabase",
@@ -904,7 +921,22 @@
         "dotnav.ef.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable the EF Core tools (detection, tree view, and commands)."
+          "description": "Enable EF Core project detection, the EF Core Center, and EF commands."
+        },
+        "dotnav.ef.language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "en",
+            "vi"
+          ],
+          "enumDescriptions": [
+            "Follow the VS Code display language.",
+            "Use English in EF Core Center.",
+            "Use Vietnamese in EF Core Center."
+          ],
+          "default": "auto",
+          "description": "Display language for EF Core Center and its integrated usage guides."
         },
         "dotnav.ef.startupProject": {
           "type": "string",
@@ -939,7 +971,13 @@
         "dotnav.ef.checkPendingOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Discover EF projects and DbContexts as soon as the workspace opens instead of lazily."
+          "description": "Deprecated: use dotnav.ef.discoverOnStartup. Kept for workspace compatibility.",
+          "deprecationMessage": "Use dotnav.ef.discoverOnStartup instead."
+        },
+        "dotnav.ef.discoverOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Preload DbContexts and migrations from source when EF projects are detected instead of waiting for the first EF action."
         },
         "dotnav.ef.migrationsSortOrder": {
           "type": "string",
@@ -948,7 +986,7 @@
             "newestFirst"
           ],
           "default": "oldestFirst",
-          "description": "Order of migrations in the EF Core tree."
+          "description": "Order of migrations in Browse Migrations and EF Core Center lists."
         },
         "dotnav.ef.environmentVariables": {
           "type": "object",

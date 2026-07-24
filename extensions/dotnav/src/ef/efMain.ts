@@ -13,6 +13,7 @@ import { ProjectEfModel, invalidateEfModel, loadEfModel } from './efModel';
 import { EfToolManager } from './efToolManager';
 import { createEfStatusBar } from './efStatusBar';
 import { registerEfCommands } from './efCommands';
+import { disposeEfCenter } from './efDialog';
 
 const DETECTION_TTL_MS = 5000;
 
@@ -53,7 +54,11 @@ export class EfFeature implements vscode.Disposable {
       this.solutionProvider.onDidChangeTreeData(() => this.onSolutionChanged())
     );
 
-    if (vscode.workspace.getConfiguration('dotnav.ef').get<boolean>('checkPendingOnStartup', false)) {
+    const efConfiguration = vscode.workspace.getConfiguration('dotnav.ef');
+    if (
+      efConfiguration.get<boolean>('discoverOnStartup', false) ||
+      efConfiguration.get<boolean>('checkPendingOnStartup', false)
+    ) {
       void this.getDetections();
     }
   }
@@ -93,6 +98,7 @@ export class EfFeature implements vscode.Disposable {
     const detections = migrationProjectCandidates(
       detectEfProjects({ ...solution, projects }, migrationFolderProjects)
     );
+    this.solutionProvider.setEfProjectPaths(detections.map(detection => detection.project.path));
     if (detections.length > 0) {
       this.detectionsCache = { at: Date.now(), detections };
     }
@@ -104,6 +110,13 @@ export class EfFeature implements vscode.Disposable {
         ? ` — ${detections.map(detection => detection.project.name).join(', ')}`
         : ' (no EntityFrameworkCore package references or Migrations folders found)')
     );
+    const efConfiguration = vscode.workspace.getConfiguration('dotnav.ef');
+    const eagerModels =
+      efConfiguration.get<boolean>('discoverOnStartup', false) ||
+      efConfiguration.get<boolean>('checkPendingOnStartup', false);
+    if (eagerModels) {
+      await Promise.all(detections.map(detection => loadEfModel(detection.project.directory)));
+    }
     return detections;
   }
 
@@ -148,10 +161,17 @@ export class EfFeature implements vscode.Disposable {
     // the set of projects actually changed.
     this.lastSolutionSignature = signature;
     this.invalidateDetections();
+    // Context-menu visibility depends on the detected-project marker. Detection
+    // is source-only and asynchronous, so populate it whenever solution shape
+    // changes without putting a CLI/build on the tree-render path.
+    if (signature) {
+      void this.getDetections();
+    }
   }
 
   invalidateDetections(): void {
     this.detectionsCache = undefined;
+    this.solutionProvider.setEfProjectPaths([]);
   }
 
   /**
@@ -161,7 +181,8 @@ export class EfFeature implements vscode.Disposable {
   async resolveStartupProject(detection: EfProjectDetection): Promise<string | undefined> {
     const configured = vscode.workspace.getConfiguration('dotnav.ef').get<string>('startupProject', '');
     if (configured) {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? detection.project.directory;
+      const root = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(detection.project.path))?.uri.fsPath ??
+        detection.project.directory;
       return path.isAbsolute(configured) ? configured : path.resolve(root, configured);
     }
 
@@ -243,18 +264,19 @@ export class EfFeature implements vscode.Disposable {
     }
   }
 
-  refreshAll(): void {
+  async refreshAll(): Promise<void> {
     this.invalidateDetections();
     this.toolManager.invalidate();
     invalidateEfModel();
-    void this.getDetections().then(detections => {
-      vscode.window.showInformationMessage(
-        `EF Core: ${detections.length} project(s) detected out of ${this.scannedProjectCount} scanned.`
-      );
-    });
+    const detections = await this.getDetections();
+    vscode.window.showInformationMessage(
+      `EF Core: ${detections.length} project(s) detected out of ${this.scannedProjectCount} scanned.`
+    );
   }
 
   dispose(): void {
+    this.solutionProvider.setEfProjectPaths([]);
+    disposeEfCenter();
     for (const disposable of this.disposables.splice(0)) {
       try {
         disposable.dispose();

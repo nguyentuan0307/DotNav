@@ -105,7 +105,7 @@ test('renders passwords masked and other fields as text', () => {
 test('moves advanced fields into a collapsed section', () => {
   const html = renderDialogHtml(spec, 'n', 'c');
   assert.ok(html.includes('<details class="advanced">'));
-  assert.ok(html.includes('<summary>Advanced options</summary>'));
+  assert.ok(html.includes('data-en="Advanced options"'));
 
   const advancedStart = html.indexOf('<details class="advanced">');
   assert.ok(html.indexOf('data-field="noBuild"') > advancedStart, 'noBuild is advanced');
@@ -140,7 +140,8 @@ test('renders the danger style and warning banner only when asked', () => {
     'n',
     'c'
   );
-  assert.ok(dangerous.includes('id="submit" class="danger"'));
+  assert.ok(dangerous.includes('id="submit" class="primary danger"'));
+  assert.ok(dangerous.includes('class="workspace-card danger-workspace"'));
   assert.ok(dangerous.includes('THIS CANNOT BE UNDONE.'));
 });
 
@@ -237,4 +238,169 @@ test('autofocus never lands inside the collapsed Advanced section', () => {
   );
 
   assert.ok(html.includes("!node.closest('details.advanced')"));
+});
+
+test('renders the persistent EF Core Center navigation and toolbar', () => {
+  const html = renderDialogHtml(
+    {
+      ...spec,
+      actionId: 'dotnav.ef.addMigration',
+      projectLabel: 'Data',
+      contextLabel: 'AppDbContext',
+      toolLabel: 'EF Core 8'
+    },
+    'n',
+    'c'
+  );
+  assert.ok(html.includes('aria-label="EF Core actions"'));
+  assert.ok(html.includes('data-command="dotnav.ef.addMigration"'));
+  assert.ok(html.includes('nav-item active'));
+  assert.ok(html.includes('data-command="dotnav.ef.migrationsBundle"'));
+  assert.ok(html.includes('data-command="dotnav.ef.optimizeDbContext"'));
+  assert.ok(html.includes('data-command="dotnav.ef.dropDatabase"'));
+  assert.ok(html.includes('data-toolbar="refresh"'));
+  assert.ok(html.includes('data-toolbar="settings"'));
+  assert.ok(html.includes('aria-label="Manage dotnet-ef tool"'));
+  assert.ok(html.includes('aria-current="page"'));
+  assert.ok(html.includes('Migration workspace'));
+});
+
+test('renders a polished action workspace with a collapsible command preview', () => {
+  const html = renderDialogHtml(
+    { ...spec, actionId: 'dotnav.ef.addMigration' },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes('class="action-heading"'));
+  assert.ok(html.includes('Capture the current model changes in a new migration.'));
+  assert.ok(html.includes('class="workspace-card"'));
+  assert.ok(html.includes('<details class="command-panel">'));
+  assert.ok(!html.includes('<details class="command-panel" open'));
+  assert.ok(html.includes('id="copy-preview"'));
+  assert.ok(html.includes("type: 'copy'"));
+  assert.ok(html.includes('white-space: pre-wrap'));
+  assert.ok(html.includes('overflow-wrap: anywhere'));
+});
+
+test('renders bilingual guidance in an on-demand drawer without changing form values', () => {
+  const html = renderDialogHtml(
+    { ...spec, actionId: 'dotnav.ef.addMigration' },
+    'n',
+    'c',
+    'vi'
+  );
+
+  assert.ok(html.includes('class="help-open"'));
+  assert.ok(html.includes('aria-expanded="false"'));
+  assert.ok(html.includes('class="help-backdrop"'));
+  assert.ok(html.includes('class="help-drawer"'));
+  assert.ok(html.includes('role="dialog" aria-modal="true"'));
+  assert.ok(html.includes('aria-hidden="true" inert'));
+  assert.ok(html.includes('data-help-action="dotnav.ef.addMigration"'));
+  assert.ok(html.includes('Hướng dẫn sử dụng'));
+  assert.ok(html.includes('Hướng dẫn các field'));
+  assert.ok(html.includes('Tên migration'));
+  assert.ok(html.includes('data-locale="en"'));
+  assert.ok(html.includes('data-locale="vi"'));
+  assert.ok(html.includes('data-placeholder-en="e.g. AddOrders"'));
+  assert.ok(html.includes('data-placeholder-vi="ví dụ: AddOrders"'));
+  assert.ok(html.includes("vscode.postMessage({ type: 'locale'"));
+  assert.ok(!html.includes('persistedState.helpOpen'));
+  assert.ok(html.includes('value="Data"'), 'changing locale must not replace submitted values');
+});
+
+test('guide drawer supports close controls, Escape, F1, focus restoration, and focus trapping', () => {
+  const html = renderDialogHtml(
+    { ...spec, actionId: 'dotnav.ef.addMigration' },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes("helpOpenButton.addEventListener('click', openHelp)"));
+  assert.ok(html.includes("helpCloseButton.addEventListener('click'"));
+  assert.ok(html.includes("helpBackdrop.addEventListener('click'"));
+  assert.ok(html.includes("event.key === 'Escape' && isHelpOpen()"));
+  assert.ok(html.includes("event.key === 'F1' && helpDrawer"));
+  assert.ok(html.includes('helpPreviouslyFocused'));
+  assert.ok(html.includes("event.key !== 'Tab'"));
+  assert.ok(html.includes("helpDrawer.setAttribute('inert', '')"));
+});
+
+test('renders an initially hidden, localized operation progress surface', () => {
+  const html = renderDialogHtml(
+    { ...spec, actionId: 'dotnav.ef.addMigration' },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes('class="operation-progress"'));
+  assert.ok(html.includes('id="operation-progress" aria-live="polite" hidden'));
+  assert.ok(html.includes('id="progress-bar"'));
+  assert.ok(html.includes('id="progress-steps"'));
+  assert.ok(html.includes("message.type === 'progress'"));
+  assert.ok(html.includes('renderProgress(message.progress)'));
+  assert.ok(html.includes("'Running': { en: 'Running', vi: 'Đang chạy' }"));
+  assert.ok(html.includes('@keyframes progress-slide'));
+  assert.ok(html.includes('progress.state === \'running\' ? \'Running\''));
+});
+
+test('can omit command preview for source-only Center actions', () => {
+  const html = renderDialogHtml(
+    {
+      ...spec,
+      actionId: 'dotnav.ef.listMigrations',
+      hideCommandPreview: true
+    },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes('data-help-action="dotnav.ef.listMigrations"'));
+  assert.ok(!html.includes('<details class="command-panel">'));
+  assert.ok(html.includes('if (previewNode)'));
+});
+
+test('uses responsive and reduced-motion styles for the Center shell', () => {
+  const html = renderDialogHtml(spec, 'n', 'c');
+  assert.ok(html.includes('@media (max-width: 1040px)'));
+  assert.ok(html.includes('@media (max-width: 760px)'));
+  assert.ok(html.includes('@media (max-width: 480px)'));
+  assert.ok(html.includes('@media (prefers-reduced-motion: reduce)'));
+  assert.ok(html.includes('@media (forced-colors: active)'));
+});
+
+test('comboboxes expose listbox and active-descendant accessibility wiring', () => {
+  const html = renderDialogHtml(spec, 'n', 'c');
+  assert.ok(html.includes('role="listbox"'));
+  assert.ok(html.includes("display.setAttribute('aria-controls', list.id)"));
+  assert.ok(html.includes("row.setAttribute('role', 'option')"));
+  assert.ok(html.includes("display.setAttribute('aria-activedescendant', active.id)"));
+  assert.ok(html.includes('aria-live="polite"'));
+});
+
+test('busy state leaves Cancel enabled and host validation controls submit', () => {
+  const html = renderDialogHtml(spec, 'n', 'c');
+  assert.ok(html.includes("querySelectorAll('button:not(#cancel):not([data-help-control])')"));
+  assert.ok(html.includes("document.getElementById('cancel').disabled = false"));
+  assert.ok(html.includes("submitButton.classList.toggle('busy', busy)"));
+  assert.ok(html.includes("submitButton.setAttribute('aria-busy'"));
+  assert.ok(html.includes('!valid || !hostValid'));
+  assert.ok(html.includes("message.type === 'validity'"));
+});
+
+test('password fields have a temporary reveal control', () => {
+  const html = renderDialogHtml(spec, 'n', 'c');
+  assert.ok(html.includes('data-reveal="secret"'));
+  assert.ok(html.includes('aria-label="Show value"'));
+  assert.ok(html.includes("input.type = showing ? 'password' : 'text'"));
+});
+
+test('generated Center JavaScript is syntactically valid', () => {
+  const html = renderDialogHtml(spec, 'n', 'c');
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)];
+  assert.ok(scripts.length > 0);
+  for (const script of scripts) {
+    assert.doesNotThrow(() => new Function(script[1]));
+  }
 });

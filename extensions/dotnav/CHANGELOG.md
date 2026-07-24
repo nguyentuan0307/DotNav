@@ -7,6 +7,19 @@ All notable changes to DotNav are documented here.
 ### Features
 
 * build folder projects in one parallel MSBuild session with a configurable worker limit
+* replace per-action EF webviews with one responsive, project-aware EF Core Center
+* redesign EF Core Center as a polished, accessible developer cockpit with responsive navigation and command previews
+* add pending-model checks, migration bundles, compiled-model optimization, and EF Core 6–11 capability gating
+* add on-demand English and Vietnamese guide drawers for every EF Core action, including field examples, prerequisites, expected results, and safety notes
+* add a persistent English/Vietnamese language switch to EF Core Center
+* show event-driven, bilingual operation progress for every executed EF Core action
+
+### Bug Fixes
+
+* cascade EF project, startup project, DbContext, and migration selections without stale async updates
+* keep EF connection overrides transient and require database identity before Drop Database
+* detect EF packages when self-closing and paired PackageReference elements are mixed in one project file
+* parse quoted additional EF arguments and reject options already managed by DotNav
 
 ## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.2...dotnav-v0.4.0) (2026-07-15)
 
