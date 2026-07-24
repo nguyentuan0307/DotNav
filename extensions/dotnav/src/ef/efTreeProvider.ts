@@ -27,6 +27,7 @@ export interface EfNode {
 export interface EfDetectionProvider {
   getDetections(): Promise<readonly EfProjectDetection[]>;
   resolveStartupProject(detection: EfProjectDetection): Promise<string | undefined>;
+  readonly scannedProjectCount: number;
 }
 
 export class EfTreeProvider implements vscode.TreeDataProvider<EfNode> {
@@ -88,7 +89,23 @@ export class EfTreeProvider implements vscode.TreeDataProvider<EfNode> {
   private async getProjectNodes(): Promise<EfNode[]> {
     const detections = await this.detectionProvider.getDetections();
     if (detections.length === 0) {
-      return [messageNode('No EF Core projects detected in this solution.', 'info')];
+      const scanned = this.detectionProvider.scannedProjectCount;
+      return [
+        messageNode(
+          scanned === 0
+            ? 'Waiting for the solution to load...'
+            : `No EF Core projects found in ${scanned} project(s).`,
+          'info',
+          scanned === 0
+            ? 'The EF Core view populates once DotNav has loaded the solution.'
+            : 'A project qualifies when it references an EntityFrameworkCore package or already has a Migrations folder. ' +
+              'Open the "DotNav EF Core" output channel for details.'
+        ),
+        messageNode('Refresh', 'refresh', 'Re-run EF Core project detection.', {
+          command: 'dotnav.ef.refresh',
+          title: 'Refresh'
+        })
+      ];
     }
 
     const nodes: EfNode[] = [];
@@ -218,10 +235,17 @@ function migrationIcon(migration: MigrationModel): vscode.ThemeIcon {
   }
 }
 
-function messageNode(label: string, icon: 'info' | 'warning'): EfNode {
+function messageNode(
+  label: string,
+  icon: 'info' | 'warning' | 'refresh',
+  tooltip?: string,
+  command?: vscode.Command
+): EfNode {
   return {
     kind: 'message',
     label,
+    tooltip,
+    command,
     contextValue: 'efMessage',
     icon: new vscode.ThemeIcon(icon)
   };

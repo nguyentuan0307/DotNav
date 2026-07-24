@@ -24,6 +24,8 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
   readonly configStore: EfConfigStore;
   readonly treeProvider: EfTreeProvider;
   private detectionsCache: { at: number; detections: readonly EfProjectDetection[] } | undefined;
+  private lastScannedProjectCount = 0;
+  private lastSolutionSignature = '';
   private readonly disposables: vscode.Disposable[] = [];
   private fileEventTimer: NodeJS.Timeout | undefined;
   private readonly pendingFileEvents = new Set<string>();
@@ -58,10 +60,10 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
     );
     registerEfCommands(context, this);
 
-    // Detection is lazy by default; the context key controls view visibility.
-    void this.updateContextKey();
+    // The view is always visible; it explains its own empty state rather than
+    // disappearing, so a detection failure stays diagnosable.
     this.disposables.push(
-      this.solutionProvider.onDidChangeTreeData(() => void this.updateContextKey())
+      this.solutionProvider.onDidChangeTreeData(() => this.onSolutionChanged())
     );
 
     if (vscode.workspace.getConfiguration('dotnav.ef').get<boolean>('checkPendingOnStartup', false)) {
@@ -74,12 +76,15 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
       return [];
     }
 
+    // Only non-empty results are cached: an empty result usually means the
+    // solution had not finished loading, and caching it would keep the view
+    // empty until something else happened to invalidate it.
     if (this.detectionsCache && Date.now() - this.detectionsCache.at < DETECTION_TTL_MS) {
       return this.detectionsCache.detections;
     }
 
     const solution = this.solutionProvider.getSolution();
-    if (!solution) {
+    if (!solution || solution.projects.length === 0) {
       return [];
     }
 
@@ -100,14 +105,37 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
 
     const all = detectEfProjects({ ...solution, projects }, migrationFolderProjects);
     const detections = migrationProjectCandidates(all);
-    this.detectionsCache = { at: Date.now(), detections };
+    if (detections.length > 0) {
+      this.detectionsCache = { at: Date.now(), detections };
+    }
+
+    this.lastScannedProjectCount = projects.length;
     this.cli.appendOutput(
-      `detection: ${detections.length} EF project(s)` +
+      `detection: ${detections.length} EF project(s) out of ${projects.length} scanned` +
       (detections.length > 0
         ? ` — ${detections.map(detection => detection.project.name).join(', ')}`
-        : ` (scanned ${projects.length} project(s); no EntityFrameworkCore package references or Migrations folders found)`)
+        : ' (no EntityFrameworkCore package references or Migrations folders found)')
     );
     return detections;
+  }
+
+  /** Project count from the last completed scan, for the empty-state message. */
+  get scannedProjectCount(): number {
+    return this.lastScannedProjectCount;
+  }
+
+  private onSolutionChanged(): void {
+    const solution = this.solutionProvider.getSolution();
+    const signature = solution ? `${solution.path ?? solution.rootPath}:${solution.projects.length}` : '';
+    if (signature === this.lastSolutionSignature) {
+      return;
+    }
+
+    // The solution tree fires on every run-state change; only re-detect when
+    // the set of projects actually changed.
+    this.lastSolutionSignature = signature;
+    this.invalidateDetections();
+    this.treeProvider.refresh();
   }
 
   invalidateDetections(): void {
@@ -134,11 +162,6 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
     }
 
     return detection.startupCandidates[0]?.path ?? detection.project.path;
-  }
-
-  private async updateContextKey(): Promise<void> {
-    const detections = await this.getDetections().catch(() => []);
-    await vscode.commands.executeCommand('setContext', 'dotnav.ef.hasProjects', detections.length > 0);
   }
 
   private registerWatcher(): void {
@@ -169,7 +192,7 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
           `${cleared} queued EF command(s) were cancelled because the solution changed.`
         );
       }
-      void this.updateContextKey();
+      this.treeProvider.refresh();
     }
 
     this.pendingFileEvents.add(filePath);
@@ -214,7 +237,6 @@ export class EfFeature implements EfDetectionProvider, vscode.Disposable {
     this.invalidateDetections();
     this.toolManager.invalidate();
     this.store.invalidateAll();
-    void this.updateContextKey();
     this.treeProvider.refresh();
   }
 
@@ -244,8 +266,16 @@ export function activateEfCore(
   context: vscode.ExtensionContext,
   solutionProvider: DotnetTreeProvider,
   processManager: ProcessManager
-): EfFeature {
-  const feature = new EfFeature(context, solutionProvider, processManager);
-  context.subscriptions.push(feature);
-  return feature;
+): EfFeature | undefined {
+  try {
+    const feature = new EfFeature(context, solutionProvider, processManager);
+    context.subscriptions.push(feature);
+    return feature;
+  } catch (error) {
+    // Never let an EF wiring failure look like "the view silently vanished".
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('DotNav: EF Core tools failed to activate', error);
+    vscode.window.showErrorMessage(`DotNav: the EF Core tools failed to start: ${message}`);
+    return undefined;
+  }
 }
