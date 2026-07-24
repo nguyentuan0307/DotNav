@@ -31,6 +31,7 @@ const FIELD = {
   idempotent: 'idempotent',
   noBuild: 'noBuild',
   configuration: 'configuration',
+  connection: 'connection',
   extraArgs: 'extraArgs'
 } as const;
 
@@ -117,7 +118,7 @@ function startupOptions(detection: EfProjectDetection): EfDialogOption[] {
   return candidates.map(candidate => ({
     value: candidate.path,
     label: candidate.name,
-    description: candidate.relativePath
+    description: path.dirname(candidate.relativePath)
   }));
 }
 
@@ -125,7 +126,7 @@ function projectOptions(detections: readonly EfProjectDetection[]): EfDialogOpti
   return detections.map(detection => ({
     value: detection.project.path,
     label: detection.project.name,
-    description: detection.project.relativePath
+    description: path.dirname(detection.project.relativePath)
   }));
 }
 
@@ -141,60 +142,89 @@ function migrationOptions(migrations: readonly DiscoveredMigration[]): EfDialogO
   return [...migrations].reverse().map(migration => ({
     value: migration.name,
     label: migration.name,
-    description: migration.id
+    description: formatMigrationDate(migration.id)
   }));
+}
+
+/** `20260715035930_X` -> `2026-07-15`, so the dim column stays scannable. */
+function formatMigrationDate(id: string): string {
+  const match = /^(\d{4})(\d{2})(\d{2})/.exec(id);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : id;
+}
+
+interface CommonFieldOptions {
+  /** Commands that reach the database also accept an explicit connection. */
+  readonly connection?: boolean;
 }
 
 /** Fields every dialog carries below its command-specific inputs. */
 function commonFields(
   target: EfTarget,
   detections: readonly EfProjectDetection[],
+  options: CommonFieldOptions = {},
   settings = readEfSettings()
 ): EfDialogSpec['fields'] {
   return [
     {
       id: FIELD.project,
       label: 'Migrations project',
-      type: 'select',
+      type: 'combo',
+      strict: true,
       value: target.project.path,
       options: projectOptions(detections)
     },
     {
       id: FIELD.startup,
       label: 'Startup project',
-      type: 'select',
+      type: 'combo',
+      strict: true,
       value: target.startupProjectPath,
       options: startupOptions(target.detection)
     },
     {
       id: FIELD.context,
       label: 'DbContext',
-      type: 'select',
+      type: 'combo',
+      strict: true,
       value: target.contextName ?? '',
       options: contextOptions(target.model),
       description: target.model.contexts.length === 0
         ? 'No DbContext class was found in this project by source scan.'
         : undefined
     },
+    ...(options.connection
+      ? [{
+        id: FIELD.connection,
+        label: 'Connection string',
+        type: 'password' as const,
+        value: '',
+        placeholder: 'Leave empty to use the startup project configuration',
+        description: 'Overrides the connection resolved from appsettings. ' +
+          'Accepts Name=ConnectionStrings:Something too.'
+      }]
+      : []),
     {
       id: FIELD.configuration,
       label: 'Configuration',
       type: 'text',
-      value: settings.configuration
+      value: settings.configuration,
+      advanced: true
     },
     {
       id: FIELD.noBuild,
       label: 'Skip build (--no-build)',
       type: 'checkbox',
       value: settings.noBuild === 'always',
-      description: 'Much faster, but requires the project to already be built.'
+      description: 'Much faster, but requires the project to already be built.',
+      advanced: true
     },
     {
       id: FIELD.extraArgs,
       label: 'Additional arguments',
       type: 'text',
       value: '',
-      placeholder: 'e.g. --namespace MyApp.Data.Migrations'
+      placeholder: 'e.g. --namespace MyApp.Data.Migrations',
+      advanced: true
     }
   ];
 }
@@ -212,6 +242,7 @@ function toRunOptions(feature: EfFeature, values: EfDialogValues, request: RunRe
   const project = feature.findProject(projectPath);
   const extra = String(values[FIELD.extraArgs] ?? '').trim();
   const contextName = String(values[FIELD.context] ?? '').trim();
+  const connection = String(values[FIELD.connection] ?? '').trim();
 
   return {
     project,
@@ -219,11 +250,35 @@ function toRunOptions(feature: EfFeature, values: EfDialogValues, request: RunRe
     contextName: contextName.length > 0 ? contextName : undefined,
     configuration: String(values[FIELD.configuration] ?? 'Debug').trim() || 'Debug',
     forceNoBuild: values[FIELD.noBuild] === true,
-    args: [...request.args, ...(extra ? extra.split(/\s+/) : [])],
+    args: [
+      ...request.args,
+      ...(connection ? ['--connection', connection] : []),
+      ...(extra ? extra.split(/\s+/) : [])
+    ],
     title: request.title,
     write: request.write,
     json: request.json
   };
+}
+
+/**
+ * Command line shown in the dialog. Absolute solution paths are shortened to
+ * workspace-relative and any connection string is masked, so the preview stays
+ * readable and safe to screenshot.
+ */
+export function formatPreview(args: readonly string[], workspaceRoot?: string): string {
+  const shortened = args.map(argument => {
+    if (workspaceRoot && argument.startsWith(workspaceRoot + path.sep)) {
+      return argument.slice(workspaceRoot.length + 1);
+    }
+
+    return argument;
+  });
+
+  const rendered = shortened
+    .map(argument => (/\s/.test(argument) ? `"${argument}"` : argument))
+    .join(' ');
+  return maskConnectionString(`dotnet ${rendered}`);
 }
 
 function previewCommand(feature: EfFeature, values: EfDialogValues, request: RunRequest): string {
@@ -245,7 +300,7 @@ function previewCommand(feature: EfFeature, values: EfDialogValues, request: Run
     },
     { settings, noBuild: options.forceNoBuild }
   );
-  return `dotnet ${args.join(' ')}`;
+  return formatPreview(args, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 }
 
 async function runFromValues(
@@ -350,7 +405,7 @@ async function addMigration(feature: EfFeature, node?: TreeNode): Promise<void> 
         const model = await feature.modelForProjectPath(String(current[FIELD.project] ?? ''));
         existingNames = model ? model.migrations.map(migration => migration.name) : existingNames;
         const problem = validateMigrationName(String(current[FIELD.name] ?? ''), existingNames);
-        handle.setStatus(problem ?? '');
+        handle.setStatus(problem ?? '', Boolean(problem));
       }
     }
   );
@@ -511,7 +566,7 @@ async function updateDatabase(feature: EfFeature, node?: TreeNode): Promise<void
           placeholder: 'Leave empty for the latest migration',
           description: 'Enter 0 to revert every migration. Use "Check database" to see what is already applied.'
         },
-        ...commonFields(target, detections)
+        ...commonFields(target, detections, { connection: true })
       ],
       actions: [{ id: 'check', label: 'Check database' }]
     },
@@ -722,7 +777,7 @@ async function dropDatabase(feature: EfFeature, node?: TreeNode): Promise<void> 
           required: true,
           placeholder: expected
         },
-        ...commonFields(target, detections)
+        ...commonFields(target, detections, { connection: true })
       ]
     },
     {
@@ -730,7 +785,10 @@ async function dropDatabase(feature: EfFeature, node?: TreeNode): Promise<void> 
       onChange: (current, handle) => {
         const typed = String(current['confirm'] ?? '').trim();
         const wanted = String(current[FIELD.context] ?? '').trim() || expected;
-        handle.setStatus(typed === wanted ? '' : `Type "${wanted}" exactly to confirm.`);
+        handle.setStatus(
+          typed === wanted ? '' : `Type "${wanted}" exactly to confirm.`,
+          typed !== wanted
+        );
       }
     }
   );
@@ -772,7 +830,7 @@ async function showDbContextInfo(feature: EfFeature, node?: TreeNode): Promise<v
       title: 'DbContext Info',
       submitLabel: 'Read Info',
       warning: 'Reading DbContext info builds the project and resolves the configured connection.',
-      fields: commonFields(target, detections)
+      fields: commonFields(target, detections, { connection: true })
     },
     { preview: current => previewCommand(feature, current, request()) }
   );

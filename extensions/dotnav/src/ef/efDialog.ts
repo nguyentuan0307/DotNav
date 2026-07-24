@@ -12,7 +12,7 @@ export { EfDialogField, EfDialogOption, EfDialogSpec, EfDialogValues } from './e
 /** Host-side handle passed to callbacks so they can drive the open dialog. */
 export interface EfDialogHandle {
   setPreview(text: string): void;
-  setStatus(text: string): void;
+  setStatus(text: string, error?: boolean): void;
   setBusy(busy: boolean): void;
   setOptions(field: string, options: readonly EfDialogOption[], selected?: string): void;
 }
@@ -46,7 +46,7 @@ export function showEfDialog(
 
   const handle: EfDialogHandle = {
     setPreview: text => void panel.webview.postMessage({ type: 'preview', text }),
-    setStatus: text => void panel.webview.postMessage({ type: 'status', text }),
+    setStatus: (text, error) => void panel.webview.postMessage({ type: 'status', text, error }),
     setBusy: busy => void panel.webview.postMessage({ type: 'busy', busy }),
     setOptions: (field, options, selected) =>
       void panel.webview.postMessage({ type: 'options', field, options, selected })
