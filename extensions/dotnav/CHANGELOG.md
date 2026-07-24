@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.1...dotnav-v0.8.2) (2026-07-24)
+
+
+### Bug Fixes
+
+* **dotnav:** broaden EF project detection ([9ceadca](https://github.com/nguyentuan0307/DotNav/commit/9ceadca9e2578f7761ba72207e03429c923d4c41))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([eb2f292](https://github.com/nguyentuan0307/DotNav/commit/eb2f292c582bb351653e80b6cbfbe2243ec34d21))
+
+
 ## [0.8.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.0...dotnav-v0.8.1) (2026-07-24)
 
 
