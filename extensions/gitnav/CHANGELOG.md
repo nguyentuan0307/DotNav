@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.10.5](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.4...gitnav-v0.10.5) (2026-07-24)
+
+
+### Changes
+
+* test(gitnav): expect dotnav.efCore view in cross-extension contract ([5bb4370](https://github.com/nguyentuan0307/DotNav/commit/5bb4370bd7c18914d95d9759d09601ee9f8023ed))
+* Merge remote-tracking branch 'origin/master' into release-candidate ([d5e0856](https://github.com/nguyentuan0307/DotNav/commit/d5e0856be8cd45ac49526d5134d7d7266266e40a))
+
+
 ## [0.10.4](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.3...gitnav-v0.10.4) (2026-07-21)
 
 
