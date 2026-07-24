@@ -55,6 +55,28 @@ test('shortens workspace paths so the preview stays readable', () => {
   assert.ok(preview.startsWith('dotnet ef migrations add AddOrders'));
 });
 
+test('puts each option on its own line so nothing wraps mid-path', () => {
+  const lines = formatPreview(
+    [
+      'ef', 'database', 'update',
+      '--project', path.join(root, 'src', 'Data', 'Data.csproj'),
+      '--startup-project', path.join(root, 'src', 'Web', 'Web.csproj'),
+      '--context', 'AppDbContext',
+      '--no-build',
+      '--no-color'
+    ],
+    root
+  ).split('\n');
+
+  assert.equal(lines[0], 'dotnet ef database update');
+  assert.equal(lines[1], `  --project ${path.join('src', 'Data', 'Data.csproj')}`);
+  assert.equal(lines[2], `  --startup-project ${path.join('src', 'Web', 'Web.csproj')}`);
+  assert.equal(lines[3], '  --context AppDbContext');
+  // Valueless flags must not swallow the next flag as their argument.
+  assert.equal(lines[4], '  --no-build');
+  assert.equal(lines[5], '  --no-color');
+});
+
 test('leaves paths outside the workspace absolute', () => {
   const outside = path.resolve('/elsewhere/Other.csproj');
   assert.ok(formatPreview(['ef', '--project', outside], root).includes(outside));

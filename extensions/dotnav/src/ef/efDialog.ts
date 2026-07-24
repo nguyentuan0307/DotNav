@@ -30,10 +30,16 @@ export interface EfDialogCallbacks {
  * instantly: every option it displays comes from the static source model, so
  * no `dotnet ef` build is on the path to showing UI.
  */
+/** At most one EF dialog at a time; a second request replaces the first. */
+let openDialog: { panel: vscode.WebviewPanel; dismiss: () => void } | undefined;
+
 export function showEfDialog(
   spec: EfDialogSpec,
   callbacks: EfDialogCallbacks
 ): Promise<EfDialogValues | undefined> {
+  // Reuse the tab instead of stacking one editor per invocation.
+  openDialog?.dismiss();
+
   const panel = vscode.window.createWebviewPanel(
     'dotnav.efDialog',
     spec.title,
@@ -60,9 +66,15 @@ export function showEfDialog(
       }
 
       settled = true;
+      if (openDialog?.panel === panel) {
+        openDialog = undefined;
+      }
+
       resolve(result);
       panel.dispose();
     };
+
+    openDialog = { panel, dismiss: () => finish(undefined) };
 
     const messageSubscription = panel.webview.onDidReceiveMessage(async (message: {
       type: string;

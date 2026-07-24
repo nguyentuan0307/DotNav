@@ -27,7 +27,10 @@ export class EfConfigStore {
   }
 
   private startupKey(projectPath: string): string {
-    return `dotnav.ef.startupProject:${normalizePath(projectPath)}`;
+    // v2: v1 saved the startup project on every run, so an arbitrary first
+    // pick (often a Hangfire host) became sticky and outranked the computed
+    // default forever. v2 only stores choices the user made explicitly.
+    return `dotnav.ef.startupProject.v2:${normalizePath(projectPath)}`;
   }
 
   private contextKey(projectPath: string): string {

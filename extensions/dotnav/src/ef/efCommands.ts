@@ -267,18 +267,38 @@ function toRunOptions(feature: EfFeature, values: EfDialogValues, request: RunRe
  * readable and safe to screenshot.
  */
 export function formatPreview(args: readonly string[], workspaceRoot?: string): string {
-  const shortened = args.map(argument => {
-    if (workspaceRoot && argument.startsWith(workspaceRoot + path.sep)) {
-      return argument.slice(workspaceRoot.length + 1);
+  const quote = (argument: string) => {
+    const short = workspaceRoot && argument.startsWith(workspaceRoot + path.sep)
+      ? argument.slice(workspaceRoot.length + 1)
+      : argument;
+    return /\s/.test(short) ? `"${short}"` : short;
+  };
+
+  // Positional arguments stay on the first line; each option starts a new one
+  // with its value, so nothing has to wrap mid-path.
+  const head: string[] = ['dotnet'];
+  const lines: string[] = [];
+  let index = 0;
+  for (; index < args.length; index += 1) {
+    if (args[index].startsWith('--')) {
+      break;
     }
 
-    return argument;
-  });
+    head.push(quote(args[index]));
+  }
 
-  const rendered = shortened
-    .map(argument => (/\s/.test(argument) ? `"${argument}"` : argument))
-    .join(' ');
-  return maskConnectionString(`dotnet ${rendered}`);
+  for (; index < args.length; index += 1) {
+    const argument = args[index];
+    const next = args[index + 1];
+    if (argument.startsWith('--') && next !== undefined && !next.startsWith('--')) {
+      lines.push(`  ${argument} ${quote(next)}`);
+      index += 1;
+    } else {
+      lines.push(`  ${argument}`);
+    }
+  }
+
+  return maskConnectionString([head.join(' '), ...lines].join('\n'));
 }
 
 function previewCommand(feature: EfFeature, values: EfDialogValues, request: RunRequest): string {
@@ -306,7 +326,9 @@ function previewCommand(feature: EfFeature, values: EfDialogValues, request: Run
 async function runFromValues(
   feature: EfFeature,
   values: EfDialogValues,
-  request: RunRequest
+  request: RunRequest,
+  /** The startup project the dialog opened with, so only real edits persist. */
+  defaultStartupProjectPath?: string
 ): Promise<EfCommandResult | undefined> {
   const options = toRunOptions(feature, values, request);
   if (!options.project) {
@@ -323,7 +345,11 @@ async function runFromValues(
     await feature.configStore.setLastContext(options.project.path, options.contextName);
   }
 
-  await feature.configStore.setStartupProject(options.project.path, options.startupProjectPath);
+  // Persist only an explicit override; otherwise a one-off run would pin a
+  // default the user never chose.
+  if (defaultStartupProjectPath && !samePath(options.startupProjectPath, defaultStartupProjectPath)) {
+    await feature.configStore.setStartupProject(options.project.path, options.startupProjectPath);
+  }
 
   const result = await feature.cli.run({
     args: options.args,
@@ -376,6 +402,7 @@ async function addMigration(feature: EfFeature, node?: TreeNode): Promise<void> 
 
   const detections = await feature.getDetections();
   let existingNames = target.model.migrations.map(migration => migration.name);
+  let lastScannedProject = target.project.path;
 
   const request = (values: EfDialogValues): RunRequest => ({
     args: ['migrations', 'add', String(values[FIELD.name] ?? '').trim()],
@@ -402,8 +429,17 @@ async function addMigration(feature: EfFeature, node?: TreeNode): Promise<void> 
     {
       preview: current => previewCommand(feature, current, request(current)),
       onChange: async (current, handle) => {
-        const model = await feature.modelForProjectPath(String(current[FIELD.project] ?? ''));
-        existingNames = model ? model.migrations.map(migration => migration.name) : existingNames;
+        // Rescan only when the project changes: loadEfModel stats every source
+        // file, which is far too heavy to run on each keystroke.
+        const projectPath = String(current[FIELD.project] ?? '');
+        if (projectPath !== lastScannedProject) {
+          lastScannedProject = projectPath;
+          const model = await feature.modelForProjectPath(projectPath);
+          if (model) {
+            existingNames = model.migrations.map(migration => migration.name);
+          }
+        }
+
         const problem = validateMigrationName(String(current[FIELD.name] ?? ''), existingNames);
         handle.setStatus(problem ?? '', Boolean(problem));
       }
@@ -421,7 +457,7 @@ async function addMigration(feature: EfFeature, node?: TreeNode): Promise<void> 
     return;
   }
 
-  const result = await runFromValues(feature, values, request(values));
+  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
   if (!result) {
     return;
   }
@@ -477,7 +513,7 @@ async function removeLastMigration(feature: EfFeature, node?: TreeNode): Promise
       submitLabel: 'Remove',
       danger: true,
       warning:
-        `This removes '${last.name}', the most recent migration in this project.\n` +
+        'This removes the most recent migration in the selected project.\n' +
         'If it has already been applied to a database, roll the database back first or the schema and code go out of sync.',
       fields: [
         {
@@ -489,19 +525,48 @@ async function removeLastMigration(feature: EfFeature, node?: TreeNode): Promise
         ...commonFields(target, detections)
       ]
     },
-    { preview: current => previewCommand(feature, current, request(current)) }
+    {
+      preview: current => previewCommand(feature, current, request(current)),
+      // The warning names a migration, so it has to follow the project and
+      // context the user actually has selected.
+      onChange: async (current, handle) => {
+        const doomed = await resolveLastMigration(feature, current);
+        handle.setStatus(
+          doomed
+            ? `Will remove '${doomed.name}' (${formatMigrationDate(doomed.id)}).`
+            : 'No migrations were found for this project and DbContext.',
+          !doomed
+        );
+      }
+    }
   );
 
   if (!values) {
     return;
   }
 
-  const result = await runFromValues(feature, values, request(values));
+  const doomed = await resolveLastMigration(feature, values) ?? last;
+  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
   if (result?.kind === 'error') {
     await reportEfFailure(feature.cli, 'Removing the last migration', result);
   } else if (result?.kind === 'success') {
-    vscode.window.showInformationMessage(`Migration '${last.name}' removed.`);
+    vscode.window.showInformationMessage(`Migration '${doomed.name}' removed.`);
   }
+}
+
+/** The migration `migrations remove` would delete for the current selection. */
+async function resolveLastMigration(
+  feature: EfFeature,
+  values: EfDialogValues
+): Promise<DiscoveredMigration | undefined> {
+  const model = await feature.modelForProjectPath(String(values[FIELD.project] ?? ''));
+  if (!model) {
+    return undefined;
+  }
+
+  const contextName = String(values[FIELD.context] ?? '').trim() || undefined;
+  const migrations = migrationsForContext(model, contextName);
+  return migrations[migrations.length - 1];
 }
 
 async function listMigrations(feature: EfFeature, node?: TreeNode): Promise<void> {
@@ -564,11 +629,11 @@ async function updateDatabase(feature: EfFeature, node?: TreeNode): Promise<void
           value: '',
           options: migrationOptions(migrations),
           placeholder: 'Leave empty for the latest migration',
-          description: 'Enter 0 to revert every migration. Use "Check database" to see what is already applied.'
+          description: 'Enter 0 to revert every migration.',
+          action: { id: 'check', label: 'Check database' }
         },
         ...commonFields(target, detections, { connection: true })
-      ],
-      actions: [{ id: 'check', label: 'Check database' }]
+      ]
     },
     {
       preview: current => previewCommand(feature, current, request(current)),
@@ -596,7 +661,7 @@ async function updateDatabase(feature: EfFeature, node?: TreeNode): Promise<void
     return;
   }
 
-  const result = await runFromValues(feature, values, request(values));
+  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
   if (!result) {
     return;
   }
@@ -721,7 +786,7 @@ async function generateScript(feature: EfFeature, node?: TreeNode): Promise<void
     return;
   }
 
-  const result = await runFromValues(feature, values, request(values));
+  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
   if (!result) {
     return;
   }
@@ -803,7 +868,7 @@ async function dropDatabase(feature: EfFeature, node?: TreeNode): Promise<void> 
     return;
   }
 
-  const result = await runFromValues(feature, values, request());
+  const result = await runFromValues(feature, values, request(), target.startupProjectPath);
   if (result?.kind === 'error') {
     await reportEfFailure(feature.cli, 'Dropping the database', result);
   } else if (result?.kind === 'success') {
@@ -839,7 +904,7 @@ async function showDbContextInfo(feature: EfFeature, node?: TreeNode): Promise<v
     return;
   }
 
-  const result = await runFromValues(feature, values, request());
+  const result = await runFromValues(feature, values, request(), target.startupProjectPath);
   if (!result) {
     return;
   }

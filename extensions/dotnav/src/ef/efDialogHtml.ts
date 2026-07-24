@@ -8,6 +8,11 @@ export interface EfDialogOption {
   readonly description?: string;
 }
 
+export interface EfDialogAction {
+  readonly id: string;
+  readonly label: string;
+}
+
 export type EfDialogFieldType = 'text' | 'password' | 'checkbox' | 'combo';
 
 export interface EfDialogField {
@@ -24,11 +29,8 @@ export interface EfDialogField {
   readonly strict?: boolean;
   /** Render inside the collapsed "Advanced options" section. */
   readonly advanced?: boolean;
-}
-
-export interface EfDialogAction {
-  readonly id: string;
-  readonly label: string;
+  /** Button rendered next to the input, e.g. "Check database". */
+  readonly action?: EfDialogAction;
 }
 
 export interface EfDialogSpec {
@@ -105,16 +107,19 @@ function renderField(field: EfDialogField): string {
   if (field.type === 'combo') {
     return `<div class="row">
       <label for="${id}-display">${label}</label>
+      <div class="field-line">
       <div class="combo" data-combo="${id}"${field.strict ? ' data-strict="true"' : ''}>
         <input type="text" id="${id}-display" class="combo-input" data-display="${id}"
           value="${escapeHtml(displayValueFor(field))}"
           placeholder="${escapeHtml(field.placeholder ?? '')}"
           autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" />
-        <span class="chevron" aria-hidden="true">⌄</span>
+        <span class="chevron" aria-hidden="true"></span>
         <input type="hidden" data-field="${id}"
           value="${escapeHtml(typeof field.value === 'string' ? field.value : '')}"
           ${field.required ? 'data-required="true"' : ''} />
         <div class="combo-list" data-list="${id}" hidden></div>
+      </div>
+      ${renderInlineAction(field)}
       </div>
       ${hint}
     </div>`;
@@ -122,13 +127,22 @@ function renderField(field: EfDialogField): string {
 
   return `<div class="row">
     <label for="${id}">${label}</label>
-    <input type="${field.type === 'password' ? 'password' : 'text'}" id="${id}" data-field="${id}"
-      value="${escapeHtml(typeof field.value === 'string' ? field.value : '')}"
-      placeholder="${escapeHtml(field.placeholder ?? '')}"
-      autocomplete="off" spellcheck="false"
-      ${field.required ? 'data-required="true"' : ''} />
+    <div class="field-line">
+      <input type="${field.type === 'password' ? 'password' : 'text'}" id="${id}" data-field="${id}"
+        value="${escapeHtml(typeof field.value === 'string' ? field.value : '')}"
+        placeholder="${escapeHtml(field.placeholder ?? '')}"
+        autocomplete="off" spellcheck="false"
+        ${field.required ? 'data-required="true"' : ''} />
+      ${renderInlineAction(field)}
+    </div>
     ${hint}
   </div>`;
+}
+
+function renderInlineAction(field: EfDialogField): string {
+  return field.action
+    ? `<button type="button" class="secondary inline" data-action="${escapeHtml(field.action.id)}">${escapeHtml(field.action.label)}</button>`
+    : '';
 }
 
 export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: string): string {
@@ -172,7 +186,7 @@ export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: s
     margin: 0;
     padding: 20px 24px 28px;
   }
-  .shell { max-width: var(--field-width); }
+  .shell { max-width: var(--field-width); margin: 0 auto; }
   h1 {
     font-size: 1.05em;
     font-weight: 600;
@@ -180,7 +194,10 @@ export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: s
     padding-bottom: 10px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.25));
   }
-  .row { margin-bottom: 11px; position: relative; }
+  .row { margin-bottom: 13px; position: relative; }
+  .field-line { display: flex; align-items: center; gap: 6px; }
+  .field-line > .combo, .field-line > input { flex: 1 1 auto; min-width: 0; }
+  button.inline { padding: 4px 10px; font-size: .9em; white-space: nowrap; }
   label {
     display: block;
     margin-bottom: 3px;
@@ -207,9 +224,12 @@ export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: s
   .combo { position: relative; }
   .combo-input { padding-right: 22px; cursor: pointer; text-overflow: ellipsis; }
   .chevron {
-    position: absolute; right: 7px; top: 3px;
-    color: var(--vscode-descriptionForeground);
-    pointer-events: none; font-size: .9em;
+    position: absolute; right: 9px; top: 50%;
+    width: 0; height: 0; margin-top: -1px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--vscode-descriptionForeground);
+    pointer-events: none;
   }
   .combo-list {
     position: absolute; z-index: 20; left: 0; right: 0; top: 27px;
@@ -264,9 +284,9 @@ export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: s
     border-radius: 3px;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: .85em; line-height: 1.5;
-    white-space: pre-wrap; word-break: break-word;
+    white-space: pre; overflow-x: auto;
     color: var(--vscode-descriptionForeground);
-    max-height: 120px; overflow-y: auto;
+    max-height: 160px; overflow-y: auto;
   }
   .status { margin: 8px 0 0; font-size: .88em; white-space: pre-wrap; min-height: 1.2em; }
   .status.error { color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground)); }
@@ -279,7 +299,11 @@ export function renderDialogHtml(spec: EfDialogSpec, nonce: string, cspSource: s
   button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
   button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
   button.secondary:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
-  button.danger { background: var(--vscode-errorForeground, #be1100); color: #fff; }
+  button.danger {
+    background: var(--vscode-statusBarItem-errorBackground, #c72e0f);
+    color: var(--vscode-statusBarItem-errorForeground, #fff);
+  }
+  button.danger:hover:not(:disabled) { filter: brightness(1.12); }
   button:disabled { opacity: .45; cursor: default; }
   .spacer { flex: 1; }
 </style>
@@ -398,7 +422,12 @@ function setupCombo(root) {
     if (active) { active.scrollIntoView({ block: 'nearest' }); }
   }
 
-  display.addEventListener('focus', () => { activeIndex = -1; render(''); });
+  display.addEventListener('focus', () => {
+    // Programmatic focus (dialog open, option refresh) must not pop the list.
+    if (root.dataset.suppressOpen === 'true') { root.dataset.suppressOpen = 'false'; return; }
+    activeIndex = -1;
+    render('');
+  });
   display.addEventListener('mousedown', () => {
     if (!list.hidden) { close(); } else { activeIndex = -1; render(''); }
   });
@@ -432,6 +461,7 @@ function setupCombo(root) {
   });
 
   root._refresh = selected => {
+    root.dataset.suppressOpen = 'true';
     if (selected !== undefined) { hidden.value = selected; }
     const current = labelFor(hidden.value);
     if (strict || current) { display.value = current ? current.label : hidden.value; }
@@ -458,7 +488,12 @@ for (const node of document.querySelectorAll('[data-action]')) {
   });
 }
 
+function anyListOpen() {
+  return Array.from(document.querySelectorAll('.combo-list')).some(list => !list.hidden);
+}
+
 document.addEventListener('keydown', event => {
+  if (anyListOpen()) { return; }
   if (event.key === 'Escape') { vscode.postMessage({ type: 'cancel' }); }
   else if (event.key === 'Enter' && event.target.tagName !== 'BUTTON' && !submitButton.disabled) {
     vscode.postMessage({ type: 'submit', values: readValues() });
@@ -483,7 +518,9 @@ window.addEventListener('message', event => {
   }
 });
 
-const first = form.querySelector('input[type="text"], input[type="password"]');
+// Focus the first real text input. Combo displays are skipped so the dialog
+// never opens with a dropdown covering the form.
+const first = form.querySelector('input[type="text"]:not(.combo-input), input[type="password"]');
 if (first) { first.focus(); first.select(); }
 validate();
 vscode.postMessage({ type: 'ready', values: readValues() });

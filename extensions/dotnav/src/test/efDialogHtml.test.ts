@@ -164,3 +164,58 @@ test('defaultValues seeds strings and booleans per field type', () => {
     target: ''
   });
 });
+
+test('renders a field-level action button beside its input', () => {
+  const html = renderDialogHtml(
+    {
+      title: 'Update Database',
+      submitLabel: 'Update',
+      fields: [{
+        id: 'target', label: 'Target migration', type: 'combo', value: '',
+        options: [],
+        action: { id: 'check', label: 'Check database' }
+      }]
+    },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes('class="field-line"'));
+  assert.ok(html.includes('class="secondary inline" data-action="check"'));
+  // The action sits inside the field row, not down in the button bar.
+  const line = html.indexOf('class="field-line"');
+  const buttons = html.indexOf('class="buttons"');
+  assert.ok(line < html.indexOf('data-action="check"'));
+  assert.ok(html.indexOf('data-action="check"') < buttons);
+});
+
+test('autofocus skips combo inputs so no dropdown opens on load', () => {
+  const html = renderDialogHtml(
+    {
+      title: 'x', submitLabel: 'Go',
+      fields: [
+        { id: 'target', label: 'Target', type: 'combo', value: '', options: [] },
+        { id: 'name', label: 'Name', type: 'text', value: '' }
+      ]
+    },
+    'n',
+    'c'
+  );
+  assert.ok(html.includes("input[type=\"text\"]:not(.combo-input)"));
+});
+
+test('Enter is swallowed while a combo list is open', () => {
+  const html = renderDialogHtml(
+    { title: 'x', submitLabel: 'Go', fields: [{ id: 'a', label: 'A', type: 'combo', value: '', options: [] }] },
+    'n',
+    'c'
+  );
+  assert.ok(html.includes('function anyListOpen()'));
+  assert.ok(html.includes('if (anyListOpen()) { return; }'));
+});
+
+test('the danger button uses a background token, not a foreground colour', () => {
+  const html = renderDialogHtml({ ...spec, danger: true }, 'n', 'c');
+  assert.ok(html.includes('--vscode-statusBarItem-errorBackground'));
+  assert.ok(!html.includes('background: var(--vscode-errorForeground'));
+});
