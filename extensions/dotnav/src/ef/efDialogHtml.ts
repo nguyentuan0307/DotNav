@@ -519,9 +519,12 @@ window.addEventListener('message', event => {
 });
 
 // Focus the first real text input. Combo displays are skipped so the dialog
-// never opens with a dropdown covering the form.
-const first = form.querySelector('input[type="text"]:not(.combo-input), input[type="password"]');
-if (first) { first.focus(); first.select(); }
+// never opens with a dropdown covering the form, and anything inside the
+// collapsed Advanced section is skipped so focus never lands out of sight.
+const focusable = Array.from(
+  form.querySelectorAll('input[type="text"]:not(.combo-input), input[type="password"]')
+).filter(node => !node.closest('details.advanced'));
+if (focusable.length > 0) { focusable[0].focus(); focusable[0].select(); }
 validate();
 vscode.postMessage({ type: 'ready', values: readValues() });
 </script>

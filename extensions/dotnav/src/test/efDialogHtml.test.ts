@@ -219,3 +219,22 @@ test('the danger button uses a background token, not a foreground colour', () =>
   assert.ok(html.includes('--vscode-statusBarItem-errorBackground'));
   assert.ok(!html.includes('background: var(--vscode-errorForeground'));
 });
+
+test('autofocus never lands inside the collapsed Advanced section', () => {
+  // Remove Last Migration shape: no plain text field outside Advanced.
+  const html = renderDialogHtml(
+    {
+      title: 'Remove Last Migration',
+      submitLabel: 'Remove',
+      fields: [
+        { id: 'force', label: 'Force', type: 'checkbox', value: false },
+        { id: 'project', label: 'Project', type: 'combo', strict: true, value: '', options: [] },
+        { id: 'configuration', label: 'Configuration', type: 'text', value: 'Debug', advanced: true }
+      ]
+    },
+    'n',
+    'c'
+  );
+
+  assert.ok(html.includes("!node.closest('details.advanced')"));
+});
