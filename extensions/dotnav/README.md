@@ -15,6 +15,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 - Create single-project or compound run configurations without maintaining `.vscode/launch.json`.
 - Add, rename, move, delete, and drag project files with namespace-aware C# templates.
 - Format C# selections with Roslyn plus configurable readability passes.
+- Manage EF Core migrations from the EF Core view: add, remove, list, update or rollback the database, generate SQL scripts, and inspect DbContexts.
 - Reveal the active editor file, filter the solution tree, and customize project icons.
 
 DotNav depends on [GitNav](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows), which is installed automatically and supplies the integrated Git Log, comparison, and history workflows.
