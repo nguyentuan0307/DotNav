@@ -57,6 +57,30 @@ test('single-project app is its own startup candidate', () => {
   assert.equal(detections[0].hasDesignPackage, false);
 });
 
+test('detects provider packages such as Npgsql and Pomelo', () => {
+  const npgsql = project('PgData', 'library', ['Npgsql.EntityFrameworkCore.PostgreSQL']);
+  const pomelo = project('MyData', 'library', ['Pomelo.EntityFrameworkCore.MySql']);
+  const web = project('Web', 'web', [], ['PgData', 'MyData']);
+
+  const detections = detectEfProjects(solution([npgsql, pomelo, web]));
+  assert.deepEqual(detections.map(detection => detection.project.name), ['MyData', 'PgData']);
+});
+
+test('a Migrations folder marks a project as EF even without package references', () => {
+  const shared = project('SharedInfra', 'library', []);
+  const web = project('Web', 'web', [], ['SharedInfra']);
+  const extra = new Set([shared.path]);
+
+  const detections = detectEfProjects(solution([shared, web]), extra);
+  assert.equal(detections.length, 1);
+  assert.equal(detections[0].project.name, 'SharedInfra');
+  assert.equal(detections[0].hasMigrationsFolder, true);
+  assert.deepEqual(detections[0].startupCandidates.map(candidate => candidate.name), ['Web']);
+
+  const candidates = migrationProjectCandidates(detections);
+  assert.equal(candidates.length, 1);
+});
+
 test('ignores projects without EF packages', () => {
   const library = project('Plain', 'library', ['Newtonsoft.Json']);
   assert.equal(detectEfProjects(solution([library])).length, 0);
