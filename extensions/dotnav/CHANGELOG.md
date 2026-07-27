@@ -4,6 +4,33 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.1...dotnav-v0.8.2) (2026-07-24)
+
+
+### Bug Fixes
+
+* **dotnav:** broaden EF project detection ([9ceadca](https://github.com/nguyentuan0307/DotNav/commit/9ceadca9e2578f7761ba72207e03429c923d4c41))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([eb2f292](https://github.com/nguyentuan0307/DotNav/commit/eb2f292c582bb351653e80b6cbfbe2243ec34d21))
+
+
+## [0.8.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.0...dotnav-v0.8.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **dotnav:** document EF Core tools in README ([93b5979](https://github.com/nguyentuan0307/DotNav/commit/93b5979bb9eebafaacefbc5b4be059fbd851624a))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([3c18c39](https://github.com/nguyentuan0307/DotNav/commit/3c18c39f97e5cdc2bfef45d2ef7722fa903b85c5))
+
+
+## [0.8.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.7.0...dotnav-v0.8.0) (2026-07-24)
+
+
 ### Features
 
 * build folder projects in one parallel MSBuild session with a configurable worker limit
@@ -20,6 +47,65 @@ All notable changes to DotNav are documented here.
 * keep EF connection overrides transient and require database identity before Drop Database
 * detect EF packages when self-closing and paired PackageReference elements are mixed in one project file
 * parse quoted additional EF arguments and reject options already managed by DotNav
+  
+* **dotnav:** add EF Core tools (migrations, database ops, tree view) ([2152c94](https://github.com/nguyentuan0307/DotNav/commit/2152c949ba7c24a1e58deb990085ffaa316ffe9a))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([fa413ad](https://github.com/nguyentuan0307/DotNav/commit/fa413adf9338f5fdae4038a20f67908377a58512))
+
+
+## [0.7.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.6.0...dotnav-v0.7.0) (2026-07-19)
+
+
+### Features
+
+* **dotnav:** manage project references in tree ([8bf26cf](https://github.com/nguyentuan0307/DotNav/commit/8bf26cff70d85a389c713fd905f87ad09383a23a))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([97e487f](https://github.com/nguyentuan0307/DotNav/commit/97e487f682f615482c4081df146e7fdc7300ac9e))
+
+
+## [0.6.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.1...dotnav-v0.6.0) (2026-07-18)
+
+
+### Features
+
+* **dotnav:** manage NuGet packages in tree ([30a19ad](https://github.com/nguyentuan0307/DotNav/commit/30a19ad02254a99164b14b4abed07b6165a1c241))
+
+### Bug Fixes
+
+* **dotnav:** avoid NuGet HTTP parser failure ([f9a237d](https://github.com/nguyentuan0307/DotNav/commit/f9a237dfd0373229a3fd5b529f9eda5c064498ac))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([c136b7e](https://github.com/nguyentuan0307/DotNav/commit/c136b7eb9712412f8bac1c9c896ce7f3760e1bb1))
+
+
+## [0.5.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.5.0...dotnav-v0.5.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **dotnav:** stop scroll-jump on file click, support multi-select file ops ([567c9f8](https://github.com/nguyentuan0307/DotNav/commit/567c9f8ee6441b00b9342d658aabc5dc31b71f6d))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([7e7dc5f](https://github.com/nguyentuan0307/DotNav/commit/7e7dc5fa96671d3b070432cd871b0723832fe936))
+
+
+## [0.5.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.4.0...dotnav-v0.5.0) (2026-07-17)
+
+
+### Features
+
+* **dotnav:** streamline project context actions ([b4140ff](https://github.com/nguyentuan0307/DotNav/commit/b4140fffb1d509ab5571545920235df937d57534))
+
+### Performance Improvements
+
+* **dotnav:** lazy load project metadata ([0eecf58](https://github.com/nguyentuan0307/DotNav/commit/0eecf58dfb4c2004902616de99a814f86fb1ab36))
+
 
 ## [0.4.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.3.2...dotnav-v0.4.0) (2026-07-15)
 
