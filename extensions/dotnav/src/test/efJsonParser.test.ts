@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  databaseNameFromConnectionString,
   classifyEfError,
   extractJsonPayload,
   maskConnectionString,
@@ -119,6 +120,12 @@ test('masks secrets in connection strings', () => {
 
   const pwd = maskConnectionString('Host=x;Pwd=abc123;Port=5432');
   assert.ok(!pwd.includes('abc123'));
+});
+
+test('extracts database identity for destructive confirmations', () => {
+  assert.equal(databaseNameFromConnectionString('Server=.;Database=Orders;User Id=sa'), 'Orders');
+  assert.equal(databaseNameFromConnectionString('Initial Catalog="Order Data";Integrated Security=true'), 'Order Data');
+  assert.equal(databaseNameFromConnectionString('Name=ConnectionStrings:Orders'), undefined);
 });
 
 test('validates migration names', () => {

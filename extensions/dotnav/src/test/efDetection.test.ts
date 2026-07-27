@@ -107,3 +107,37 @@ test('falls back to reachable EF projects when nothing has the design package', 
   const candidates = migrationProjectCandidates(detectEfProjects(solution([shared, orphan, web])));
   assert.deepEqual(candidates.map(candidate => candidate.project.name), ['Shared']);
 });
+
+test('ranks the closest-named app as the default startup project', () => {
+  // Real ELDesk shape: an Infrastructure project shared by a web app and
+  // several Hangfire hosts.
+  const infra = project('ELDesk.CustomApp.Infrastructure', 'library', [
+    'Microsoft.EntityFrameworkCore.Design'
+  ]);
+  const web = project('ELDesk.CustomApp', 'web', [], ['ELDesk.CustomApp.Infrastructure']);
+  const hangfire = project('ELDesk.CustomApp.HangfireServer', 'console', [], ['ELDesk.CustomApp.Infrastructure']);
+  const aggregation = project('ELDesk.CustomApp.Aggregation.HangfireServer', 'console', [], [
+    'ELDesk.CustomApp.Infrastructure'
+  ]);
+
+  const detections = detectEfProjects(solution([infra, aggregation, hangfire, web]));
+  assert.equal(detections.length, 1);
+  assert.equal(
+    detections[0].startupCandidates[0].name,
+    'ELDesk.CustomApp',
+    'the web app must win over the Hangfire hosts'
+  );
+  assert.ok(
+    detections[0].startupCandidates.map(candidate => candidate.name).includes('ELDesk.CustomApp.HangfireServer'),
+    'background hosts stay selectable, just not first'
+  );
+});
+
+test('prefers the longest matching name prefix', () => {
+  const infra = project('Acme.Billing.Data', 'library', ['Microsoft.EntityFrameworkCore.Design']);
+  const outer = project('Acme', 'web', [], ['Acme.Billing.Data']);
+  const inner = project('Acme.Billing', 'web', [], ['Acme.Billing.Data']);
+
+  const detections = detectEfProjects(solution([infra, outer, inner]));
+  assert.equal(detections[0].startupCandidates[0].name, 'Acme.Billing');
+});

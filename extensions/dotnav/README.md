@@ -15,7 +15,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 - Create single-project or compound run configurations without maintaining `.vscode/launch.json`.
 - Add, rename, move, delete, and drag project files with namespace-aware C# templates.
 - Format C# selections with Roslyn plus configurable readability passes.
-- Manage EF Core migrations from the EF Core view: add, remove, list, update or rollback the database, generate SQL scripts, and inspect DbContexts.
+- Manage EF Core from a project-aware Center: add/remove/browse migrations, apply or roll back databases, generate SQL scripts and bundles, check model changes, and optimize DbContexts.
 - Reveal the active editor file, filter the solution tree, and customize project icons.
 
 DotNav depends on [GitNav](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows), which is installed automatically and supplies the integrated Git Log, comparison, and history workflows.
@@ -39,6 +39,24 @@ code --install-extension tuna-ex.dotnav
 2. Select the **.NET** icon in the Activity Bar.
 3. Choose a solution if the workspace contains more than one.
 4. Use the solution tree and context menus to navigate, build, run, debug, or manage files.
+
+### EF Core
+
+Right-click a detected EF Core project and open **Entity Framework Core**.
+Actions reuse one **EF Core Center** editor tab with the selected project,
+startup project, DbContext, command preview, validation, and version-gated
+options. Every action provides an on-demand **Guide** drawer that explains when
+to use it, prerequisites, each field, the expected result, and relevant safety
+notes without occupying the main workflow. Open it from the action header or
+press `F1`. Switch between English and Vietnamese from the Center header; the
+preference is remembered and can also be set with `dotnav.ef.language`.
+Executed EF Core actions show their real lifecycle—validation, tool preparation,
+execution, and result refresh—in the Center without inventing percentage
+completion that `dotnet ef` does not report.
+
+Database state is never read automatically. Use **Check database** when you
+need applied/pending status. Destructive database actions remain disabled
+until their target is identified and explicitly confirmed.
 
 ## Configuration
 

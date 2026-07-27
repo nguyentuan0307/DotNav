@@ -281,6 +281,13 @@ export function maskConnectionString(value: string): string {
     .replace(uriCredentialPattern, '$1***$2');
 }
 
+/** Best-effort database identity for destructive confirmations. */
+export function databaseNameFromConnectionString(value: string): string | undefined {
+  const match = /(?:^|;)\s*(?:database|initial\s+catalog)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;]*))/i.exec(value);
+  const name = (match?.[1] ?? match?.[2] ?? match?.[3])?.trim();
+  return name || undefined;
+}
+
 /** Realtime validation for the Add Migration input box. */
 export function validateMigrationName(name: string, existingNames: readonly string[]): string | undefined {
   const trimmed = name.trim();

@@ -45,6 +45,10 @@ export interface EfCommandRequest {
   readonly json?: boolean;
   /** Commands such as `--version` that never build and skip project flags. */
   readonly raw?: boolean;
+  /** Dialog override for `dotnav.ef.configuration`. */
+  readonly configurationOverride?: string;
+  /** Dialog checkbox: pass --no-build regardless of the freshness heuristic. */
+  readonly forceNoBuild?: boolean;
 }
 
 export interface EfCommandResult {
@@ -226,9 +230,14 @@ export class EfCli implements vscode.Disposable {
   }
 
   private async execute(request: EfCommandRequest): Promise<EfCommandResult> {
-    const settings = readEfSettings();
-    const wantNoBuild = !request.raw && settings.noBuild !== 'never' && (
-      settings.noBuild === 'always' || this.freshness.isFresh(request.project.path)
+    const base = readEfSettings();
+    const settings: EfSettings = request.configurationOverride
+      ? { ...base, configuration: request.configurationOverride }
+      : base;
+    const wantNoBuild = !request.raw && (
+      request.forceNoBuild || (settings.noBuild !== 'never' && (
+        settings.noBuild === 'always' || this.freshness.isFresh(request.project.path)
+      ))
     );
 
     let result = await this.executeOnce(request, settings, wantNoBuild);
@@ -237,7 +246,7 @@ export class EfCli implements vscode.Disposable {
     if (
       result.kind === 'error' &&
       wantNoBuild &&
-      settings.noBuild === 'auto' &&
+      (settings.noBuild === 'auto' || request.forceNoBuild) &&
       staleAssemblyPatterns.some(pattern => pattern.test(`${result.stderr}\n${result.stdout}`))
     ) {
       this.log(`retrying '${request.title}' with a full build (--no-build looked stale)`);
