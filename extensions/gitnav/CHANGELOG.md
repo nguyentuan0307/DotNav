@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.5...gitnav-v0.11.0) (2026-07-27)
+
+
+### Features
+
+* **dotnav:** move EF Core tools to a Rider-style context menu and dialog ([6d67ee3](https://github.com/nguyentuan0307/DotNav/commit/6d67ee37ea4584a9f22ce3597ef36f53eaab0d2b))
+
+### Changes
+
+* Merge branch 'release' ([641d01a](https://github.com/nguyentuan0307/DotNav/commit/641d01a016310872476944dde7f106ca7b240a41))
+
+
 ## [0.10.5](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.4...gitnav-v0.10.5) (2026-07-24)
 
 
