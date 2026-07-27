@@ -4,6 +4,28 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.9.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.2...dotnav-v0.9.0) (2026-07-27)
+
+
+### Features
+
+* **dotnav:** move EF Core tools to a Rider-style context menu and dialog ([6d67ee3](https://github.com/nguyentuan0307/DotNav/commit/6d67ee37ea4584a9f22ce3597ef36f53eaab0d2b))
+* **dotnav:** complete EF Core Center ([227112a](https://github.com/nguyentuan0307/DotNav/commit/227112a65331e293fd4a679f5a6ee72081332e0f))
+
+### Bug Fixes
+
+* **dotnav:** always show the EF Core view instead of hiding it ([362e8da](https://github.com/nguyentuan0307/DotNav/commit/362e8da3b330dc2a19d3406b294a678c63f2e0ca))
+* **dotnav:** expand the EF Core view by default ([d4b238e](https://github.com/nguyentuan0307/DotNav/commit/d4b238e06f7252d5f099a43f91c5bd6c060b2868))
+* **dotnav:** make EF dialogs searchable and readable ([79919b0](https://github.com/nguyentuan0307/DotNav/commit/79919b0787514216a9f618d224e3ec60180d4e46))
+* **dotnav:** repair EF dialog behaviour and layout ([20e2122](https://github.com/nguyentuan0307/DotNav/commit/20e21226afeeb6e4a3f8add20758608d6f48f7ae))
+* **dotnav:** keep EF dialog autofocus out of the collapsed section ([1700b89](https://github.com/nguyentuan0307/DotNav/commit/1700b89203febe4e8faf2cda25973e168ee7919d))
+
+### Changes
+
+* test(dotnav): cover EF Core workflows ([03cd012](https://github.com/nguyentuan0307/DotNav/commit/03cd012d20fc1fce7a37a2c19f3412f5582cc41d))
+* Merge branch 'release' ([641d01a](https://github.com/nguyentuan0307/DotNav/commit/641d01a016310872476944dde7f106ca7b240a41))
+
+
 ## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.1...dotnav-v0.8.2) (2026-07-24)
 
 
@@ -33,6 +55,21 @@ All notable changes to DotNav are documented here.
 
 ### Features
 
+* build folder projects in one parallel MSBuild session with a configurable worker limit
+* replace per-action EF webviews with one responsive, project-aware EF Core Center
+* redesign EF Core Center as a polished, accessible developer cockpit with responsive navigation and command previews
+* add pending-model checks, migration bundles, compiled-model optimization, and EF Core 6–11 capability gating
+* add on-demand English and Vietnamese guide drawers for every EF Core action, including field examples, prerequisites, expected results, and safety notes
+* add a persistent English/Vietnamese language switch to EF Core Center
+* show event-driven, bilingual operation progress for every executed EF Core action
+
+### Bug Fixes
+
+* cascade EF project, startup project, DbContext, and migration selections without stale async updates
+* keep EF connection overrides transient and require database identity before Drop Database
+* detect EF packages when self-closing and paired PackageReference elements are mixed in one project file
+* parse quoted additional EF arguments and reject options already managed by DotNav
+  
 * **dotnav:** add EF Core tools (migrations, database ops, tree view) ([2152c94](https://github.com/nguyentuan0307/DotNav/commit/2152c949ba7c24a1e58deb990085ffaa316ffe9a))
 
 ### Changes

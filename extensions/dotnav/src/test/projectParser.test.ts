@@ -36,6 +36,34 @@ test('reuses cached project metadata until the project file changes', async () =
   assert.deepEqual(third.targetFrameworks, ['net9.0']);
 });
 
+test('parses mixed self-closing and paired PackageReference elements independently', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-project-parser-'));
+  const projectPath = path.join(root, 'Infrastructure.csproj');
+  await fs.writeFile(projectPath, `<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+    <ItemGroup>
+      <PackageReference Include="ExcelDataReader" Version="3.7.0" />
+      <PackageReference Include="ExcelNumberFormat" Version="1.1.0" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.7">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; analyzers</IncludeAssets>
+      </PackageReference>
+      <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL">
+        <Version>8.0.4</Version>
+      </PackageReference>
+    </ItemGroup>
+  </Project>`, 'utf8');
+
+  const project = await parseProject(projectPath, root);
+
+  assert.deepEqual(project.packageReferences, [
+    { name: 'ExcelDataReader', version: '3.7.0' },
+    { name: 'ExcelNumberFormat', version: '1.1.0' },
+    { name: 'Microsoft.EntityFrameworkCore.Design', version: '8.0.7' },
+    { name: 'Npgsql.EntityFrameworkCore.PostgreSQL', version: '8.0.4' }
+  ]);
+});
+
 function projectXml(targetFramework: string): string {
   return `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>${targetFramework}</TargetFramework></PropertyGroup></Project>`;
 }

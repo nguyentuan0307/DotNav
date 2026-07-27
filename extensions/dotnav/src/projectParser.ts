@@ -4,7 +4,11 @@ import { loadLaunchProfiles } from './launchSettings';
 import { PackageReference, ProjectKind, ProjectModel, ProjectReference } from './models';
 import { normalizeSlashes, relativeOrName, resolveMsbuildPath } from './pathUtils';
 
-const packageReferenceRegex = /<PackageReference\b([^>]*)>(?:[\s\S]*?<\/PackageReference>)?/gi;
+// Match self-closing and paired PackageReference elements as two explicit
+// alternatives. Making the closing element optional lets a self-closing
+// reference consume every following reference up to the next closing tag.
+const packageReferenceRegex =
+  /<PackageReference\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/PackageReference\s*>)/gi;
 const projectReferenceRegex = /<ProjectReference\b([^>]*)>/gi;
 
 interface ProjectCacheEntry {
@@ -111,8 +115,8 @@ function parsePackageReferences(xml: string): PackageReference[] {
       continue;
     }
 
-    const elementText = match[0];
-    const inlineVersion = readSingleTagValues(elementText, 'Version')[0];
+    const elementBody = match[2] ?? '';
+    const inlineVersion = readSingleTagValues(elementBody, 'Version')[0];
     packages.push({ name, version: attributes.Version ?? inlineVersion });
   }
 

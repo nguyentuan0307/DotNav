@@ -26,6 +26,10 @@ export class EfToolManager {
     this.warnedVersionMismatch.clear();
   }
 
+  peekStatus(cwd: string): EfToolStatus | undefined {
+    return this.cache.get(cwd);
+  }
+
   async getStatus(cwd: string): Promise<EfToolStatus> {
     const cached = this.cache.get(cwd);
     if (cached) {

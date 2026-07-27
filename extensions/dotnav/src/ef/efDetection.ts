@@ -105,11 +105,48 @@ export function detectEfProjects(
       project,
       hasDesignPackage: referencesEfDesign(project),
       hasMigrationsFolder: extraEfProjectPaths?.has(projectPath) ?? false,
-      startupCandidates
+      startupCandidates: rankStartupCandidates(project, startupCandidates)
     });
   }
 
   return detections.sort((a, b) => a.project.name.localeCompare(b.project.name));
+}
+
+// Worker/scheduler hosts share a service's DbContext but are rarely the project
+// whose configuration you want design-time commands to read.
+const secondaryHostPattern = /(hangfire|worker|rabbitmq|consumer|scheduler|job|daemon|migrator)/i;
+
+/**
+ * Orders startup candidates so the most plausible host comes first: the app
+ * whose name is the closest prefix of the migrations project
+ * (`ELDesk.CustomApp` for `ELDesk.CustomApp.Infrastructure`), preferring web
+ * over console and demoting background hosts.
+ */
+export function rankStartupCandidates(
+  migrationsProject: ProjectModel,
+  candidates: readonly ProjectModel[]
+): ProjectModel[] {
+  const score = (candidate: ProjectModel): number => {
+    let value = 0;
+    if (candidate.name !== migrationsProject.name && migrationsProject.name.startsWith(`${candidate.name}.`)) {
+      // Longest matching prefix wins, so `A.B` beats `A` for `A.B.Infrastructure`.
+      value += 1000 + candidate.name.length;
+    }
+
+    if (candidate.kind === 'web') {
+      value += 100;
+    } else if (candidate.kind === 'console') {
+      value += 50;
+    }
+
+    if (secondaryHostPattern.test(candidate.name)) {
+      value -= 500;
+    }
+
+    return value;
+  };
+
+  return [...candidates].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
 }
 
 /**
