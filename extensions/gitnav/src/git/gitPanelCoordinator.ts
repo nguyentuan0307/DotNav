@@ -106,26 +106,48 @@ export class RepositoryMutationQueue {
   }
 }
 
-export class CoalescedRefreshRunner {
-  private running?: Promise<void>;
-  private requested = false;
+export type GitFetchScope =
+  | { readonly kind: 'all' }
+  | { readonly kind: 'branch'; readonly branch: string };
 
-  run(operation: () => Promise<void>): Promise<void> {
-    this.requested = true;
-    if (!this.running) {
-      this.running = this.drain(operation).finally(() => { this.running = undefined; });
-    }
-    return this.running;
+class ActiveGitFetch {
+  constructor(
+    readonly root: string,
+    readonly scope: GitFetchScope,
+    readonly promise: Promise<void>
+  ) {}
+}
+
+export class GitFetchCoordinator {
+  private readonly active = new Map<string, ActiveGitFetch[]>();
+
+  run(root: string, scope: GitFetchScope, operation: () => Promise<void>): Promise<void> {
+    const existing = this.active.get(root)?.find(fetch => this.covers(fetch.scope, scope));
+    if (existing) return existing.promise;
+
+    let fetch!: ActiveGitFetch;
+    const promise = operation().finally(() => {
+      const remaining = (this.active.get(root) ?? []).filter(item => item !== fetch);
+      if (remaining.length) this.active.set(root, remaining);
+      else this.active.delete(root);
+    });
+    fetch = new ActiveGitFetch(root, scope, promise);
+    this.active.set(root, [...(this.active.get(root) ?? []), fetch]);
+    return promise;
   }
 
-  private async drain(operation: () => Promise<void>): Promise<void> {
-    let failure: unknown;
-    do {
-      this.requested = false;
-      try { await operation(); }
-      catch (error) { failure ??= error; }
-    } while (this.requested);
-    if (failure) throw failure;
+  private covers(active: GitFetchScope, requested: GitFetchScope): boolean {
+    return active.kind === 'all'
+      || (requested.kind === 'branch' && active.kind === 'branch' && active.branch === requested.branch);
+  }
+}
+
+export class CoalescedRefreshRunner {
+  private running?: Promise<void>;
+
+  run(operation: () => Promise<void>): Promise<void> {
+    if (!this.running) this.running = operation().finally(() => { this.running = undefined; });
+    return this.running;
   }
 }
 

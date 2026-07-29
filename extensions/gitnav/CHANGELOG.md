@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.11.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.0...gitnav-v0.11.1) (2026-07-29)
+
+
+### Performance Improvements
+
+* **gitnav:** speed up large repository actions ([eea0629](https://github.com/nguyentuan0307/DotNav/commit/eea06294e12b1b7fc58f5d78e67eb14b676caf91))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([498f6e5](https://github.com/nguyentuan0307/DotNav/commit/498f6e582dd48fec1bcad74f69926dccc9211e09))
+
+
 ## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.5...gitnav-v0.11.0) (2026-07-27)
 
 

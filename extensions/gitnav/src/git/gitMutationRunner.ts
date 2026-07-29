@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GitMutationRequest, GitRepositorySnapshot } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
-import { RepositoryMutationQueue } from './gitPanelCoordinator';
+import { GitFetchCoordinator, GitFetchScope, RepositoryMutationQueue } from './gitPanelCoordinator';
 import { destructiveWarning, protectedRemoteMutationPattern, requiresDestructiveConfirmation, supportsBackup } from './gitMutationSafety';
 import { isActionAllowedDuringOperation, operationArguments } from './gitOperationFlow';
 import { runGit } from './gitCli';
@@ -23,6 +23,7 @@ class GitMutationExecutionContext {
 
 export class GitMutationRunner {
   private readonly queue = new RepositoryMutationQueue();
+  private readonly fetches = new GitFetchCoordinator();
   private readonly recoveryMessages = new Map<string, string>();
   constructor(private readonly service: GitRepositoryService) {}
 
@@ -38,7 +39,17 @@ export class GitMutationRunner {
     return this.queue.enqueue(root, () => this.runExclusive(root, request));
   }
 
+  async fetchInBackground(root: string): Promise<void> {
+    await this.fetchRemote(root, { kind: 'all' });
+    this.service.markFetched(root);
+    this.service.invalidateCaches(root);
+    void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
+  }
+
   private async runExclusive(root: string, request: GitMutationRequest): Promise<boolean> {
+    if (request.action === 'fetch') {
+      return this.execute(root, request, ['fetch', '--all', '--prune']);
+    }
     const snapshot = await this.service.snapshot(root, undefined, true);
     const context = new GitMutationExecutionContext(root, request, snapshot, Date.now());
     const operation = snapshot.operation;
@@ -53,6 +64,10 @@ export class GitMutationRunner {
       && !await confirmDestructive(root, request, this.service, snapshot)) return false;
     const args = await this.argumentsFor(context);
     if (!args) return false;
+    return this.execute(root, request, args);
+  }
+
+  private async execute(root: string, request: GitMutationRequest, args: string[]): Promise<boolean> {
     const progress = actionProgress(request.action);
     return vscode.window.withProgress({
       location: progress === 'notification' ? vscode.ProgressLocation.Notification : vscode.ProgressLocation.Window,
@@ -60,7 +75,8 @@ export class GitMutationRunner {
       cancellable: progress === 'notification'
     }, async (_progress, token) => {
       try {
-        await this.service.git(root, args, token);
+        if (request.action === 'fetch') await this.fetchRemote(root, { kind: 'all' }, token);
+        else await this.service.git(root, args, token);
       } catch (error) {
         const recovery = await recoverMutationFailure({
           snapshot: repositoryRoot => this.service.snapshot(repositoryRoot, undefined, true),
@@ -83,16 +99,31 @@ export class GitMutationRunner {
     switch (request.action) {
       case 'fetch': return ['fetch', '--all', '--prune'];
       case 'pull': {
-        await this.service.git(root, ['fetch', 'origin']);
+        const initialPlan = currentBranchPushPlan(snapshot);
+        await this.fetchRemote(root, { kind: 'branch', branch: initialPlan.branch });
         const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
         return sameNameUpdateArgs(plan, 'merge');
       }
       case 'update': {
-        await this.service.git(root, ['fetch', 'origin', '--prune']);
+        const initialPlan = currentBranchPushPlan(snapshot);
+        await this.fetchRemote(root, { kind: 'branch', branch: initialPlan.branch });
         const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
-        const strategy = request.options?.strategy === 'reset'
+        if (!plan.remoteBranchExists) throw new Error(`${plan.destination} does not exist.`);
+        const counts = await this.service.git(root, ['rev-list', '--left-right', '--count', `${plan.destination}...HEAD`]);
+        const [incoming, outgoing] = counts.stdout.trim().split(/\s+/).map(Number);
+        if (!(incoming || 0)) return ['status', '--short'];
+        const requestedStrategy: 'merge' | 'rebase' | 'reset' | undefined = request.options?.strategy === 'reset'
           ? 'reset'
-          : request.options?.strategy === 'rebase' ? 'rebase' : 'merge';
+          : request.options?.strategy === 'rebase' ? 'rebase'
+            : request.options?.strategy === 'merge' ? 'merge' : undefined;
+        let strategy = requestedStrategy ?? 'merge';
+        if ((outgoing || 0) > 0 && !requestedStrategy) {
+          const choice = await vscode.window.showWarningMessage(
+            `${snapshot.head} and ${plan.destination} have diverged.`, { modal: true }, 'Rebase', 'Merge'
+          );
+          if (!choice) return undefined;
+          strategy = choice === 'Rebase' ? 'rebase' : 'merge';
+        }
         return sameNameUpdateArgs(plan, strategy);
       }
       case 'push': return currentBranchPushArgs(
@@ -111,7 +142,9 @@ export class GitMutationRunner {
         const checkout = request.options?.remote ? await this.remoteCheckoutArgs(context, ref) : await this.checkoutArgs(context, ref);
         if (!checkout) return undefined;
         await this.service.git(root, checkout);
-        await this.service.git(root, ['fetch', 'origin', '--prune']);
+        const checkedOut = await this.service.snapshot(root, undefined, true);
+        const initialPlan = currentBranchPushPlan(checkedOut);
+        await this.fetchRemote(root, { kind: 'branch', branch: initialPlan.branch });
         const plan = currentBranchPushPlan(await this.service.snapshot(root, undefined, true));
         return sameNameUpdateArgs(plan, request.options?.rebase ? 'rebase' : 'merge');
       }
@@ -190,6 +223,13 @@ export class GitMutationRunner {
       }
       default: throw new Error(`Unsupported Git action: ${request.action}`);
     }
+  }
+
+  private fetchRemote(root: string, scope: GitFetchScope, token?: vscode.CancellationToken): Promise<void> {
+    const args = scope.kind === 'all'
+      ? ['fetch', '--all', '--prune']
+      : ['fetch', 'origin', `+refs/heads/${scope.branch}:refs/remotes/origin/${scope.branch}`];
+    return this.fetches.run(root, scope, async () => { await this.service.git(root, args, token); });
   }
 
   private protectedRemotePattern(branch: string, request: GitMutationRequest): string | undefined {

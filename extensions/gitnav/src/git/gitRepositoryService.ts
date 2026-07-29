@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { runGit } from './gitCli';
 import { GitCommitDetail, GitCommitSummary, GitFileChange, GitFilterOptions, GitGraphSnapshot, GitLogFilter, GitLogPage, GitOperationState, GitRefInfo, GitRepositorySnapshot, GitStashInfo, GitWorktreeInfo } from './gitPanelModels';
-import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from './gitPanelParsers';
+import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from './gitPanelParsers';
 import { computeGraphLayout } from './gitGraphLayout';
 import { BoundedCache } from './boundedCache';
 
@@ -12,26 +12,39 @@ export class GitCommandError extends Error {
   }
 }
 
+export class GitRepositoryReadResult {
+  constructor(
+    readonly repository: GitRepositorySnapshot,
+    readonly uncommitted: GitFileChange[]
+  ) {}
+}
+
 export class GitRepositoryService {
+  private diagnosticLogger?: (message: string) => void;
   private readonly lastFetched = new Map<string, number>();
-  private repositoryDiscoveryCache?: { readonly expiresAt: number; readonly roots: string[] };
+  private repositoryDiscoveryCache?: string[];
   private repositoryDiscoveryInFlight?: Promise<string[]>;
-  private readonly snapshotCache = new Map<string, { readonly expiresAt: number; readonly value: GitRepositorySnapshot }>();
-  private readonly snapshotInFlight = new Map<string, Promise<GitRepositorySnapshot>>();
+  private readonly snapshotCache = new Map<string, { readonly expiresAt: number; readonly value: GitRepositoryReadResult }>();
+  private readonly snapshotInFlight = new Map<string, Promise<GitRepositoryReadResult>>();
   private readonly snapshotGenerations = new Map<string, number>();
-  private readonly graphSnapshots = new Map<string, GitGraphSnapshot>();
+  private readonly graphSnapshots = new BoundedCache<GitGraphSnapshot>(120);
   private readonly logCache = new BoundedCache<GitLogPage>(30);
   private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
   private readonly filterOptionsCache = new Map<string, { expiresAt: number; value: GitFilterOptions }>();
+
+  setDiagnosticLogger(logger: (message: string) => void): void {
+    this.diagnosticLogger = logger;
+  }
+
   async discoverRepositories(force = false): Promise<string[]> {
     const cached = this.repositoryDiscoveryCache;
-    if (!force && cached && cached.expiresAt > Date.now()) return cached.roots;
+    if (!force && cached) return cached;
     if (!force && this.repositoryDiscoveryInFlight) return this.repositoryDiscoveryInFlight;
     const discovery = this.discoverRepositoriesCore();
     this.repositoryDiscoveryInFlight = discovery;
     try {
       const roots = await discovery;
-      this.repositoryDiscoveryCache = { roots, expiresAt: Date.now() + 10_000 };
+      this.repositoryDiscoveryCache = roots;
       return roots;
     } finally {
       if (this.repositoryDiscoveryInFlight === discovery) this.repositoryDiscoveryInFlight = undefined;
@@ -51,6 +64,10 @@ export class GitRepositoryService {
   }
 
   async snapshot(root: string, token?: vscode.CancellationToken, force = false): Promise<GitRepositorySnapshot> {
+    return (await this.repositoryState(root, token, force)).repository;
+  }
+
+  async repositoryState(root: string, token?: vscode.CancellationToken, force = false): Promise<GitRepositoryReadResult> {
     const generation = this.snapshotGenerations.get(root) ?? 0;
     const cached = this.snapshotCache.get(root);
     if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
@@ -65,7 +82,7 @@ export class GitRepositoryService {
     return this.snapshotCore(root, token, generation);
   }
 
-  private async snapshotCore(root: string, token: vscode.CancellationToken | undefined, generation: number): Promise<GitRepositorySnapshot> {
+  private async snapshotCore(root: string, token: vscode.CancellationToken | undefined, generation: number): Promise<GitRepositoryReadResult> {
     const [status, refs, stashes, worktrees] = await Promise.all([
       this.git(root, ['status', '--porcelain=v2', '--branch', '-z'], token),
       this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags'], token),
@@ -73,6 +90,7 @@ export class GitRepositoryService {
       this.git(root, ['worktree', 'list', '--porcelain'], token)
     ]);
     const statusFields = status.stdout.split('\0');
+    const uncommitted = parseWorkingTreeStatusV2(status.stdout);
     const branchHead = readStatusHeader(statusFields, '# branch.head ') || 'HEAD';
     const upstream = readStatusHeader(statusFields, '# branch.upstream ');
     const ab = readStatusHeader(statusFields, '# branch.ab ');
@@ -85,17 +103,18 @@ export class GitRepositoryService {
       upstream,
       ahead: Number(match?.[1]) || 0,
       behind: Number(match?.[2]) || 0,
-      changedCount: statusFields.filter(value => /^(1|2|u|\?) /.test(value)).length,
+      changedCount: uncommitted.length,
       lastFetchedAt: this.lastFetched.get(root),
       operation: await detectOperation(root),
       refs: parseRefs(refs.stdout, branchHead),
       stashes: parseStashes(stashes.stdout),
       worktrees: parseWorktrees(worktrees.stdout, root)
     };
+    const value = new GitRepositoryReadResult(snapshot, uncommitted);
     if ((this.snapshotGenerations.get(root) ?? 0) === generation) {
-      this.snapshotCache.set(root, { value: snapshot, expiresAt: Date.now() + 300 });
+      this.snapshotCache.set(root, { value, expiresAt: Date.now() + 300 });
     }
-    return snapshot;
+    return value;
   }
 
   async log(root: string, offset: number, limit: number, filter: GitLogFilter, token?: vscode.CancellationToken): Promise<GitLogPage> {
@@ -118,9 +137,7 @@ export class GitRepositoryService {
     const hasMore = parsedWithLookahead.length > limit;
     const parsed = parsedWithLookahead.slice(0, limit);
     const graphKey = `${root}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
-    if (offset === 0) {
-      for (const key of [...this.graphSnapshots.keys()]) if (key.startsWith(`${graphKey}\0`)) this.graphSnapshots.delete(key);
-    }
+    if (offset === 0) this.graphSnapshots.deletePrefix(`${graphKey}\0`);
     const layout = computeGraphLayout(parsed, this.graphSnapshots.get(`${graphKey}\0${offset}`));
     this.graphSnapshots.set(`${graphKey}\0${offset + parsed.length}`, layout.snapshot);
     const commits = parsed.map(commit => ({ ...commit, lane: layout.lanes[commit.hash] }));
@@ -253,10 +270,18 @@ export class GitRepositoryService {
   }
 
   async git(root: string, args: string[], token?: vscode.CancellationToken): Promise<{ stdout: string; stderr: string }> {
-    const result = await runGit(root, args, token);
-    if (result.exitCode !== 0 && !result.cancelled) throw new GitCommandError(args, result.stderr, result.exitCode);
-    if (result.cancelled) throw new vscode.CancellationError();
-    return result;
+    const startedAt = Date.now();
+    try {
+      const result = await runGit(root, args, token);
+      if (result.exitCode !== 0 && !result.cancelled) {
+        throw new GitCommandError(args, withAuthenticationHint(result.stderr), result.exitCode);
+      }
+      if (result.cancelled) throw new vscode.CancellationError();
+      return result;
+    } finally {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= 100) this.diagnosticLogger?.(`Slow Git command: ${args[0] ?? 'unknown'} (${durationMs} ms)`);
+    }
   }
 
   invalidateCaches(root: string): void {
@@ -264,12 +289,19 @@ export class GitRepositoryService {
     this.snapshotGenerations.set(root, (this.snapshotGenerations.get(root) ?? 0) + 1);
     this.snapshotCache.delete(root);
     this.logCache.deletePrefix(prefix);
-    for (const key of this.graphSnapshots.keys()) if (key.startsWith(prefix)) this.graphSnapshots.delete(key);
+    this.graphSnapshots.deletePrefix(prefix);
   }
 
   invalidateRepositoryDiscovery(): void {
     this.repositoryDiscoveryCache = undefined;
   }
+}
+
+function withAuthenticationHint(stderr: string): string {
+  if (process.env.SSH_AUTH_SOCK || !/permission denied \(publickey\)/i.test(stderr)) {
+    return stderr;
+  }
+  return `${stderr.trim()}\nGitNav's VS Code extension host has no SSH_AUTH_SOCK. Restart VS Code from a terminal that can access the repository, then try again.`;
 }
 
 function signatureState(value?: string): GitCommitDetail['signature'] {
