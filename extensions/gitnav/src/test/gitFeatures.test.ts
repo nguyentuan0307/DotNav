@@ -314,7 +314,7 @@ test('builds professional commit filters with AND semantics', () => {
   assert.match(service, /searchAuthors\(root: string, query: string/);
   assert.doesNotMatch(service, /'shortlog', '-sne', '--all'/);
   assert.doesNotMatch(provider, /workingTreeFiles\(this\.root, read\.source\.token\), this\.service\.filterOptions/);
-  assert.match(provider, /void this\.loadFilterOptions\(this\.root\)/);
+  assert.match(provider, /void this\.loadFilterOptions\(root\)/);
   assert.match(provider, /m\.type!=='filterOptions'/);
   assert.match(provider, /const channel = 'filter-options'/);
   assert.match(provider, /filterOptions\(root, read\.source\.token\)/);
@@ -345,20 +345,36 @@ test('reuses mutation state and keeps expensive refresh work off the action crit
   const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   assert.match(mutations, /class GitMutationExecutionContext/);
   assert.match(mutations, /snapshot\(root, undefined, true\)/);
+  assert.match(mutations, /request\.action === 'fetch'[\s\S]*this\.execute\(root, request, \['fetch', '--all', '--prune'\]\)/);
   assert.match(mutations, /checkoutArgs\(context: GitMutationExecutionContext/);
   assert.match(mutations, /remoteCheckoutArgs\(context: GitMutationExecutionContext/);
   assert.doesNotMatch(mutations, /await vscode\.commands\.executeCommand\('git\.refresh'\)/);
   assert.match(service, /repositoryDiscoveryCache/);
+  assert.doesNotMatch(service, /repositoryDiscoveryCache\?.*expiresAt/);
   assert.match(service, /snapshotInFlight/);
   assert.match(service, /snapshotGenerations/);
   assert.match(service, /=== generation/);
   assert.match(service, /expiresAt: Date\.now\(\) \+ 300/);
-  assert.match(provider, /await this\.refreshRepositoryStatus\(root\)/);
-  assert.match(provider, /void this\.refresh\(\)\.catch/);
+  assert.match(service, /repositoryState\(root: string/);
+  assert.match(service, /parseWorkingTreeStatusV2\(status\.stdout\)/);
+  assert.match(service, /new BoundedCache<GitGraphSnapshot>\(120\)/);
+  assert.match(provider, /schedulePostMutationRefresh\(root\)/);
+  assert.match(provider, /refreshRepositoryContent\(repositories, root\)/);
+  assert.match(provider, /mapWithConcurrency\(message\.hashes, 4/);
+  assert.match(provider, /filterPathItems/);
+  assert.doesNotMatch(provider, /renderBranches\(\);renderBranchPicker\(\);renderFilterChips\(\)/);
+  assert.doesNotMatch(provider, /await runMutationLifecycle/);
+  assert.doesNotMatch(provider, /await this\.service\.git\(this\.root!, \['fetch', 'origin', '--prune'\]\)/);
+  const updateBlock = /case 'update': \{([\s\S]*?)case 'push':/.exec(mutations)?.[1] ?? '';
+  assert.match(updateBlock, /fetchRemote\(root, \{ kind: 'branch', branch: initialPlan\.branch \}\)/);
+  assert.match(mutations, /`\+refs\/heads\/\$\{scope\.branch\}:refs\/remotes\/origin\/\$\{scope\.branch\}`/);
+  assert.match(mutations, /fetchInBackground\(root: string\)/);
+  assert.match(service, /Git command: \$\{args\[0\]/);
 });
 
 test('renders advanced Git Log UX and interactive rebase preview', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
   assert.match(source, /\['ready','refresh','loadLog'\]\.includes\(m\.scope\)/);
   assert.doesNotMatch(source, /id="historyMap"/);
@@ -405,7 +421,7 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, />Push<\/span>/);
   assert.match(source, /updateButton\.dataset\.action='update'/);
   assert.match(source, /Update current branch/);
-  assert.match(source, /have diverged\.`?, \{ modal: true \}/);
+  assert.match(mutations, /have diverged\.`?, \{ modal: true \}/);
   assert.doesNotMatch(source, />New Branch<\/button>/);
   assert.match(source, /Update from Origin/);
   assert.match(source, /updateBranchFromOrigin/);
@@ -456,25 +472,31 @@ test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
 
 test('preserves repository-specific log filters across full refreshes', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
-  assert.match(source, /activeFilters\.get\(this\.root, \{\}\)/);
-  assert.match(source, /this\.service\.log\(this\.root, 0, 200, activeFilter/);
+  assert.match(source, /activeFilters\.get\(root, \{\}\)/);
+  assert.match(source, /this\.service\.log\(root, 0, 200, activeFilter/);
   assert.match(source, /activeFilter, generation:/);
   assert.match(source, /activeFilters\.set\(this\.root, filter\)/);
   assert.match(source, /state\.selectedRef=f\.refs\?\.\[0\]/);
-  assert.doesNotMatch(source, /this\.service\.log\(this\.root, 0, 200, \{\}/);
+  assert.doesNotMatch(source, /this\.service\.log\((?:this\.root|root), 0, 200, \{\}/);
 });
 
-test('synchronizes local Git events without fetching on panel visibility', () => {
+test('synchronizes local Git events and keeps automatic fetches in the background', () => {
   const extension = readFileSync(path.join(__dirname, '..', '..', 'src', 'extension.ts'), 'utf8');
   const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   const sync = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLocalSync.ts'), 'utf8');
   assert.match(extension, /subscribeToBuiltInGitChanges/);
   assert.match(sync, /getExtension<GitExtensionExports>\('vscode\.git'\)/);
   assert.match(sync, /repository\.state\.onDidChange/);
+  assert.match(sync, /onRepositoriesChanged\(\)/);
   assert.match(provider, /view\.onDidChangeVisibility/);
   assert.match(provider, /type: 'repositoryStatus'/);
   assert.match(provider, /packed-refs/);
-  assert.doesNotMatch(provider, /onDidChangeVisibility[\s\S]{0,200}fetch/);
+  assert.match(provider, /setBuiltInGitSyncAvailable\(available: boolean\)/);
+  assert.match(provider, /scheduleRepositoryDiscoveryRefresh\(\)/);
+  assert.match(provider, /runBackgroundAutoFetch\(root: string\)/);
+  assert.match(provider, /this\.mutations\.fetchInBackground\(root\)/);
+  assert.doesNotMatch(provider, /this\.runMutation\(\{ action: 'fetch' \}\)/);
+  assert.match(provider, /backgroundFetchRoots\.has\(root\)/);
 });
 
 test('subscribes to Git Log messages before loading webview HTML', () => {

@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus } from '../git/gitPanelParsers';
+import { parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
 
 test('parses delimiter-safe decorated log records and merge parents', () => {
   const output = '\x1eabc\x1fabc1234\x1fp1 p2\x1fsubject\x1fJane\x1fjane@example.com\x1f1700000000\x1fHEAD -> refs/heads/main, tag: refs/tags/v1\n';
@@ -28,5 +28,27 @@ test('parses working tree conflicts and rename source paths', () => {
   assert.deepEqual(parseWorkingTreeStatus('UU src/conflict.cs\0R  src/new.cs\0src/old.cs\0'), [
     { status: 'UU', path: 'src/conflict.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: true },
     { status: 'R', path: 'src/new.cs', oldPath: 'src/old.cs', additions: 0, deletions: 0, conflict: false }
+  ]);
+});
+
+test('parses porcelain v2 ordinary, rename, conflict, and untracked entries', () => {
+  const output = [
+    '# branch.head feature',
+    '1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb src/changed file.cs',
+    '2 R. N... 100644 100644 100644 aaaaaaa bbbbbbb R100 src/new.cs',
+    'src/old.cs',
+    'u UU N... 100644 100644 100644 100644 aaaaaaa bbbbbbb ccccccc src/conflict.cs',
+    '? src/new file.cs',
+    '1 .. S.M. 160000 160000 160000 aaaaaaa bbbbbbb src/submodule',
+    '1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb src/line\nbreak.cs',
+    ''
+  ].join('\0');
+  assert.deepEqual(parseWorkingTreeStatusV2(output), [
+    { status: 'M', path: 'src/changed file.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: false },
+    { status: 'R', path: 'src/new.cs', oldPath: 'src/old.cs', additions: 0, deletions: 0, conflict: false },
+    { status: 'UU', path: 'src/conflict.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: true },
+    { status: '??', path: 'src/new file.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: false },
+    { status: 'M', path: 'src/submodule', oldPath: undefined, additions: 0, deletions: 0, conflict: false },
+    { status: 'M', path: 'src/line\nbreak.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: false }
   ]);
 });
