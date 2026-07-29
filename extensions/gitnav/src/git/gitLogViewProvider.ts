@@ -8,11 +8,28 @@ import { currentBranchPushPlan } from './gitPush';
 import { GitMutationRequest } from './gitPanelModels';
 import { CoalescedRefreshRunner, GitReadChannel, GitRequestCoordinator, GitRequestIdentity, InFlightOperationGuard, LocalRefreshKind, LocalRepositoryRefreshScheduler, RepositoryValueStore } from './gitPanelCoordinator';
 import { classifyGitError } from './gitErrorRecovery';
-import { MutationBusyTracker, runMutationLifecycle } from './gitMutationLifecycle';
+import { MutationBusyTracker } from './gitMutationLifecycle';
 import { actionFeedback, actionLabel, GitContextAction, GitContextActionGroup } from './gitActionPolicy';
 import { matchingProtectedBranchPattern } from './gitBranchProtection';
 import { GitPushRecoveryPreferences, GitPushRecoveryStrategy } from './gitPushRecoveryPreferences';
 import { mapRevisionLineToWorktree } from './lineMapping';
+
+async function mapWithConcurrency<T, TResult>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<TResult>
+): Promise<TResult[]> {
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 interface WebviewMessage { type: string; root?: string; hash?: string; hashes?: string[]; path?: string; ref?: string; query?: string; action?: string; kind?: string; current?: boolean; remember?: boolean; strategy?: GitPushRecoveryStrategy; operation?: string; durationMs?: number; parent?: number; offset?: number; x?: number; y?: number; requestId?: number; generation?: number; filter?: GitLogFilter; plan?: GitRebasePlanItem[]; }
 
@@ -20,6 +37,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   static readonly viewId = 'gitnav.gitLog';
   private view?: vscode.WebviewView;
   private root?: string;
+  private repositories: string[] = [];
   private readonly disposables: vscode.Disposable[] = [];
   private readonly mutations: GitMutationRunner;
   private readonly output = vscode.window.createOutputChannel('Git Log');
@@ -31,13 +49,17 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private readonly activeFilters = new RepositoryValueStore<GitLogFilter>();
   private readonly localRefreshScheduler: LocalRepositoryRefreshScheduler;
   private autoFetchTimer?: NodeJS.Timeout;
-  private externalRefreshTimer?: NodeJS.Timeout;
+  private autoFetchEnabled = false;
+  private readonly autoFetchWarmRoots = new Set<string>();
+  private readonly backgroundFetchRoots = new Set<string>();
   private gitWatcher?: vscode.FileSystemWatcher;
+  private builtInGitSyncAvailable = false;
   private lastInternalMutationAt = 0;
   private readonly pushRecoveryPreferences: GitPushRecoveryPreferences;
 
   constructor(private readonly service: GitRepositoryService, private readonly extensionUri: vscode.Uri, state: vscode.Memento) {
     this.mutations = new GitMutationRunner(service);
+    this.service.setDiagnosticLogger(message => this.logDiagnostic(message));
     this.pushRecoveryPreferences = new GitPushRecoveryPreferences(state);
     this.localRefreshScheduler = new LocalRepositoryRefreshScheduler((root, kind) => {
       void this.refreshFromLocalChange(root, kind);
@@ -56,7 +78,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     view.webview.html = renderHtml(view.webview, this.extensionUri);
     this.logDiagnostic('Webview HTML loaded; waiting for ready message.');
     this.configureAutoFetch();
-    this.configureGitWatcher();
+    if (!this.builtInGitSyncAvailable) this.configureGitWatcher();
   }
 
   async refresh(): Promise<void> {
@@ -68,28 +90,36 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     const startedAt = Date.now();
     this.logDiagnostic('Refresh started: discovering repositories.');
     const repositories = await this.service.discoverRepositories();
+    this.repositories = repositories;
     this.logDiagnostic(`Repository discovery completed (${repositories.length}) in ${Date.now() - startedAt} ms.`);
     if (!this.root || !repositories.includes(this.root)) this.root = repositories[0];
     if (!this.root) {
       this.logDiagnostic('No Git repository found; posting empty state.');
       return this.post({ type: 'state', repositories });
     }
-    this.logDiagnostic(`Loading repository: ${this.root}`);
+    await this.refreshRepositoryContent(repositories, this.root, startedAt);
+  }
+
+  private async refreshRepositoryContent(repositories: string[], root: string, startedAt = Date.now()): Promise<void> {
+    if (!this.view || this.root !== root) return;
+    this.logDiagnostic(`Loading repository: ${root}`);
     this.cancelReads();
-    this.requests.invalidate(this.root);
-    const read = this.beginRead('refresh', this.root);
-    const activeFilter = this.activeFilters.get(this.root, {});
+    this.requests.invalidate(root);
+    const read = this.beginRead('refresh', root);
+    const activeFilter = this.activeFilters.get(root, {});
     try {
-      const [repository, log, uncommitted] = await Promise.all([
-        this.service.snapshot(this.root, read.source.token), this.service.log(this.root, 0, 200, activeFilter, read.source.token),
-        this.service.workingTreeFiles(this.root, read.source.token)
+      const [state, log] = await Promise.all([
+        this.service.repositoryState(root, read.source.token),
+        this.service.log(root, 0, 200, activeFilter, read.source.token)
       ]);
+      const { repository, uncommitted } = state;
       if (this.requests.isCurrent('refresh', read.identity, this.root)) {
         const protectedBranches = vscode.workspace.getConfiguration('gitnav')
           .get<string[]>('protectedBranches', ['main', 'master', 'develop', 'release/*']);
         this.post({ type: 'state', repositories, repository, log, uncommitted, protectedBranches, activeFilter, generation: read.identity.generation, identity: read.identity });
-        void this.loadFilterOptions(this.root);
+        void this.loadFilterOptions(root);
         this.logDiagnostic(`State posted: ${repository.refs.length} refs, ${log.commits.length} commits${log.hasMore ? '+' : ''}, ${uncommitted.length} working tree files (${Date.now() - startedAt} ms).`);
+        this.warmAutoFetch(root);
       } else {
         this.logDiagnostic(`Refresh ${read.identity.requestId} completed stale; state was not posted.`);
       }
@@ -100,7 +130,6 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   dispose(): void {
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
-    if (this.externalRefreshTimer) clearTimeout(this.externalRefreshTimer);
     this.gitWatcher?.dispose();
     this.localRefreshScheduler.dispose();
     this.output.dispose();
@@ -111,39 +140,84 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   configureAutoFetch(): void {
     if (this.autoFetchTimer) clearInterval(this.autoFetchTimer);
     const config = vscode.workspace.getConfiguration('gitnav');
-    if (!config.get<boolean>('autoFetch', true)) return;
+    this.autoFetchEnabled = config.get<boolean>('autoFetch', true);
+    if (!this.autoFetchEnabled) {
+      this.autoFetchWarmRoots.clear();
+      return;
+    }
     const minutes = config.get<number>('autoFetchMinutes', 20);
     this.autoFetchTimer = setInterval(() => {
-      if (this.root && this.view?.visible && !this.mutations.isBusy(this.root)) this.runMutation({ action: 'fetch' }).catch(console.error);
+      if (this.root) void this.runBackgroundAutoFetch(this.root).catch(() => undefined);
     }, Math.max(1, minutes) * 60_000);
+    if (this.root) this.warmAutoFetch(this.root);
+  }
+
+  private warmAutoFetch(root: string): void {
+    if (!this.autoFetchEnabled || this.autoFetchWarmRoots.has(root) || !this.view?.visible || this.mutations.isBusy(root)) return;
+    this.autoFetchWarmRoots.add(root);
+    void this.runBackgroundAutoFetch(root).catch(() => this.autoFetchWarmRoots.delete(root));
+  }
+
+  private async runBackgroundAutoFetch(root: string): Promise<void> {
+    if (!this.autoFetchEnabled || this.backgroundFetchRoots.has(root) || !this.view?.visible || this.mutations.isBusy(root)) return;
+    const startedAt = Date.now();
+    this.backgroundFetchRoots.add(root);
+    this.logDiagnostic(`Background fetch started: ${root}`);
+    try {
+      await this.mutations.fetchInBackground(root);
+      this.logDiagnostic(`Background fetch completed in ${Date.now() - startedAt} ms.`);
+      if (this.root === root && this.view?.visible && !this.mutations.isBusy(root)) this.schedulePostMutationRefresh(root);
+    } catch (error) {
+      this.logDiagnostic(`Background fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    } finally {
+      this.backgroundFetchRoots.delete(root);
+    }
+  }
+
+  setBuiltInGitSyncAvailable(available: boolean): void {
+    this.builtInGitSyncAvailable = available;
+    if (available) {
+      this.gitWatcher?.dispose();
+      this.gitWatcher = undefined;
+    } else if (this.view) {
+      this.configureGitWatcher();
+    }
   }
 
   private configureGitWatcher(): void {
-    if (this.gitWatcher) return;
+    if (this.gitWatcher || this.builtInGitSyncAvailable) return;
     this.gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,packed-refs,refs/**,MERGE_HEAD,REBASE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD}');
-    const schedule = () => this.scheduleExternalRefresh();
+    const schedule = (uri: vscode.Uri) => {
+      const root = this.repositoryForGitMetadata(uri.fsPath);
+      if (root) this.localRefreshScheduler.schedule(root, 'history');
+    };
     this.gitWatcher.onDidCreate(schedule);
     this.gitWatcher.onDidChange(schedule);
     this.gitWatcher.onDidDelete(schedule);
   }
 
-  private scheduleExternalRefresh(): void {
-    if (this.externalRefreshTimer) clearTimeout(this.externalRefreshTimer);
-    this.externalRefreshTimer = setTimeout(() => {
-      this.externalRefreshTimer = undefined;
-      if (!this.root || !this.view?.visible || this.mutations.isBusy(this.root) || Date.now() - this.lastInternalMutationAt < 1200) return;
-      this.service.invalidateCaches(this.root);
-      this.refresh().catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
-    }, 350);
+  private repositoryForGitMetadata(fsPath: string): string | undefined {
+    const resolved = path.resolve(fsPath);
+    return [...this.repositories]
+      .sort((left, right) => right.length - left.length)
+      .find(root => resolved.startsWith(`${path.resolve(root)}${path.sep}.git${path.sep}`));
   }
 
   scheduleLocalRepositoryChange(root: string, kind: LocalRefreshKind): void {
     this.localRefreshScheduler.schedule(root, kind);
   }
 
+  scheduleRepositoryDiscoveryRefresh(): void {
+    this.service.invalidateRepositoryDiscovery();
+    if (this.view?.visible) {
+      void this.refresh().catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
+    }
+  }
+
   private async refreshFromLocalChange(root: string, kind: LocalRefreshKind): Promise<void> {
     if (!this.root || !this.view?.visible || path.resolve(root) !== path.resolve(this.root)) return;
-    if (this.mutations.isBusy(root) || Date.now() - this.lastInternalMutationAt < 1200) return;
+    if (this.backgroundFetchRoots.has(root) || this.mutations.isBusy(root) || Date.now() - this.lastInternalMutationAt < 1200) return;
     this.service.invalidateCaches(root);
     if (kind === 'history') {
       await this.refresh();
@@ -156,10 +230,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private async refreshRepositoryStatus(root: string): Promise<void> {
     const read = this.beginRead('local-status', root);
     try {
-      const [repository, uncommitted] = await Promise.all([
-        this.service.snapshot(root, read.source.token),
-        this.service.workingTreeFiles(root, read.source.token)
-      ]);
+      const { repository, uncommitted } = await this.service.repositoryState(root, read.source.token);
       if (this.requests.isCurrent('local-status', read.identity, this.root)) {
         this.post({ type: 'repositoryStatus', repository, uncommitted, identity: read.identity });
       }
@@ -344,17 +415,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.mutationBusy.begin(root);
     this.post({ type: 'busy', busy: true, action: request.action, repositoryId: root });
     const startedAt = Date.now();
+    this.logDiagnostic(`Mutation started: ${request.action} (${root}).`);
     let applied = false;
     let succeeded = false;
     let recoveryMessage: string | undefined;
     try {
-      await runMutationLifecycle(
-        async () => { applied = await this.mutations.run(root, request); recoveryMessage = this.mutations.consumeRecoveryMessage(root); },
-        async () => { if (this.root === root && this.mutationBusy.pending(root) === 1) await this.refreshRepositoryStatus(root); },
-        error => { if (!(error instanceof vscode.CancellationError)) console.error(error); }
-      );
+      applied = await this.mutations.run(root, request);
+      recoveryMessage = this.mutations.consumeRecoveryMessage(root);
       succeeded = true;
     } finally {
+      this.logDiagnostic(`Mutation completed: ${request.action} in ${Date.now() - startedAt} ms (succeeded=${succeeded}, applied=${applied}).`);
       this.activeMutations.leave(mutationKey);
       this.lastInternalMutationAt = Date.now();
       if (this.mutationBusy.end(root) === 0) {
@@ -364,11 +434,15 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
           feedback: actionFeedback(request.action), actionLabel: actionLabel(request.action)
         });
         if (recoveryMessage) this.post({ type: 'autoRecovery', message: recoveryMessage });
-        if (succeeded && applied && this.root === root) {
-          void this.refresh().catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
-        }
+        if (this.root === root) this.schedulePostMutationRefresh(root);
       }
     }
+  }
+
+  private schedulePostMutationRefresh(root: string): void {
+    const repositories = this.repositories.length ? this.repositories : [root];
+    void this.refreshRepositoryContent(repositories, root)
+      .catch(error => { if (!(error instanceof vscode.CancellationError)) console.error(error); });
   }
 
   private async executeContextAction(message: WebviewMessage): Promise<void> {
@@ -391,7 +465,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     if (action === 'interactiveRebase' && message.hashes?.length) {
-      const details = await Promise.all(message.hashes.map(hash => this.service.commitDetail(root, hash)));
+      const details = await mapWithConcurrency(message.hashes, 4, hash => this.service.commitDetail(root, hash));
       const selected = details.map(commit => ({ action: 'pick' as const, hash: commit.hash, subject: commit.subject }));
       this.post({ type: 'rebasePlan', plan: selected });
       return;
@@ -573,26 +647,9 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return strategy ? { action, ref: message.ref, options: { rebase: strategy.rebase, remote: message.kind === 'remote' } } : undefined;
     }
     if (action === 'update') {
-      if (message.strategy === 'merge' || message.strategy === 'rebase') {
-        const snapshot = await this.service.snapshot(this.root!);
-        return { action, options: { strategy: message.strategy, destination: `origin/${snapshot.head}` } };
-      }
-      await this.service.git(this.root!, ['fetch', 'origin', '--prune']);
-      const snapshot = await this.service.snapshot(this.root!, undefined, true);
-      const plan = currentBranchPushPlan(snapshot);
-      if (!plan.remoteBranchExists) throw new Error(`${plan.destination} does not exist.`);
-      const counts = await this.service.git(this.root!, ['rev-list', '--left-right', '--count', `${plan.destination}...HEAD`]);
-      const [incoming, outgoing] = counts.stdout.trim().split(/\s+/).map(Number);
-      if (!(incoming || 0)) return { action: 'fetch' };
-      let strategy: 'merge' | 'rebase' = 'merge';
-      if ((outgoing || 0) > 0) {
-        const choice = await vscode.window.showWarningMessage(
-          `${snapshot.head} and ${plan.destination} have diverged.`, { modal: true }, 'Rebase', 'Merge'
-        );
-        if (!choice) return undefined;
-        strategy = choice === 'Rebase' ? 'rebase' : 'merge';
-      }
-      return { action, options: { strategy, destination: plan.destination } };
+      return message.strategy === 'merge' || message.strategy === 'rebase'
+        ? { action, options: { strategy: message.strategy } }
+        : { action };
     }
     if (action === 'push') return { action, options: { forceLease: false, tags: false } };
     if (action === 'pushAfterUpdate' && (message.strategy === 'rebase' || message.strategy === 'merge')) {
@@ -701,7 +758,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private async prepareInteractiveRebase(plan: GitRebasePlanItem[]): Promise<GitMutationRequest | undefined> {
     if (!this.root || !plan.length) return undefined;
-    const details = await Promise.all(plan.map(item => this.service.commitDetail(this.root!, item.hash)));
+    const details = await mapWithConcurrency(plan, 4, item => this.service.commitDetail(this.root!, item.hash));
     if (details.some(item => item.parents.length > 1)) throw new Error('Interactive rebase of merge commits is not supported yet.');
     for (let index = 1; index < plan.length; index++) {
       const detail = details.find(item => item.hash === plan[index].hash)!;
@@ -905,7 +962,7 @@ function reportClientError(value){const text=value instanceof Error?(value.stack
 window.addEventListener('error',event=>reportClientError(event.error||event.message));window.addEventListener('unhandledrejection',event=>reportClientError(event.reason));
 function storedArray(key){try{const value=JSON.parse(localStorage.getItem(key)||'[]');if(Array.isArray(value))return value}catch(error){reportClientError('Reset invalid '+key+': '+error)}localStorage.removeItem(key);return[]}
 const savedSections=localStorage.getItem('gitLog.sectionCollapsed');let initialSectionCollapse=['remote','tag','worktree'];if(savedSections!==null)initialSectionCollapse=storedArray('gitLog.sectionCollapsed');
-let state={commits:[],commitIndexes:new Map(),commitsByHash:new Map(),graphMaxColumn:0,total:0,hasMore:false,generation:0,busy:false,pending:false,pendingAction:'',pendingLabel:'',contextRequestId:0,loading:new Set(),selected:-1,selectionAnchor:-1,selectedHashes:new Set(),detail:null,uncommitted:[],showingUncommitted:false,visibleFiles:[],visibleFilesWorking:false,selectedFilePath:'',fileFolders:new Set(),fileMode:localStorage.getItem('gitLog.fileMode')||'flat',leftMode:localStorage.getItem('gitLog.leftMode')==='stashes'?'stashes':'branches',fileCollapsed:new Set(storedArray('gitLog.fileCollapsed')),favorites:new Set(storedArray('gitLog.favorites')),recentBranches:storedArray('gitLog.recentBranches'),collapsed:new Set(storedArray('gitLog.collapsed')),sectionCollapsed:new Set(initialSectionCollapse),protectedBranches:[],lastStatus:'',filterOptions:{authors:[],files:[]},filterDraft:{authors:[],path:'',since:'',until:''},activeFilter:{}};
+let state={commits:[],commitIndexes:new Map(),commitsByHash:new Map(),graphMaxColumn:0,total:0,hasMore:false,generation:0,busy:false,pending:false,pendingAction:'',pendingLabel:'',contextRequestId:0,loading:new Set(),selected:-1,selectionAnchor:-1,selectedHashes:new Set(),detail:null,uncommitted:[],showingUncommitted:false,visibleFiles:[],visibleFilesWorking:false,selectedFilePath:'',fileFolders:new Set(),fileMode:localStorage.getItem('gitLog.fileMode')||'flat',leftMode:localStorage.getItem('gitLog.leftMode')==='stashes'?'stashes':'branches',fileCollapsed:new Set(storedArray('gitLog.fileCollapsed')),favorites:new Set(storedArray('gitLog.favorites')),recentBranches:storedArray('gitLog.recentBranches'),collapsed:new Set(storedArray('gitLog.collapsed')),sectionCollapsed:new Set(initialSectionCollapse),protectedBranches:[],lastStatus:'',filterOptions:{authors:[],files:[]},filterPathItems:[],filterDraft:{authors:[],path:'',since:'',until:''},activeFilter:{}};
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),pathBase=s=>String(s||'').replace(/\\\\/g,'/').split('/').filter(Boolean).pop()||String(s||'');
 for(const id of ['authorFilter','pathFilter','regex','case','goto']){if(!$(id)){const input=document.createElement('input');input.id=id;input.hidden=true;document.body.appendChild(input)}}
 if(!$('repo')){const select=document.createElement('select');select.id='repo';select.hidden=true;document.body.appendChild(select)}
@@ -923,7 +980,7 @@ function relativeTime(ms){if(!ms)return'Not fetched this session';const minutes=
 function renderStatusBadges(){const r=state.repository,host=$('repoBadges');if(!r){host.innerHTML='';return}const values=[];if(state.lastStatus)values.push([state.lastStatus,state.lastStatus,'operation']);if(r.ahead)values.push(['↑ '+r.ahead,r.ahead+' local commit(s) not on the upstream branch','sync-ahead']);if(r.behind)values.push(['↓ '+r.behind,r.behind+' upstream commit(s) not in the local branch','sync-behind']);if(r.changedCount)values.push([r.changedCount+' changed','Working tree files','changed-status']);if(r.detached)values.push(['Detached HEAD','No branch is checked out','operation']);if(r.operation)values.push([r.operation,'Git operation in progress','operation']);values.push([relativeTime(r.lastFetchedAt),'Last successful fetch','fetch-status']);host.innerHTML=values.map(x=>'<span class="repo-badge '+x[2]+'" title="'+esc(x[1])+'">'+esc(x[0])+'</span>').join('')}
 function localIso(value){const d=new Date(value),offset=d.getTimezoneOffset()*60000;return new Date(d.getTime()-offset).toISOString().slice(0,10)}function presetRange(value){const now=new Date(),today=localIso(now);if(value==='today')return{since:today,until:today};if(value==='7'||value==='30'){const start=new Date(now);start.setDate(start.getDate()-(Number(value)-1));return{since:localIso(start),until:today}}return{since:'',until:''}}function datePresetLabel(since,until){const cleanUntil=String(until||'').slice(0,10),today=localIso(new Date());if(since===today&&cleanUntil===today)return'Date: Today';for(const days of [7,30]){const range=presetRange(String(days));if(since===range.since&&cleanUntil===range.until)return'Date: Last '+days+' days'}return'Date: '+(since||'…')+' – '+(cleanUntil||'…')}
 function renderOperationBanner(repository,files=[]){const operation=repository?.operation,conflicts=files.filter(file=>file.conflict),labels={MERGING:'Merge',REBASING:'Rebase','CHERRY-PICKING':'Cherry-pick',REVERTING:'Revert'};$('banner').style.display=operation?'block':'none';if(!operation)return;$('operation').textContent=(labels[operation]||operation)+' · '+conflicts.length+' conflict(s)';document.querySelector('[data-conflict="continue"]').disabled=conflicts.length>0;document.querySelector('[data-conflict="skip"]').style.display=/REBAS|CHERRY/.test(operation)?'inline-block':'none'}
-function applyRepositoryStatus(m){state.repository=m.repository;state.uncommitted=m.uncommitted||[];const r=state.repository;$('branchName').textContent=r?.detached?'Detached HEAD':r?.head||'No branch';$('branchLock').classList.toggle('visible',!!r&&!r.detached&&protectedBranch(r.head));renderStatusBadges();renderBranches();renderBranchPicker();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';renderOperationBanner(r,state.uncommitted);if(state.showingUncommitted){renderFiles(state.uncommitted,true);$('detail').innerHTML='<div class="message">Uncommitted changes</div>'}}
+function applyRepositoryStatus(m){state.repository=m.repository;state.uncommitted=m.uncommitted||[];const r=state.repository;$('branchName').textContent=r?.detached?'Detached HEAD':r?.head||'No branch';$('branchLock').classList.toggle('visible',!!r&&!r.detached&&protectedBranch(r.head));renderStatusBadges();renderBranches();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';renderOperationBanner(r,state.uncommitted);if(state.showingUncommitted){renderFiles(state.uncommitted,true);$('detail').innerHTML='<div class="message">Uncommitted changes</div>'}}
 function activeFilters(){const f=state.activeFilter||{},chips=[];if(f.authors?.length)chips.push({id:'authors',label:'Authors: '+f.authors.length});if(f.path)chips.push({id:'path',label:'File: '+pathBase(f.path)});if(f.since||f.until)chips.push({id:'date',label:datePresetLabel(f.since,f.until)});if(state.selectedRef)chips.push({id:'ref',label:'Branch: '+state.selectedRef});return chips}
 function renderFilterChips(){const chips=activeFilters();$('filterChips').innerHTML=chips.map(x=>'<button class="filter-chip ui-chip" data-clear-filter="'+x.id+'">'+esc(x.label)+' ×</button>').join('');$('toggleFilters').dataset.count=String(chips.filter(x=>x.id!=='ref').length)}
 function requestContext(data){state.contextRequestId++;closeContextMenus();if(!state.busy)send('context',{...data,requestId:state.contextRequestId})}
@@ -949,7 +1006,8 @@ function showRecoveryModal(message){const recovery=message.recovery,actions=$('r
 function showRecoveryToast(message){const recovery=message.recovery,toast=$('toast');if(recovery.actions.length)return showRecoveryModal(message);if(recovery.kind==='stashConflict'){state.showingUncommitted=true;renderFiles(state.uncommitted,true);$('detail').innerHTML='<div class="message">Resolve conflicted files</div>'}$('toastTitle').textContent=recovery.title;$('toastMessage').textContent=recovery.message;$('toastDetailText').textContent=recovery.detail;$('toastDetails').style.display=recovery.detail?'block':'none';$('toastDetails').open=false;$('toastActions').innerHTML='';toast.classList.add('recovery',recovery.level);toast.classList.remove('success');toast.style.display='block'}
 $('toastClose').onclick=hideToast;window.addEventListener('message',e=>{const m=e.data;if(m.type==='autoRecovery'){const toast=$('toast');$('toastTitle').textContent=m.message;$('toastMessage').textContent='Repository refreshed.';$('toastActions').innerHTML='';$('toastDetails').style.display='none';toast.classList.remove('recovery','guided','manual');toast.classList.add('success');toast.style.display='block';clearTimeout(state.feedbackTimer);state.feedbackTimer=setTimeout(hideToast,2600);e.stopImmediatePropagation()}else if(m.type==='recovery'){showRecoveryToast(m);e.stopImmediatePropagation()}else if(m.type==='error'){clearPending();showErrorToast(m.message);if(['ready','refresh','loadLog'].includes(m.scope)&&!state.commits.length){$('emptyState').hidden=false;$('emptyState').innerHTML='<b>Unable to load Git history</b><span>Review the error details, then try again.</span><button data-empty-action="refresh">Try again</button>'}e.stopImmediatePropagation()}else if(m.type==='pending'){if(m.pending===false)clearPending();e.stopImmediatePropagation()}else if(m.type==='busy'){if(state.repository?.root&&m.repositoryId!==state.repository.root){e.stopImmediatePropagation();return}if(m.busy)setActionActivity(true,'running',m.action,m.actionLabel||actionLabel(m.action));else{setActionActivity(false,'',m.action,m.actionLabel||actionLabel(m.action));if(m.succeeded&&m.applied)showActionFeedback(m.feedback||'status',m.actionLabel||actionLabel(m.action))}e.stopImmediatePropagation()}},true);
 function absorbAuthors(commits=[]){const authors=new Map((state.filterOptions.authors||[]).map(a=>[a.email.toLowerCase(),a]));for(const commit of commits)if(commit?.authorEmail)authors.set(commit.authorEmail.toLowerCase(),{name:commit.author||commit.authorEmail,email:commit.authorEmail});state.filterOptions.authors=[...authors.values()].sort((a,b)=>a.name.localeCompare(b.name))}
-window.addEventListener('message',e=>{const m=e.data;if(m.type==='state'||m.type==='log')absorbAuthors(m.log?.commits||[]);if(m.type==='filterAuthors'&&state.repository?.root===m.repositoryId){absorbAuthors((m.authors||[]).map(a=>({author:a.name,authorEmail:a.email})));if($('filters').classList.contains('expanded'))renderFilterControls();e.stopImmediatePropagation();return}if(m.type!=='filterOptions')return;if(state.repository?.root===m.repositoryId){state.filterOptions={authors:state.filterOptions.authors||[],files:m.filterOptions?.files||[]};if($('filters').classList.contains('expanded'))renderFilterControls()}e.stopImmediatePropagation()},true);
+function buildFilterPathItems(files=[]){const folders=new Set();for(const file of files){const parts=file.split('/');for(let i=1;i<parts.length;i++)folders.add(parts.slice(0,i).join('/'))}return[...folders].map(path=>({path,folder:true})).concat(files.map(path=>({path,folder:false}))).sort((a,b)=>Number(b.folder)-Number(a.folder)||a.path.localeCompare(b.path))}
+window.addEventListener('message',e=>{const m=e.data;if(m.type==='state'||m.type==='log')absorbAuthors(m.log?.commits||[]);if(m.type==='filterAuthors'&&state.repository?.root===m.repositoryId){absorbAuthors((m.authors||[]).map(a=>({author:a.name,authorEmail:a.email})));if($('filters').classList.contains('expanded'))renderFilterControls();e.stopImmediatePropagation();return}if(m.type!=='filterOptions')return;if(state.repository?.root===m.repositoryId){const files=m.filterOptions?.files||[];state.filterOptions={authors:state.filterOptions.authors||[],files};state.filterPathItems=buildFilterPathItems(files);if($('filters').classList.contains('expanded'))renderFilterControls()}e.stopImmediatePropagation()},true);
 window.addEventListener('message',e=>{const m=e.data;if(m.type!=='state')return;const roots=m.repositories||[],current=m.repository?.root;$('repoTrigger').hidden=roots.length<=1;$('repoName').textContent=current?pathBase(current):'Repository';renderRepoPicker(current,roots)},true);
 $('recoveryModal').onclick=e=>{if(e.target===$('recoveryModal'))closeRecoveryModal()};document.addEventListener('keydown',e=>{if(e.key==='Escape')closeRecoveryModal()});
 function graphX(column){return PAD+column*COL+COL/2}function graphY(index,scrollTop){return index*ROW+ROW/2-scrollTop}function graphPath(x1,y1,x2,y2,stub=false){if(x1===x2||stub)return'M '+x1+' '+y1+' L '+x2+' '+y2;const bend=y2-Math.sign(y2-y1||1)*ROW*.65;return'M '+x1+' '+y1+' C '+x1+' '+bend+', '+x2+' '+(y1+ROW*.35)+', '+x2+' '+y2}
@@ -976,7 +1034,7 @@ function clearFilters(){state.filterDraft={authors:[],path:'',since:'',until:''}
 function debounce(callback,delay){let timer;return()=>{clearTimeout(timer);timer=setTimeout(callback,delay)}}const loadFilteredDebounced=debounce(loadFiltered,300);$('textFilter').oninput=loadFilteredDebounced;
 function fuzzyMatch(value,query){let at=0;for(const char of value.toLowerCase())if(char===query[at]?.toLowerCase())at++;return at===query.length}
 function renderAuthorChoices(){const q=$('authorSearch').value.trim().toLowerCase(),selected=new Set(state.filterDraft.authors);$('authorChoices').innerHTML=(state.filterOptions.authors||[]).filter(a=>!q||(a.name+' '+a.email).toLowerCase().includes(q)).map(a=>'<button class="filter-choice '+(selected.has(a.email)?'selected':'')+'" data-author="'+esc(a.email)+'"><span class="choice-check">'+(selected.has(a.email)?GitNavUi.icons.check:'')+'</span><span class="choice-name">'+esc(a.name)+'</span><small>'+esc(a.email)+'</small></button>').join('')||'<div class="empty">No matching authors</div>'}
-function filterPaths(){const q=$('pathSearch').value.trim().toLowerCase(),files=state.filterOptions.files||[],folders=new Set();for(const file of files){const parts=file.split('/');for(let i=1;i<parts.length;i++)folders.add(parts.slice(0,i).join('/'))}return[...folders].map(path=>({path,folder:true})).concat(files.map(path=>({path,folder:false}))).filter(x=>!q||x.path.toLowerCase().includes(q)||fuzzyMatch(pathBase(x.path),q)).sort((a,b)=>Number(b.folder)-Number(a.folder)||a.path.localeCompare(b.path)).slice(0,300)}
+function filterPaths(){const q=$('pathSearch').value.trim().toLowerCase();return(state.filterPathItems||[]).filter(x=>!q||x.path.toLowerCase().includes(q)||fuzzyMatch(pathBase(x.path),q)).slice(0,300)}
 function renderPathChoices(){const q=$('pathSearch').value.trim(),items=filterPaths();$('pathChoices').innerHTML='<button class="filter-choice '+(!state.filterDraft.path?'selected':'')+'" data-path-choice=""><span class="choice-check">'+(!state.filterDraft.path?GitNavUi.icons.check:'')+'</span><span class="choice-name">Any file</span></button>'+items.map(x=>'<button class="filter-choice '+(state.filterDraft.path===x.path?'selected':'')+'" data-path-choice="'+esc(x.path)+'"><span class="choice-check">'+(state.filterDraft.path===x.path?GitNavUi.icons.check:(x.folder?'›':'·'))+'</span><span class="choice-name">'+esc(pathBase(x.path))+'</span>'+(q?'<small>'+esc(x.path)+'</small>':'')+'</button>').join('')}
 function inferDatePreset(){const f=state.filterDraft;if(!f.since&&!f.until)return'any';for(const value of ['today','7','30']){const range=presetRange(value);if(f.since===range.since&&f.until===range.until)return value}return'custom'}
 const datePresetLabels={any:'Any time',today:'Today','7':'Last 7 days','30':'Last 30 days',custom:'Custom range'};
@@ -993,8 +1051,8 @@ function renderFilterControls(){const f=state.filterDraft,authors=state.filterOp
 function positionFilters(){GitNavUi.fit($('filters'),$('toggleFilters'),{align:'start',gap:4})}
 function openFilters(){state.filterDraft={authors:[...(state.activeFilter.authors||[])],path:state.activeFilter.path||'',since:state.activeFilter.since||'',until:String(state.activeFilter.until||'').slice(0,10)};setFilterView('root');renderFilterControls();$('filters').classList.add('expanded');$('toggleFilters').setAttribute('aria-expanded','true');positionFilters()}
 function closeFilters(apply=true){if(!$('filters').classList.contains('expanded'))return;$('filters').classList.remove('expanded');$('toggleFilters').setAttribute('aria-expanded','false');if(apply){const next={authors:state.filterDraft.authors.length?state.filterDraft.authors:undefined,path:state.filterDraft.path||undefined,since:state.filterDraft.since||undefined,until:state.filterDraft.until?state.filterDraft.until+' 23:59:59':undefined};const current={...state.activeFilter,text:undefined,refs:undefined};if(JSON.stringify(next)!==JSON.stringify(current)){state.activeFilter=next;loadFiltered()}}}
-$('toggleFilters').onclick=e=>{e.stopPropagation();$('filters').classList.contains('expanded')?closeFilters(true):openFilters()};$('filterBack').onclick=()=>setFilterView($('filters').dataset.view==='custom-date'?'date':'root');$('filters').onclick=e=>{const trigger=e.target.closest('[data-calendar-for]');if(trigger){openCalendar(trigger.dataset.calendarFor);return}const nav=e.target.closest('[data-calendar-nav]');if(nav){calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth()+Number(nav.dataset.calendarNav),1);renderCalendar();return}const day=e.target.closest('[data-calendar-date]');if(day){chooseCalendarDate(day.dataset.calendarDate);return}const calendarAction=e.target.closest('[data-calendar-action]');if(calendarAction){if(calendarAction.dataset.calendarAction==='today')chooseCalendarDate(calendarValue(new Date()));else{state.filterDraft[calendarTarget]='';renderFilterControls()}return}const view=e.target.closest('[data-filter-view]');if(view){setFilterView(view.dataset.filterView);return}const dateChoice=e.target.closest('[data-date-preset]');if(dateChoice){const value=dateChoice.dataset.datePreset;if(value==='custom')setFilterView('custom-date');else{Object.assign(state.filterDraft,presetRange(value));renderFilterControls();setFilterView('root')}}};$('pathSearch').oninput=renderPathChoices;$('authorChoices').onclick=e=>{const button=e.target.closest('[data-author]');if(!button)return;const email=button.dataset.author,index=state.filterDraft.authors.indexOf(email);index>=0?state.filterDraft.authors.splice(index,1):state.filterDraft.authors.push(email);renderFilterControls()};$('pathChoices').onclick=e=>{const button=e.target.closest('[data-path-choice]');if(!button)return;state.filterDraft.path=button.dataset.pathChoice;renderFilterControls();setFilterView('root')};for(const id of ['sinceFilter','untilFilter'])$(id).oninput=e=>{const value=e.target.value.trim();e.target.setAttribute('aria-invalid',String(!validDateInput(value)));if(validDateInput(value)){state.filterDraft[id==='sinceFilter'?'since':'until']=value;renderDateChoices();renderCalendar()}};$('clear').onclick=()=>{clearFilters();closeFilters(false)};document.addEventListener('pointerdown',e=>{if($('filters').classList.contains('expanded')&&!$('filters').contains(e.target)&&!$('toggleFilters').contains(e.target))closeFilters(true)});
-let authorSearchTimer;$('authorSearch').oninput=()=>{renderAuthorChoices();clearTimeout(authorSearchTimer);const query=$('authorSearch').value.trim();if(query.length>=2)authorSearchTimer=setTimeout(()=>send('searchAuthors',{query}),250)};
+$('toggleFilters').onclick=e=>{e.stopPropagation();$('filters').classList.contains('expanded')?closeFilters(true):openFilters()};$('filterBack').onclick=()=>setFilterView($('filters').dataset.view==='custom-date'?'date':'root');$('filters').onclick=e=>{const trigger=e.target.closest('[data-calendar-for]');if(trigger){openCalendar(trigger.dataset.calendarFor);return}const nav=e.target.closest('[data-calendar-nav]');if(nav){calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth()+Number(nav.dataset.calendarNav),1);renderCalendar();return}const day=e.target.closest('[data-calendar-date]');if(day){chooseCalendarDate(day.dataset.calendarDate);return}const calendarAction=e.target.closest('[data-calendar-action]');if(calendarAction){if(calendarAction.dataset.calendarAction==='today')chooseCalendarDate(calendarValue(new Date()));else{state.filterDraft[calendarTarget]='';renderFilterControls()}return}const view=e.target.closest('[data-filter-view]');if(view){setFilterView(view.dataset.filterView);return}const dateChoice=e.target.closest('[data-date-preset]');if(dateChoice){const value=dateChoice.dataset.datePreset;if(value==='custom')setFilterView('custom-date');else{Object.assign(state.filterDraft,presetRange(value));renderFilterControls();setFilterView('root')}}};let pathSearchTimer;$('pathSearch').oninput=()=>{clearTimeout(pathSearchTimer);pathSearchTimer=setTimeout(renderPathChoices,100)};$('authorChoices').onclick=e=>{const button=e.target.closest('[data-author]');if(!button)return;const email=button.dataset.author,index=state.filterDraft.authors.indexOf(email);index>=0?state.filterDraft.authors.splice(index,1):state.filterDraft.authors.push(email);renderFilterControls()};$('pathChoices').onclick=e=>{const button=e.target.closest('[data-path-choice]');if(!button)return;state.filterDraft.path=button.dataset.pathChoice;renderFilterControls();setFilterView('root')};for(const id of ['sinceFilter','untilFilter'])$(id).oninput=e=>{const value=e.target.value.trim();e.target.setAttribute('aria-invalid',String(!validDateInput(value)));if(validDateInput(value)){state.filterDraft[id==='sinceFilter'?'since':'until']=value;renderDateChoices();renderCalendar()}};$('clear').onclick=()=>{clearFilters();closeFilters(false)};document.addEventListener('pointerdown',e=>{if($('filters').classList.contains('expanded')&&!$('filters').contains(e.target)&&!$('toggleFilters').contains(e.target))closeFilters(true)});
+let authorSearchTimer;$('authorSearch').oninput=()=>{renderAuthorChoices();clearTimeout(authorSearchTimer);const query=$('authorSearch').value.trim();if(query.length>=3)authorSearchTimer=setTimeout(()=>send('searchAuthors',{query}),400)};
 $('filterChips').onclick=e=>{const chip=e.target.closest('[data-clear-filter]');if(!chip)return;const id=chip.dataset.clearFilter;if(id==='ref')state.selectedRef=undefined;else if(id==='authors')state.activeFilter={...state.activeFilter,authors:undefined};else if(id==='path')state.activeFilter={...state.activeFilter,path:undefined};else if(id==='date')state.activeFilter={...state.activeFilter,since:undefined,until:undefined};renderBranches();loadFiltered()};$('emptyState').onclick=e=>{if(e.target.closest('[data-empty-action="refresh"]'))send('refresh');else if(e.target.closest('[data-empty-action="clear"]'))clearFilters()};
 let scrollFrame;$('viewport').onscroll=()=>{if(scrollFrame)return;$('contextMenu').style.display='none';scrollFrame=requestAnimationFrame(()=>{scrollFrame=undefined;renderRows()})};$('viewport').onkeydown=e=>{if(!state.commits.length)return;if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();state.selected=Math.max(0,Math.min(state.commits.length-1,state.selected+(e.key==='ArrowDown'?1:-1)));const commit=state.commits[state.selected];if(!commit)return;state.selectionAnchor=state.selected;state.selectedHashes=new Set([commit.hash]);$('viewport').scrollTop=Math.max(0,Math.min($('viewport').scrollTop,state.selected*ROW));if((state.selected+1)*ROW>$('viewport').scrollTop+$('viewport').clientHeight)$('viewport').scrollTop=(state.selected+1)*ROW-$('viewport').clientHeight;send('detail',{hash:commit.hash,generation:state.generation});renderRows()}else if(e.key==='Enter'&&state.detail?.files?.length){e.preventDefault();const file=state.detail.files[0];send('diff',{hash:state.detail.hash,path:file.path,parent:Number($('parentMode').value)||1})}};$('viewport').onclick=e=>{const copy=e.target.closest('[data-row-copy]');if(copy){e.stopPropagation();send('copyText',{ref:copy.dataset.rowCopy});return}const menu=e.target.closest('[data-row-menu]');if(menu){e.stopPropagation();const index=Number(menu.dataset.rowMenu),c=state.commits[index],rect=menu.getBoundingClientRect();requestContext({x:rect.right,y:rect.bottom,kind:'commit',hash:c.hash,ref:c.hash,hashes:[c.hash]});return}const row=e.target.closest('.row');if(!row)return;state.showingUncommitted=false;state.selected=Number(row.dataset.index);const hash=state.commits[state.selected].hash;if(state.repository?.root)localStorage.setItem('gitLog.selected.'+state.repository.root,hash);if(e.shiftKey&&state.selectionAnchor>=0){state.selectedHashes.clear();const from=Math.min(state.selectionAnchor,state.selected),to=Math.max(state.selectionAnchor,state.selected);for(let i=from;i<=to;i++)if(state.commits[i])state.selectedHashes.add(state.commits[i].hash)}else if(e.ctrlKey||e.metaKey){state.selectionAnchor=state.selected;state.selectedHashes.has(hash)?state.selectedHashes.delete(hash):state.selectedHashes.add(hash)}else{state.selectionAnchor=state.selected;state.selectedHashes.clear();state.selectedHashes.add(hash)}send('detail',{hash,generation:state.generation});refreshSelection()};$('viewport').oncontextmenu=e=>{e.preventDefault();const row=e.target.closest('.row');if(row){const index=Number(row.dataset.index),c=state.commits[index];if(!state.selectedHashes.has(c.hash)){state.selected=index;state.selectionAnchor=index;state.selectedHashes=new Set([c.hash]);refreshSelection()}const hashes=state.commits.map(c=>c?.hash).filter(hash=>hash&&state.selectedHashes.has(hash)).reverse();requestContext({x:e.clientX,y:e.clientY,kind:hashes.length>1?'commits':'commit',hash:c.hash,ref:c.hash,hashes})}};
 $('files').ondblclick=e=>{const f=e.target.closest('.file');if(!f)return;f.dataset.working?send('workingDiff',{path:f.dataset.path}):state.detail&&send('diff',{hash:state.detail.hash,path:f.dataset.path,parent:Number($('parentMode').value)||1})};$('files').oncontextmenu=e=>{e.preventDefault();const f=e.target.closest('.file');if(f)requestContext({x:e.clientX,y:e.clientY,kind:f.dataset.working?'workingFile':'commitFile',hash:state.detail?.hash,path:f.dataset.path,parent:Number($('parentMode').value)||1})};$('branchSearch').oninput=scheduleBranchSearch;$('branchSearch').onkeydown=e=>{if(e.key==='Escape'&&e.target.value){e.preventDefault();e.target.value='';renderBranches()}};$('branches').onclick=e=>{const item=e.target.closest('.item');if(!item)return;if(item.dataset.kind==='stash'){if(state.selectedRef===item.dataset.ref){state.selectedRef=undefined;renderFilterChips();loadFiltered()}else if(item.dataset.hash)send('detail',{hash:item.dataset.hash});return}if(item.dataset.ref){state.selectedRef=item.dataset.ref;renderBranches();loadFiltered()}else if(item.dataset.hash)send('detail',{hash:item.dataset.hash})};$('branches').oncontextmenu=e=>{e.preventDefault();const item=e.target.closest('.item');if(item)requestContext({x:e.clientX,y:e.clientY,kind:item.dataset.kind,ref:item.dataset.ref,hash:item.dataset.hash,path:item.dataset.path,current:item.classList.contains('active')})};$('goto').onkeydown=e=>{if(e.key==='Enter'&&e.target.value)send('detail',{hash:e.target.value})};$('refresh').onclick=()=>{if(startPending('refresh'))send('refresh')};for(const b of document.querySelectorAll('[data-action]'))b.onclick=()=>sendMutation(b.dataset.action);for(const b of document.querySelectorAll('[data-conflict]'))b.onclick=()=>sendMutation(b.dataset.conflict,{operation:state.repository?.operation});
@@ -1036,6 +1094,6 @@ $('contextMenu').onclick=e=>{if(e.target.closest('[data-context-group="more"]'))
 window.addEventListener('message',e=>{if(e.data.type==='repositoryStatus')applyRepositoryStatus(e.data)},true);
 for(const split of document.querySelectorAll('.split'))split.onmousedown=e=>{const side=split.dataset.side,start=e.clientX,layout=$('layout'),initial=side==='left'?layout.children[0].offsetWidth:layout.children[4].offsetWidth;let frame,latest=start,value=initial;document.body.classList.add('resizing');const apply=()=>{frame=undefined;value=Math.max(140,initial+(side==='left'?latest-start:start-latest));layout.style.setProperty('--'+side,value+'px')};document.onmousemove=m=>{latest=m.clientX;if(!frame)frame=requestAnimationFrame(apply)};document.onmouseup=()=>{if(frame){cancelAnimationFrame(frame);apply()}localStorage.setItem('gitLog.'+side,String(value));document.body.classList.remove('resizing');document.onmousemove=document.onmouseup=null;const range=visibleRange();renderGraph(range.start,range.end)}};for(const side of ['left','right']){const v=localStorage.getItem('gitLog.'+side);if(v)$('layout').style.setProperty('--'+side,v+'px')}
 function detailHeightKey(){return'gitLog.detailHeight.'+(state.repository?.root||'default')}function restoreDetailHeight(){const saved=localStorage.getItem(detailHeightKey())||localStorage.getItem('gitLog.detailHeight');if(saved)$('rightPane').style.setProperty('--detail-height',saved+'px')}$('rightSplit').title='Drag to resize · Double-click to reset';$('rightSplit').onmousedown=e=>{const pane=$('rightPane'),handle=$('rightSplit'),start=e.clientY,initial=$('detail').offsetHeight;let frame,latest=start,height=initial;document.body.classList.add('resizing');handle.classList.add('dragging');const apply=()=>{frame=undefined;height=Math.max(110,Math.min(pane.clientHeight-110,initial+latest-start));pane.style.setProperty('--detail-height',height+'px')};document.onmousemove=m=>{latest=m.clientY;if(!frame)frame=requestAnimationFrame(apply)};document.onmouseup=()=>{if(frame){cancelAnimationFrame(frame);apply()}localStorage.setItem(detailHeightKey(),String(height));document.body.classList.remove('resizing');handle.classList.remove('dragging');document.onmousemove=document.onmouseup=null;const range=visibleRange();renderGraph(range.start,range.end)}};$('rightSplit').ondblclick=()=>{$('rightPane').style.removeProperty('--detail-height');localStorage.removeItem(detailHeightKey())};for(const tab of document.querySelectorAll('[data-right-tab]'))tab.onclick=()=>{$('rightPane').classList.toggle('mobile-files',tab.dataset.rightTab==='files');$('rightPane').classList.toggle('mobile-detail',tab.dataset.rightTab==='detail')};
-window.onmessage=e=>{const m=e.data;if(m.type==='rebasePlan')showRebasePlan(m.plan);else if(m.type==='inlineDiff')renderInlineDiff(m.diff);else if(m.type==='selectRef'){state.selectedRef=m.ref;renderBranches();loadFiltered()}else if(m.type==='state'){const f=m.activeFilter||{};$('textFilter').value=f.text||'';$('authorFilter').value=f.author||'';$('pathFilter').value=f.path||'';$('sinceFilter').value=f.since||'';$('untilFilter').value=f.until||'';$('regex').checked=!!f.regex;$('case').checked=!!f.matchCase;state.selectedRef=f.refs?.[0];const initial=m.log?.commits??[];state={...state,...m,commits:initial,detail:null,selectedFilePath:'',hasMore:!!m.log?.hasMore,total:initial.length+(m.log?.hasMore?PAGE:0)};indexCommits(initial,0,true);$('repo').style.display=m.repositories.length>1?'block':'none';$('repo').innerHTML=m.repositories.map(root=>'<option value="'+esc(root)+'" '+(root===m.repository?.root?'selected':'')+'>'+esc(pathBase(root))+'</option>').join('');const r=m.repository,current=r?.refs.find(x=>x.current);restoreDetailHeight();$('branchName').textContent=r?.detached?'Detached HEAD':r?.head||'No branch';$('branchLock').classList.toggle('visible',!!r&&!r.detached&&protectedBranch(r.head));if(current){state.recentBranches=[current.name,...state.recentBranches.filter(x=>x!==current.name)].slice(0,6);localStorage.setItem('gitLog.recentBranches',JSON.stringify(state.recentBranches))}renderStatusBadges();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';renderBranches();renderBranchPicker();renderFilterChips();const saved=r&&localStorage.getItem('gitLog.selected.'+r.root),selectedIndex=saved?state.commits.findIndex(c=>c?.hash===saved):-1;state.selected=selectedIndex>=0?selectedIndex:(state.commits[0]?0:-1);state.selectionAnchor=state.selected;state.selectedHashes=new Set(state.selected>=0?[state.commits[state.selected].hash]:[]);renderRows(true);if(state.selected>=0)send('detail',{hash:state.commits[state.selected].hash,generation:state.generation});else{$('detail').innerHTML='<div class="empty">Select a commit to view its details</div>';renderFiles([])}if(r?.operation){$('files').innerHTML=state.uncommitted.filter(f=>f.conflict).map(f=>fileRow(f,0,true)).join('')}}else if(m.type==='log'){const first=m.log.offset===0;if(first){state.commits=m.log.commits;$('viewport').scrollTop=0;indexCommits(m.log.commits,0,true)}else{state.commits.splice(m.log.offset,0,...m.log.commits);indexCommits(m.log.commits,m.log.offset)}state.hasMore=m.log.hasMore;state.total=state.commits.length+(state.hasMore?PAGE:0);state.loading.delete(m.log.offset);renderRows(first)}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}else if(m.type==='compareFiles'){renderFiles(m.files);$('detail').innerHTML='<div class="detail-title">Compare commits</div><div class="detail-meta-line"><span>'+esc(m.from)+'</span><span>↔</span><span>'+esc(m.to)+'</span></div><div class="detail-subject-body">'+(m.onlyCurrent?m.onlyCurrent.length+' commit(s) only in current · '+m.onlySelected.length+' only in selected · ':'')+m.files.length+' changed file(s)</div>'}};send('ready');
+window.onmessage=e=>{const m=e.data;if(m.type==='rebasePlan')showRebasePlan(m.plan);else if(m.type==='inlineDiff')renderInlineDiff(m.diff);else if(m.type==='selectRef'){state.selectedRef=m.ref;renderBranches();loadFiltered()}else if(m.type==='state'){const f=m.activeFilter||{};$('textFilter').value=f.text||'';$('authorFilter').value=f.author||'';$('pathFilter').value=f.path||'';$('sinceFilter').value=f.since||'';$('untilFilter').value=f.until||'';$('regex').checked=!!f.regex;$('case').checked=!!f.matchCase;state.selectedRef=f.refs?.[0];const initial=m.log?.commits??[];state={...state,...m,commits:initial,detail:null,selectedFilePath:'',hasMore:!!m.log?.hasMore,total:initial.length+(m.log?.hasMore?PAGE:0)};indexCommits(initial,0,true);$('repo').style.display=m.repositories.length>1?'block':'none';$('repo').innerHTML=m.repositories.map(root=>'<option value="'+esc(root)+'" '+(root===m.repository?.root?'selected':'')+'>'+esc(pathBase(root))+'</option>').join('');const r=m.repository,current=r?.refs.find(x=>x.current);restoreDetailHeight();$('branchName').textContent=r?.detached?'Detached HEAD':r?.head||'No branch';$('branchLock').classList.toggle('visible',!!r&&!r.detached&&protectedBranch(r.head));if(current){state.recentBranches=[current.name,...state.recentBranches.filter(x=>x!==current.name)].slice(0,6);localStorage.setItem('gitLog.recentBranches',JSON.stringify(state.recentBranches))}renderStatusBadges();$('uncommitted').style.display=state.uncommitted.length?'grid':'none';$('banner').style.display=r?.operation?'block':'none';$('operation').textContent=r?.operation??'';renderBranches();renderFilterChips();const saved=r&&localStorage.getItem('gitLog.selected.'+r.root),selectedIndex=saved?state.commits.findIndex(c=>c?.hash===saved):-1;state.selected=selectedIndex>=0?selectedIndex:(state.commits[0]?0:-1);state.selectionAnchor=state.selected;state.selectedHashes=new Set(state.selected>=0?[state.commits[state.selected].hash]:[]);renderRows(true);if(state.selected>=0)send('detail',{hash:state.commits[state.selected].hash,generation:state.generation});else{$('detail').innerHTML='<div class="empty">Select a commit to view its details</div>';renderFiles([])}if(r?.operation){$('files').innerHTML=state.uncommitted.filter(f=>f.conflict).map(f=>fileRow(f,0,true)).join('')}}else if(m.type==='log'){const first=m.log.offset===0;if(first){state.commits=m.log.commits;$('viewport').scrollTop=0;indexCommits(m.log.commits,0,true)}else{state.commits.splice(m.log.offset,0,...m.log.commits);indexCommits(m.log.commits,m.log.offset)}state.hasMore=m.log.hasMore;state.total=state.commits.length+(state.hasMore?PAGE:0);state.loading.delete(m.log.offset);renderRows(first)}else if(m.type==='detail'){state.detail=m.detail;renderDetail()}else if(m.type==='compareFiles'){renderFiles(m.files);$('detail').innerHTML='<div class="detail-title">Compare commits</div><div class="detail-meta-line"><span>'+esc(m.from)+'</span><span>↔</span><span>'+esc(m.to)+'</span></div><div class="detail-subject-body">'+(m.onlyCurrent?m.onlyCurrent.length+' commit(s) only in current · '+m.onlySelected.length+' only in selected · ':'')+m.files.length+' changed file(s)</div>'}};send('ready');
 </script></body></html>`;
 }

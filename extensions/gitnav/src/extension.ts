@@ -36,9 +36,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     const gitEvents = await subscribeToBuiltInGitChanges((root, kind) => {
       gitLogProvider.scheduleLocalRepositoryChange(root, kind);
-    });
+    }, () => gitLogProvider.scheduleRepositoryDiscoveryRefresh());
+    gitLogProvider.setBuiltInGitSyncAvailable(gitEvents !== undefined);
     if (gitEvents) context.subscriptions.push(gitEvents);
   } catch (error) {
+    gitLogProvider.setBuiltInGitSyncAvailable(false);
     console.warn(`GitNav could not subscribe to the built-in Git extension: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

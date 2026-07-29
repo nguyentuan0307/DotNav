@@ -67,3 +67,31 @@ export function parseWorkingTreeStatus(output: string): GitFileChange[] {
   }
   return files;
 }
+
+export function parseWorkingTreeStatusV2(output: string): GitFileChange[] {
+  const fields = output.split('\0');
+  const files: GitFileChange[] = [];
+  for (let index = 0; index < fields.length; index++) {
+    const entry = fields[index];
+    if (!entry || entry.startsWith('# ')) continue;
+    let match: RegExpExecArray | null;
+    let oldPath: string | undefined;
+    if ((match = /^1 ([^ ]{2}) (?:[^ ]+ ){6}([\s\S]+)$/.exec(entry))) {
+      // Ordinary changed entry.
+    } else if ((match = /^2 ([^ ]{2}) (?:[^ ]+ ){7}([\s\S]+)$/.exec(entry))) {
+      oldPath = fields[++index] || undefined;
+    } else if ((match = /^u ([^ ]{2}) (?:[^ ]+ ){8}([\s\S]+)$/.exec(entry))) {
+      // Unmerged entry.
+    } else {
+      const untracked = /^\? (.+)$/.exec(entry);
+      if (!untracked) continue;
+      match = [entry, '??', untracked[1]] as unknown as RegExpExecArray;
+    }
+    const status = match[1].replace(/\./g, '').trim() || 'M';
+    files.push({
+      status, path: match[2], oldPath, additions: 0, deletions: 0,
+      conflict: /^(DD|AU|UD|UA|DU|AA|UU)$/.test(status)
+    });
+  }
+  return files;
+}

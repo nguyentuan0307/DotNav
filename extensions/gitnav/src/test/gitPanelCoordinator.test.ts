@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CoalescedRefreshRunner, GitRequestCoordinator, InFlightOperationGuard, LocalRepositoryRefreshScheduler, RepositoryMutationQueue, RepositoryValueStore } from '../git/gitPanelCoordinator';
+import { CoalescedRefreshRunner, GitFetchCoordinator, GitRequestCoordinator, InFlightOperationGuard, LocalRepositoryRefreshScheduler, RepositoryMutationQueue, RepositoryValueStore } from '../git/gitPanelCoordinator';
 
 test('rejects a stale response superseded on the same channel', () => {
   const coordinator = new GitRequestCoordinator();
@@ -95,7 +95,37 @@ test('allows mutations in different repositories to run concurrently', async () 
   await a;
 });
 
-test('coalesces concurrent refresh requests into one queued follow-up', async () => {
+test('shares a full fetch with branch fetches for the same repository', async () => {
+  const coordinator = new GitFetchCoordinator();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let calls = 0;
+  const full = coordinator.run('/repo', { kind: 'all' }, async () => { calls++; await blocked; });
+  const branch = coordinator.run('/repo', { kind: 'branch', branch: 'feature/a' }, async () => { calls++; });
+  assert.equal(full, branch);
+  assert.equal(calls, 1);
+  release();
+  await Promise.all([full, branch]);
+});
+
+test('does not let a branch fetch replace a required full fetch', async () => {
+  const coordinator = new GitFetchCoordinator();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const calls: string[] = [];
+  const branch = coordinator.run('/repo', { kind: 'branch', branch: 'feature/a' }, async () => {
+    calls.push('branch');
+    await blocked;
+  });
+  const full = coordinator.run('/repo', { kind: 'all' }, async () => { calls.push('all'); });
+  assert.notEqual(branch, full);
+  await full;
+  assert.deepEqual(calls, ['branch', 'all']);
+  release();
+  await branch;
+});
+
+test('coalesces concurrent refresh requests into the active refresh', async () => {
   const runner = new CoalescedRefreshRunner();
   const events: string[] = [];
   let release!: () => void;
@@ -117,7 +147,7 @@ test('coalesces concurrent refresh requests into one queued follow-up', async ()
   assert.deepEqual(events, ['start:1']);
   release();
   await Promise.all([first, second, third]);
-  assert.deepEqual(events, ['start:1', 'end:1', 'start:2', 'end:2']);
+  assert.deepEqual(events, ['start:1', 'end:1']);
 });
 
 test('refresh runner accepts another request after a failure', async () => {
@@ -128,7 +158,7 @@ test('refresh runner accepts another request after a failure', async () => {
   assert.equal(completed, true);
 });
 
-test('does not drop a refresh queued while the current refresh is failing', async () => {
+test('shares a refresh failure with concurrent callers without retrying', async () => {
   const runner = new CoalescedRefreshRunner();
   let release!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; });
@@ -148,7 +178,7 @@ test('does not drop a refresh queued while the current refresh is failing', asyn
 
   await assert.rejects(first, /first refresh failed/);
   await assert.rejects(queued, /first refresh failed/);
-  assert.equal(runs, 2);
+  assert.equal(runs, 1);
 });
 
 test('blocks only duplicate in-flight operations and releases completed keys', () => {

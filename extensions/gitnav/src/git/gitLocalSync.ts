@@ -20,7 +20,8 @@ interface GitApi {
 interface GitExtensionExports { getAPI(version: 1): GitApi; }
 
 export async function subscribeToBuiltInGitChanges(
-  onChange: (root: string, kind: LocalRefreshKind) => void
+  onChange: (root: string, kind: LocalRefreshKind) => void,
+  onRepositoriesChanged: () => void = () => undefined
 ): Promise<vscode.Disposable | undefined> {
   const extension = vscode.extensions.getExtension<GitExtensionExports>('vscode.git');
   if (!extension) return undefined;
@@ -50,8 +51,8 @@ export async function subscribeToBuiltInGitChanges(
   };
 
   api.repositories.forEach(subscribe);
-  const opened = api.onDidOpenRepository(repository => { subscribe(repository); onChange(repository.rootUri.fsPath, 'history'); });
-  const closed = api.onDidCloseRepository(repository => { unsubscribe(repository); onChange(repository.rootUri.fsPath, 'history'); });
+  const opened = api.onDidOpenRepository(repository => { subscribe(repository); onRepositoriesChanged(); });
+  const closed = api.onDidCloseRepository(repository => { unsubscribe(repository); onRepositoriesChanged(); });
   return new vscode.Disposable(() => {
     opened.dispose();
     closed.dispose();
