@@ -1,13 +1,27 @@
 import { buildCodeMask } from '../csharpLexer';
+import { analyzeCSharpStructure } from '../csharpStructuralModel';
 import { joinLines, leadingWhitespace, splitLines } from '../textLines';
 import { formatCSharpWrapping } from './wrapping';
 import { normalizeMultilineArgumentLists } from './multilineList';
 import { LeadingCommaWrapStyle, PassContext } from './types';
 
 export function formatLeadingCommas(text: string, ctx: PassContext, style: LeadingCommaWrapStyle = 'wrapIfLong'): string {
+  const before = analyzeCSharpStructure(text);
+  const canRewriteStructure = before.delimiterBalance === BALANCED_DELIMITERS
+    || (ctx.allowPartialFragment === true && before.fragmentBoundaryCompatible);
+  if (!canRewriteStructure) {
+    return alignLeadingCommaFragments(text);
+  }
   const wrapped = formatCSharpWrapping(text, ctx, { style });
-  return alignLeadingCommaFragments(normalizeMultilineArgumentLists(wrapped, ctx));
+  const formatted = alignLeadingCommaFragments(normalizeMultilineArgumentLists(wrapped, ctx));
+  const after = analyzeCSharpStructure(formatted);
+  return before.delimiterBalance === after.delimiterBalance
+    && before.semanticFingerprint === after.semanticFingerprint
+    ? formatted
+    : text;
 }
+
+const BALANCED_DELIMITERS = '0:0:0:0:0:0:0';
 
 function alignLeadingCommaFragments(text: string): string {
   const mask = buildCodeMask(text);

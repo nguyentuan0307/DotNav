@@ -62,7 +62,8 @@
     "onCommand:dotnav.rebuildSolution",
     "onCommand:dotnav.cleanSolution",
     "onCommand:dotnav.openWorkspaceFolder",
-    "onCommand:dotnav.formatSelection"
+    "onCommand:dotnav.formatSelection",
+    "onCommand:dotnav.formatDocument"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -151,8 +152,13 @@
       },
       {
         "command": "dotnav.formatSelection",
-        "title": "Format Selection",
+        "title": "Reformat Code",
         "icon": "$(symbol-method)"
+      },
+      {
+        "command": "dotnav.formatDocument",
+        "title": "Reformat Document",
+        "icon": "$(file-code)"
       },
       {
         "command": "dotnav.openItem",
@@ -502,6 +508,11 @@
           "command": "dotnav.formatSelection",
           "when": "editorLangId == csharp",
           "group": "6_dotnav@0"
+        },
+        {
+          "command": "dotnav.formatDocument",
+          "when": "editorLangId == csharp",
+          "group": "6_dotnav@1"
         }
       ],
       "view/title": [
@@ -1113,6 +1124,23 @@
           "default": true,
           "description": "Normalize leading indentation to the active indentation unit before applying C# house-style passes."
         },
+        "dotnav.format.styleDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect formatting intent from the current C# construct and nearby code before choosing continuation indentation rules."
+        },
+        "dotnav.format.preserveExistingLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Preserve a consistently indented multiline layout when DotNav detects strong evidence that it was intentional."
+        },
+        "dotnav.format.continuationIndentMultiplier": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Explicit indentation levels for fluent chains and multiline lists. Use 0 to detect the style automatically."
+        },
         "dotnav.format.enableLeadingComma": {
           "type": "boolean",
           "default": true,
@@ -1122,7 +1150,7 @@
           "type": "number",
           "default": 120,
           "minimum": 40,
-          "description": "Fallback line width for C# wrapping. A matching .editorconfig max_line_length takes precedence."
+          "description": "Fallback line width for C# wrapping. A matching .editorconfig max_line_length takes precedence; max_line_length = off disables new wrapping."
         },
         "dotnav.format.leadingCommaWrapStyle": {
           "type": "string",
@@ -1181,6 +1209,8 @@
   "scripts": {
     "compile": "tsc -p ./",
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "test:formatter-corpus": "npm run compile && node --test out/test/formatterCorpus.test.js",
+    "formatter:corpus:list": "npm run compile && node out/test/formatterCorpusReport.js",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
     "package:vsix": "vsce package --no-dependencies",

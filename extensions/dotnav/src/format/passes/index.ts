@@ -11,7 +11,12 @@ export function runFormatPasses(text: string, settings: FormatPassSettings, part
     indentUnit: partialContext.indentUnit ?? '\t',
     tabSize: partialContext.tabSize ?? 4,
     fluentChainMinSegments: partialContext.fluentChainMinSegments ?? 2,
-    wrapColumn: partialContext.wrapColumn ?? 120
+    wrapColumn: partialContext.wrapColumn ?? 120,
+    enableWrapping: partialContext.enableWrapping ?? true,
+    allowPartialFragment: partialContext.allowPartialFragment ?? false,
+    continuationIndentMultiplier: partialContext.continuationIndentMultiplier,
+    preserveExistingLayout: partialContext.preserveExistingLayout ?? true,
+    formattingIntent: partialContext.formattingIntent
   };
 
   let result = text;

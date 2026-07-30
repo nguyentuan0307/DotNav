@@ -1,12 +1,29 @@
 import * as vscode from 'vscode';
-import { expandSelectionRange } from './expandRange';
+import { expandSelectionRanges } from './expandRange';
 import { runFormatPasses, FormatPassSettings } from './passes';
 import { formatRangeWithRoslyn } from './roslynFormat';
 import { detectEol } from './textLines';
-import { resolveMaxLineLength } from './editorConfig';
+import {
+  CSharpFormattingStyle,
+  MaxLineLengthSetting,
+  resolveCSharpFormattingStyle,
+  resolveMaxLineLength
+} from './editorConfig';
+import { detectFormattingIntent } from './formattingStyleDetector';
 
 export async function formatSelection(editor: vscode.TextEditor): Promise<void> {
+  return formatEditor(editor, 'selectionOrDocument');
+}
+
+export async function formatDocument(editor: vscode.TextEditor): Promise<void> {
+  return formatEditor(editor, 'document');
+}
+
+type FormatScope = 'selectionOrDocument' | 'document';
+
+async function formatEditor(editor: vscode.TextEditor, scope: FormatScope): Promise<void> {
   const document = editor.document;
+  const initialVersion = document.version;
   if (document.languageId !== 'csharp') {
     vscode.window.showInformationMessage('Format Selection only supports C# files.');
     return;
@@ -18,54 +35,122 @@ export async function formatSelection(editor: vscode.TextEditor): Promise<void> 
   }
 
   const config = vscode.workspace.getConfiguration('dotnav.format', document.uri);
-  const range = await expandSelectionRange(document, editor.selection, config.get<boolean>('expandToEnclosingMember', false));
+  const ranges = await expandSelectionRanges(
+    document,
+    scope === 'document' ? [] : editor.selections,
+    scope === 'selectionOrDocument' && config.get<boolean>('expandToEnclosingMember', false)
+  );
   const tabSize = numberSetting(editor.options.tabSize, 4);
   const insertSpaces = booleanSetting(editor.options.insertSpaces, false);
   const configuredWrapColumn = config.get<number>('wrapColumn', 120);
-  const wrapColumn = document.uri.scheme === 'file'
-    ? (await resolveMaxLineLength(document.uri.fsPath)) ?? configuredWrapColumn
-    : configuredWrapColumn;
+  const maxLineLength = document.uri.scheme === 'file'
+    ? await resolveMaxLineLength(document.uri.fsPath)
+    : { kind: 'inherit' } satisfies MaxLineLengthSetting;
+  const editorConfigStyle = document.uri.scheme === 'file'
+    ? await resolveCSharpFormattingStyle(document.uri.fsPath)
+    : new CSharpFormattingStyle();
+  const wrapColumn = resolvedWrapColumn(maxLineLength, configuredWrapColumn);
+  const eol = detectEol(document.getText());
+  const preserveExistingLayout = editorConfigStyle.preserveExistingLayout
+    ?? config.get<boolean>('preserveExistingLayout', true);
+  const configuredMultiplier = editorConfigStyle.continuationIndentMultiplier
+    ?? positiveOrUndefined(config.get<number>('continuationIndentMultiplier', 0));
+  const formattingIntent = config.get<boolean>('styleDetection', true)
+    ? detectFormattingIntent(document.getText(), tabSize)
+    : undefined;
+  const replacements: Array<{ range: vscode.Range; text: string }> = [];
 
-  const roslynText = await formatRangeWithRoslyn(document, range, {
-    tabSize,
-    insertSpaces
-  });
-
-  const formatted = runFormatPasses(roslynText, readPassSettings(config), {
-    eol: detectEol(document.getText()),
-    indentUnit: insertSpaces ? ' '.repeat(tabSize) : '\t',
-    tabSize,
-    fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 2),
-    wrapColumn
-  });
-
-  if (formatted === document.getText(range)) {
-    return;
+  for (const range of ranges) {
+    assertDocumentVersion(document, initialVersion);
+    const roslynText = await formatRangeWithRoslyn(document, range, { tabSize, insertSpaces });
+    const formatted = runFormatPasses(roslynText, readPassSettings(config, editorConfigStyle), {
+      eol,
+      indentUnit: insertSpaces ? ' '.repeat(tabSize) : '\t',
+      tabSize,
+      fluentChainMinSegments: config.get<number>('fluentChainMinSegments', 2),
+      wrapColumn: wrapColumn.value,
+      enableWrapping: wrapColumn.enabled,
+      allowPartialFragment: !isWholeDocumentRange(document, range),
+      continuationIndentMultiplier: configuredMultiplier,
+      preserveExistingLayout,
+      formattingIntent
+    });
+    if (formatted !== document.getText(range)) {
+      replacements.push({ range, text: formatted });
+    }
   }
 
+  assertDocumentVersion(document, initialVersion);
+  if (replacements.length === 0) return;
+
   const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, range, formatted);
-  await vscode.workspace.applyEdit(edit);
+  for (const replacement of replacements) {
+    edit.replace(document.uri, replacement.range, replacement.text);
+  }
+  if (!await vscode.workspace.applyEdit(edit)) {
+    throw new Error('VS Code rejected the formatting edit. The document was not changed.');
+  }
+}
+
+function isWholeDocumentRange(document: vscode.TextDocument, range: vscode.Range): boolean {
+  return range.start.line === 0
+    && range.start.character === 0
+    && range.end.isEqual(document.positionAt(document.getText().length));
+}
+
+function assertDocumentVersion(document: vscode.TextDocument, expectedVersion: number): void {
+  if (document.version !== expectedVersion) {
+    throw new Error('The document changed while formatting was running. Formatting was cancelled; run it again.');
+  }
+}
+
+function resolvedWrapColumn(
+  setting: MaxLineLengthSetting,
+  fallback: number
+): { enabled: boolean; value: number } {
+  if (setting.kind === 'disabled') return { enabled: false, value: fallback };
+  if (setting.kind === 'value') return { enabled: true, value: setting.value };
+  return { enabled: true, value: fallback };
 }
 
 function isAutoGenerated(document: vscode.TextDocument): boolean {
-  const lineCount = Math.min(5, document.lineCount);
+  const lineCount = Math.min(20, document.lineCount);
   for (let i = 0; i < lineCount; i++) {
-    if (document.lineAt(i).text.includes('<auto-generated>')) {
+    if (/<auto-generated(?:\s*\/?)>/i.test(document.lineAt(i).text)) {
       return true;
     }
   }
   return false;
 }
 
-function readPassSettings(config: vscode.WorkspaceConfiguration): FormatPassSettings {
+function readPassSettings(
+  config: vscode.WorkspaceConfiguration,
+  editorConfigStyle: CSharpFormattingStyle
+): FormatPassSettings {
+  const configuredLeadingStyle = config.get<FormatPassSettings['leadingCommaWrapStyle']>(
+    'leadingCommaWrapStyle',
+    'wrapIfLong'
+  );
   return {
     normalizeIndentWhitespace: config.get<boolean>('normalizeIndentWhitespace', true),
-    enableLeadingComma: config.get<boolean>('enableLeadingComma', true),
+    enableLeadingComma: editorConfigStyle.wrapBeforeComma
+      ?? config.get<boolean>('enableLeadingComma', true),
     enableFluentChainWrap: config.get<boolean>('enableFluentChainWrap', true),
     enableBlankLineRules: config.get<boolean>('enableBlankLineRules', true),
-    leadingCommaWrapStyle: config.get<FormatPassSettings['leadingCommaWrapStyle']>('leadingCommaWrapStyle', 'wrapIfLong')
+    leadingCommaWrapStyle: mapWrapStyle(editorConfigStyle.wrapArguments) ?? configuredLeadingStyle
   };
+}
+
+function mapWrapStyle(
+  value: CSharpFormattingStyle['wrapArguments']
+): FormatPassSettings['leadingCommaWrapStyle'] | undefined {
+  if (value === 'chop_always') return 'chopAlways';
+  if (value === 'wrap_if_long' || value === 'chop_if_long') return 'wrapIfLong';
+  return undefined;
+}
+
+function positiveOrUndefined(value: number): number | undefined {
+  return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function numberSetting(value: string | number | undefined, fallback: number): number {

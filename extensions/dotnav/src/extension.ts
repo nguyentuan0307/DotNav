@@ -6,7 +6,7 @@ import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForPro
 import { projectsUnderFolder, projectsUnderSolutionFolder } from './folderBuild';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
 import { copyFullPath, copyRelativePath, deleteItems, moveItems, renameItem, revealInFileExplorer } from './fileCommands';
-import { formatSelection } from './format/formatSelection';
+import { formatDocument, formatSelection } from './format/formatSelection';
 import { ProjectModel, RunConfig, SolutionModel, TreeNode } from './models';
 import { isRunnableProject } from './projectCapabilities';
 import { ProcessManager } from './processManager';
@@ -145,6 +145,17 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       return formatSelection(editor).catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(message);
+      });
+    }),
+    vscode.commands.registerCommand('dotnav.formatDocument', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('Open a C# file before formatting the document.');
+        return;
+      }
+      return formatDocument(editor).catch(error => {
         const message = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(message);
       });

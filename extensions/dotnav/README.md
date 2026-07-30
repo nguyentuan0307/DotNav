@@ -14,7 +14,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 - Use `launchSettings.json` profiles and VS Code's .NET debugger integration.
 - Create single-project or compound run configurations without maintaining `.vscode/launch.json`.
 - Add, rename, move, delete, and drag project files with namespace-aware C# templates.
-- Format C# selections with Roslyn plus configurable readability passes.
+- Reformat whole C# documents or multiple selections with Roslyn plus safe, configurable readability passes.
 - Manage EF Core from a project-aware Center: add/remove/browse migrations, apply or roll back databases, generate SQL scripts and bundles, check model changes, and optimize DbContexts.
 - Reveal the active editor file, filter the solution tree, and customize project icons.
 
@@ -61,6 +61,45 @@ until their target is identified and explicitly confirmed.
 ## Configuration
 
 Open **Settings** and search for `DotNav`. Settings use the `dotnav.*` namespace for solution navigation, run behavior, file nesting, icons, and C# formatting.
+
+## C# reformatting
+
+Run **DotNav: Reformat Code** (`Ctrl+Alt+L`) to format every selected full-line range.
+With no selection, DotNav reformats the whole document. Multiple selections are
+normalized, merged, and applied atomically. **DotNav: Reformat Document** always
+formats the whole file.
+
+DotNav runs the installed C# extension's Roslyn formatter first, then applies its
+leading-comma, fluent-chain, indentation, and blank-line readability rules.
+Before Roslyn runs, DotNav detects formatting intent from the original document.
+Consistent local layouts are preserved per construct, so a nested fluent chain
+that deliberately uses two continuation indents is not flattened to the
+one-indent style of an outer chain. Repeated nearby constructs provide a
+deterministic fallback for new or inconsistent code. Fluent calls are grouped
+by C# delimiter depth, so multiline predicates, lambdas, and object initializers
+keep their own indentation while the surrounding `.Where`, `.OrderBy`, and
+`.Select` calls remain aligned.
+
+Structural validation cancels a custom rewrite if delimiters, literals, comments,
+directives, or non-whitespace code tokens would change. A matching
+`.editorconfig` `max_line_length` controls wrapping; `max_line_length = off`
+disables new wrapping.
+
+Smart detection is enabled by default. Projects that need a strict rule can use
+DotNav's own `.editorconfig` properties:
+
+```ini
+[*.cs]
+dotnav_csharp_continuation_indent_multiplier = 2
+dotnav_csharp_preserve_existing_layout = true
+dotnav_csharp_wrap_arguments = chop_if_long
+dotnav_csharp_wrap_before_comma = true
+```
+
+The matching VS Code settings are
+`dotnav.format.styleDetection`, `dotnav.format.preserveExistingLayout`, and
+`dotnav.format.continuationIndentMultiplier`. A multiplier of `0` keeps
+automatic detection active.
 
 ## Feedback
 

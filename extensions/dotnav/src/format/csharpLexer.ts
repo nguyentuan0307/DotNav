@@ -65,12 +65,12 @@ export function classifySpans(text: string): CSharpSpan[] {
       if (stringInfo.rawQuoteCount >= 3) {
         const end = readRawStringEnd(text, stringInfo.contentStart, stringInfo.rawQuoteCount);
         pushSpan(i, end, 'rawString');
+      } else if (stringInfo.interpolated) {
+        const end = readInterpolatedString(text, i, stringInfo.contentStart, spans, stringInfo.verbatim);
+        codeStart = end;
       } else if (stringInfo.verbatim) {
         const end = readVerbatimStringEnd(text, stringInfo.contentStart);
         pushSpan(i, end, 'verbatimString');
-      } else if (stringInfo.interpolated) {
-        const end = readInterpolatedString(text, i, stringInfo.contentStart, spans);
-        codeStart = end;
       } else {
         const end = readRegularStringEnd(text, stringInfo.contentStart);
         pushSpan(i, end, 'string');
@@ -200,12 +200,23 @@ function readRawStringEnd(text: string, start: number, quoteCount: number): numb
   return index === -1 ? text.length : index + quoteCount;
 }
 
-function readInterpolatedString(text: string, tokenStart: number, contentStart: number, spans: CSharpSpan[]): number {
+function readInterpolatedString(
+  text: string,
+  tokenStart: number,
+  contentStart: number,
+  spans: CSharpSpan[],
+  verbatim: boolean
+): number {
   let segmentStart = tokenStart;
   let i = contentStart;
 
   while (i < text.length) {
-    if (text[i] === '\\') {
+    if (!verbatim && text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+
+    if (verbatim && text[i] === '"' && text[i + 1] === '"') {
       i += 2;
       continue;
     }
@@ -225,7 +236,7 @@ function readInterpolatedString(text: string, tokenStart: number, contentStart: 
         spans.push({ start: segmentStart, end: i, kind: 'string' });
       }
       const holeEnd = readInterpolationHoleEnd(text, i);
-      spans.push({ start: i, end: holeEnd, kind: 'interpolationHole' });
+      pushInterpolationHoleSpans(text, i, holeEnd, spans);
       i = holeEnd;
       segmentStart = i;
       continue;
@@ -243,11 +254,34 @@ function readInterpolatedString(text: string, tokenStart: number, contentStart: 
   return text.length;
 }
 
+function pushInterpolationHoleSpans(text: string, start: number, end: number, spans: CSharpSpan[]): void {
+  for (const span of classifySpans(text.slice(start, end))) {
+    spans.push({
+      start: start + span.start,
+      end: start + span.end,
+      kind: span.kind === 'code' || span.kind === 'interpolationHole' ? 'interpolationHole' : span.kind
+    });
+  }
+}
+
 function readInterpolationHoleEnd(text: string, start: number): number {
   let depth = 0;
   let i = start;
 
   while (i < text.length) {
+    if (text[i] === '/' && text[i + 1] === '/') {
+      i += 2;
+      while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++;
+      continue;
+    }
+
+    if (text[i] === '/' && text[i + 1] === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i = Math.min(text.length, i + 2);
+      continue;
+    }
+
     const stringInfo = readStringPrefix(text, i);
     if (stringInfo) {
       if (stringInfo.rawQuoteCount >= 3) {

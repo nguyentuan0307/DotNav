@@ -1,5 +1,6 @@
 import assert from 'assert/strict';
 import test from 'node:test';
+import { detectFormattingIntent } from '../format/formattingStyleDetector';
 import { normalizeBlankLines } from '../format/passes/blankLines';
 import { formatFluentChains } from '../format/passes/fluentChain';
 import { runFormatPasses } from '../format/passes';
@@ -28,6 +29,12 @@ test('normalizes mixed leading indentation only on code lines', () => {
   assert.equal(output.split('\n')[0], '\t\tvar x = 1;');
   assert.equal(output.split('\n')[1], '\t  // keep comment indent');
   assert.equal(normalizeIndentWhitespace(output, ctx), output);
+});
+
+test('uses tab stops when spaces appear before a tab', () => {
+  const input = '  \tvar x = 1;';
+
+  assert.equal(normalizeIndentWhitespace(input, ctx), '\tvar x = 1;');
 });
 
 test('normalizes existing leading-comma continuation indentation', () => {
@@ -138,7 +145,7 @@ test('aligns a strict-selection fragment that contains only leading-comma lines'
   ].join('\n'));
 });
 
-test('normalizes fluent chain indentation and object initializer inside chain', () => {
+test('normalizes fluent chain indentation without rewriting its object initializer body', () => {
   const input = [
     '\tvar models = source',
     '\t\t\t.Where(_ => _.Enabled)',
@@ -155,12 +162,58 @@ test('normalizes fluent chain indentation and object initializer inside chain', 
     '\tvar models = source',
     '\t\t.Where(_ => _.Enabled)',
     '\t\t.Select(_ => new RecordSortModel()',
-    '\t\t{',
+    '\t{',
     '\t\tSortFieldType = _.Type',
-    '\t\t})',
+    '\t})',
     '\t\t.ToList();'
   ].join('\n'));
   assert.equal(formatFluentChains(output, ctx), output);
+});
+
+test('keeps outer chain alignment across a multiline predicate', () => {
+  const input = [
+    '\tvar ids = await repository',
+    '\t\t.GetQuery(item => item.Enabled',
+    '\t\t\t&& item.Status == Status.Active',
+    '\t\t\t&& item.ReferenceId.HasValue)',
+    '\t\t\t.OrderBy(item => item.Id)',
+    '\t\t.Select(item => item.Id)',
+    '\t\t\t.ToListAsync(cancellationToken);'
+  ].join('\n');
+
+  assert.equal(formatFluentChains(input, { ...ctx, fluentChainMinSegments: 2 }), [
+    '\tvar ids = await repository',
+    '\t\t.GetQuery(item => item.Enabled',
+    '\t\t\t&& item.Status == Status.Active',
+    '\t\t\t&& item.ReferenceId.HasValue)',
+    '\t\t.OrderBy(item => item.Id)',
+    '\t\t.Select(item => item.Id)',
+    '\t\t.ToListAsync(cancellationToken);'
+  ].join('\n'));
+});
+
+test('keeps initializer scope indented while aligning surrounding fluent calls', () => {
+  const input = [
+    '\tvar models = source',
+    '\t\t\t.Select(sort => new ViewSortMigrationModel',
+    '\t\t\t{',
+    '\t\t\t\tProjectViewId = sort.ViewId!.Value,',
+    '\t\t\t\tFieldId = sort.FieldId,',
+    '\t\t\t\tSortType = sort.Type,',
+    '\t\t\t})',
+    '\t\t\t.ToListAsync(cancellationToken);'
+  ].join('\n');
+
+  assert.equal(formatFluentChains(input, { ...ctx, fluentChainMinSegments: 2 }), [
+    '\tvar models = source',
+    '\t\t.Select(sort => new ViewSortMigrationModel',
+    '\t\t\t{',
+    '\t\t\t\tProjectViewId = sort.ViewId!.Value,',
+    '\t\t\t\tFieldId = sort.FieldId,',
+    '\t\t\t\tSortType = sort.Type,',
+    '\t\t\t})',
+    '\t\t.ToListAsync(cancellationToken);'
+  ].join('\n'));
 });
 
 test('leaves short fluent chains below threshold unchanged', () => {
@@ -211,6 +264,25 @@ test('aligns fluent calls containing strings and trailing comments', () => {
   ].join('\n'));
 });
 
+test('aligns one fluent chain across an attached comment and blank line', () => {
+  const local = { ...ctx, fluentChainMinSegments: 2 };
+  const input = [
+    '\tvar query = source',
+    '\t\t\t.Where(x => x.Enabled)',
+    '\t\t\t// projection stays with the chain',
+    '',
+    '\t\t.Select(x => x.Id);'
+  ].join('\n');
+
+  assert.equal(formatFluentChains(input, local), [
+    '\tvar query = source',
+    '\t\t.Where(x => x.Enabled)',
+    '\t\t// projection stays with the chain',
+    '',
+    '\t\t.Select(x => x.Id);'
+  ].join('\n'));
+});
+
 test('aligns null-conditional fluent continuations', () => {
   const local = { ...ctx, fluentChainMinSegments: 2 };
   const input = [
@@ -241,6 +313,142 @@ test('uses the first fluent line as anchor when a strict selection omits the par
   ].join('\n'));
 });
 
+test('preserves a consistent two-level fluent indent detected before formatting', () => {
+  const original = [
+    '\t\tvar recordFieldIds = recordFormulaExpression.FieldDeps',
+    '\t\t\t\t.Where(item => item.FieldId.HasValue)',
+    '\t\t\t\t.Select(item => item.FieldId!.Value)',
+    '\t\t\t\t.ToHashSet();'
+  ].join('\n');
+  const roslynNormalized = [
+    '\t\tvar recordFieldIds = recordFormulaExpression.FieldDeps',
+    '\t\t\t.Where(item => item.FieldId.HasValue)',
+    '\t\t\t.Select(item => item.FieldId!.Value)',
+    '\t\t\t.ToHashSet();'
+  ].join('\n');
+  const local = {
+    ...ctx,
+    fluentChainMinSegments: 2,
+    formattingIntent: detectFormattingIntent(original, 4)
+  };
+
+  assert.equal(formatFluentChains(roslynNormalized, local), original);
+  assert.equal(formatFluentChains(original, local), original);
+});
+
+test('explicit continuation multiplier overrides detected local intent', () => {
+  const original = [
+    '\t\tvar values = source',
+    '\t\t\t\t.Where(item => item.Enabled)',
+    '\t\t\t\t.Select(item => item.Id)',
+    '\t\t\t\t.ToList();'
+  ].join('\n');
+  const local = {
+    ...ctx,
+    fluentChainMinSegments: 2,
+    continuationIndentMultiplier: 1,
+    formattingIntent: detectFormattingIntent(original, 4)
+  };
+
+  assert.equal(formatFluentChains(original, local), [
+    '\t\tvar values = source',
+    '\t\t\t.Where(item => item.Enabled)',
+    '\t\t\t.Select(item => item.Id)',
+    '\t\t\t.ToList();'
+  ].join('\n'));
+});
+
+test('preserves a detected two-level leading-comma list after prior normalization', () => {
+  const original = [
+    '\t\tCall(first',
+    '\t\t\t\t, second',
+    '\t\t\t\t, third',
+    '\t\t);'
+  ].join('\n');
+  const normalized = [
+    '\t\tCall(first',
+    '\t\t\t, second',
+    '\t\t\t, third',
+    '\t\t);'
+  ].join('\n');
+  const local = {
+    ...ctx,
+    formattingIntent: detectFormattingIntent(original, 4)
+  };
+
+  assert.equal(formatLeadingCommas(normalized, local), original);
+  assert.equal(formatLeadingCommas(original, local), original);
+});
+
+test('preserves mixed outer and nested intent from the reported formula code', () => {
+  const original = [
+    '\tvar data = await GetFormulaDataValueAsync(formulaField.ParentId.HasValue',
+    '\t\t\t, recordIds',
+    '\t\t\t, parentRecordId',
+    '\t\t\t, fields',
+    '\t\t\t, cancellationToken);',
+    '',
+    '\tvar recordFormulas = recordFormulaExpressions',
+    '\t\t.Select((recordFormulaExpression, index) =>',
+    '\t\t{',
+    '\t\t\tvar recordFieldIds = recordFormulaExpression.FieldDeps',
+    '\t\t\t\t\t.Where(item => item.FieldId.HasValue)',
+    '\t\t\t\t\t.Select(item => item.FieldId!.Value)',
+    '\t\t\t\t\t.ToHashSet();',
+    '',
+    '\t\t\tvar recordFields = fields',
+    '\t\t\t\t\t.Where(item => recordFieldIds.Contains(item.Id))',
+    '\t\t\t\t\t.Select(item => item.ReferenceId)',
+    '\t\t\t\t\t.ToList();',
+    '\t\t});'
+  ].join('\n');
+  const roslynNormalized = [
+    '\tvar data = await GetFormulaDataValueAsync(formulaField.ParentId.HasValue',
+    '\t\t, recordIds',
+    '\t\t, parentRecordId',
+    '\t\t, fields',
+    '\t\t, cancellationToken);',
+    '',
+    '\tvar recordFormulas = recordFormulaExpressions',
+    '\t\t.Select((recordFormulaExpression, index) =>',
+    '\t\t{',
+    '\t\t\tvar recordFieldIds = recordFormulaExpression.FieldDeps',
+    '\t\t\t\t.Where(item => item.FieldId.HasValue)',
+    '\t\t\t\t.Select(item => item.FieldId!.Value)',
+    '\t\t\t\t.ToHashSet();',
+    '',
+    '\t\t\tvar recordFields = fields',
+    '\t\t\t\t.Where(item => recordFieldIds.Contains(item.Id))',
+    '\t\t\t\t.Select(item => item.ReferenceId)',
+    '\t\t\t\t.ToList();',
+    '\t\t});'
+  ].join('\n');
+  const output = runFormatPasses(roslynNormalized, {
+    normalizeIndentWhitespace: true,
+    enableLeadingComma: true,
+    enableFluentChainWrap: true,
+    enableBlankLineRules: false,
+    leadingCommaWrapStyle: 'keep'
+  }, {
+    ...ctx,
+    fluentChainMinSegments: 2,
+    formattingIntent: detectFormattingIntent(original, 4)
+  });
+
+  assert.equal(output, original);
+  assert.equal(runFormatPasses(output, {
+    normalizeIndentWhitespace: true,
+    enableLeadingComma: true,
+    enableFluentChainWrap: true,
+    enableBlankLineRules: false,
+    leadingCommaWrapStyle: 'keep'
+  }, {
+    ...ctx,
+    fluentChainMinSegments: 2,
+    formattingIntent: detectFormattingIntent(original, 4)
+  }), original);
+});
+
 test('normalizes a leading-comma string argument without touching its contents', () => {
   const input = [
     '\tCall(',
@@ -255,6 +463,76 @@ test('normalizes a leading-comma string argument without touching its contents',
     '\t\t, "second,value"',
     '\t);'
   ].join('\n'));
+});
+
+test('normalizes lists containing leading comments without changing comment order', () => {
+  const input = [
+    '\tCall(',
+    '\t\tfirst,',
+    '\t\t// belongs to second',
+    '\t\tsecond,',
+    '\t\t/* belongs to third */',
+    '\t\tthird',
+    '\t);'
+  ].join('\n');
+  const output = formatLeadingCommas(input, ctx);
+
+  assert.equal(output, [
+    '\tCall(',
+    '\t\tfirst',
+    '\t\t, // belongs to second',
+    '\t\tsecond',
+    '\t\t, /* belongs to third */',
+    '\t\tthird',
+    '\t);'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, ctx), output);
+});
+
+test('normalizes a simple conditional argument list branch safely', () => {
+  const input = [
+    'Call(',
+    '    first,',
+    '#if FEATURE',
+    '    second,',
+    '#else',
+    '    fallback,',
+    '#endif',
+    '    third',
+    ');'
+  ].join('\n');
+  const output = formatLeadingCommas(input, { ...ctx, indentUnit: '    ' });
+
+  assert.equal(output, [
+    'Call(',
+    '    first',
+    '#if FEATURE',
+    '    , second',
+    '#else',
+    '    , fallback',
+    '#endif',
+    '    , third',
+    ');'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, { ...ctx, indentUnit: '    ' }), output);
+});
+
+test('does not wrap new lists when max line length is disabled', () => {
+  const input = '\tCall(firstArgument, secondArgument, thirdArgument);';
+  assert.equal(formatLeadingCommas(input, { ...ctx, enableWrapping: false }, 'chopAlways'), input);
+});
+
+test('treats compact relational expressions as separate arguments', () => {
+  const input = 'Call(a<b,c>d, finalValue);';
+  const output = formatLeadingCommas(input, { ...ctx, indentUnit: '    ' }, 'chopAlways');
+
+  assert.equal(output, [
+    'Call(a<b',
+    '    , c>d',
+    '    , finalValue',
+    ');'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, { ...ctx, indentUnit: '    ' }, 'chopAlways'), output);
 });
 
 test('wraps realistic nested, named, lambda, and relational arguments safely', () => {
@@ -293,7 +571,7 @@ test('normalizes the reported UpdateManyAsync multiline argument case end to end
     enableBlankLineRules: true,
     leadingCommaWrapStyle: 'wrapIfLong' as const
   };
-  const local = { ...ctx, fluentChainMinSegments: 2 };
+  const local = { ...ctx, fluentChainMinSegments: 2, allowPartialFragment: true };
   const output = runFormatPasses(input, settings, local);
 
   assert.equal(output, [
@@ -338,6 +616,48 @@ test('collapses repeated blank lines without removing region spacing', () => {
     '#endregion'
   ].join('\n'));
   assert.equal(normalizeBlankLines(output), output);
+});
+
+test('preserves blank lines inside raw strings, verbatim strings, and block comments', () => {
+  const input = [
+    'var raw = """',
+    'first',
+    '',
+    '',
+    'second',
+    '""";',
+    'var verbatim = @"first',
+    '',
+    '',
+    'second";',
+    '/* first',
+    '',
+    '',
+    'second */',
+    '',
+    '',
+    'Done();'
+  ].join('\n');
+  const output = normalizeBlankLines(input);
+
+  assert.equal(output, [
+    'var raw = """',
+    'first',
+    '',
+    '',
+    'second',
+    '""";',
+    'var verbatim = @"first',
+    '',
+    '',
+    'second";',
+    '/* first',
+    '',
+    '',
+    'second */',
+    '',
+    'Done();'
+  ].join('\n'));
 });
 
 test('full pass pipeline is idempotent and preserves non-whitespace tokens', () => {
