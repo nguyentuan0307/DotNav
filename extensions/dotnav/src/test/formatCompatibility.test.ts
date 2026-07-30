@@ -72,37 +72,83 @@ for (const input of controlFlowCases) {
   });
 }
 
-const unsafeMultilineCases: Record<string, string> = {
-  'preprocessor directives': [
+const triviaAwareMultilineCases: Record<string, { input: string; expected: string }> = {
+  'preprocessor directives': {
+    input: [
+      'Call(',
+      '    first,',
+      '#if FEATURE',
+      '    second,',
+      '#endif',
+      '    third',
+      ');'
+    ].join('\n'),
+    expected: [
+      'Call(',
+      '    first',
+      '#if FEATURE',
+      '    , second',
+      '#endif',
+      '    , third',
+      ');'
+    ].join('\n')
+  },
+  'line comment between arguments': {
+    input: [
+      'Call(',
+      '    first,',
+      '    // belongs to second',
+      '    second',
+      ');'
+    ].join('\n'),
+    expected: [
+      'Call(',
+      '    first',
+      '    , // belongs to second',
+      '    second',
+      ');'
+    ].join('\n')
+  },
+  'block comment between arguments': {
+    input: [
+      'Call(',
+      '    first,',
+      '    /* belongs to second */',
+      '    second',
+      ');'
+    ].join('\n'),
+    expected: [
+      'Call(',
+      '    first',
+      '    , /* belongs to second */',
+      '    second',
+      ');'
+    ].join('\n')
+  }
+};
+
+for (const [name, value] of Object.entries(triviaAwareMultilineCases)) {
+  test(`compatibility: safely formats multiline list with ${name}`, () => {
+    const output = formatLeadingCommas(value.input, ctx);
+    assert.equal(output, value.expected);
+    assert.equal(formatLeadingCommas(output, ctx), output);
+  });
+}
+
+test('compatibility: leaves mixed comments and directives unchanged when ownership is ambiguous', () => {
+  const input = [
     'Call(',
     '    first,',
     '#if FEATURE',
+    '    // optional value',
     '    second,',
     '#endif',
     '    third',
     ');'
-  ].join('\n'),
-  'line comment between arguments': [
-    'Call(',
-    '    first,',
-    '    // belongs to second',
-    '    second',
-    ');'
-  ].join('\n'),
-  'block comment between arguments': [
-    'Call(',
-    '    first,',
-    '    /* belongs to second */',
-    '    second',
-    ');'
-  ].join('\n')
-};
+  ].join('\n');
 
-for (const [name, input] of Object.entries(unsafeMultilineCases)) {
-  test(`compatibility: safely skips multiline list with ${name}`, () => {
-    assert.equal(formatLeadingCommas(input, ctx), input);
-  });
-}
+  assert.equal(formatLeadingCommas(input, ctx), input);
+});
 
 test('compatibility: multiline generic commas are not mistaken for argument separators', () => {
   const input = [

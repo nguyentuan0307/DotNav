@@ -11,6 +11,24 @@ test('format selection is strict by default and member expansion is opt-in', () 
   assert.match(setting.description, /only changes the selected lines/i);
 });
 
+test('offers explicit code and document reformat commands', () => {
+  const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  const commands = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
+
+  assert.equal(commands.has('dotnav.formatSelection'), true);
+  assert.equal(commands.has('dotnav.formatDocument'), true);
+});
+
+test('enables smart style detection without requiring user configuration', () => {
+  const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
+  const properties = manifest.contributes.configuration.properties;
+
+  assert.equal(properties['dotnav.format.styleDetection'].default, true);
+  assert.equal(properties['dotnav.format.preserveExistingLayout'].default, true);
+  assert.equal(properties['dotnav.format.continuationIndentMultiplier'].default, 0);
+  assert.match(properties['dotnav.format.continuationIndentMultiplier'].description, /automatically/i);
+});
+
 test('project context actions are grouped into project and copy submenus', () => {
   const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
 

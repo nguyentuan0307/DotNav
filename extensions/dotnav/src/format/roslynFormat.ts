@@ -1,5 +1,13 @@
 import * as vscode from 'vscode';
 
+class RelativeFormattingEdit {
+  constructor(
+    readonly start: number,
+    readonly end: number,
+    readonly newText: string
+  ) {}
+}
+
 export async function formatRangeWithRoslyn(document: vscode.TextDocument, range: vscode.Range, options: vscode.FormattingOptions): Promise<string> {
   const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
     'vscode.executeFormatRangeProvider',
@@ -19,13 +27,14 @@ export async function formatRangeWithRoslyn(document: vscode.TextDocument, range
     }
   }
 
-  const relative = edits
-    .map(edit => ({
-      start: document.offsetAt(edit.range.start) - document.offsetAt(range.start),
-      end: document.offsetAt(edit.range.end) - document.offsetAt(range.start),
-      newText: edit.newText
-    }))
-    .sort((a, b) => b.start - a.start);
+  const rangeStart = document.offsetAt(range.start);
+  const relative = edits.map(edit => new RelativeFormattingEdit(
+    document.offsetAt(edit.range.start) - rangeStart,
+    document.offsetAt(edit.range.end) - rangeStart,
+    edit.newText
+  ));
+  validateEdits(relative, original.length);
+  relative.sort((a, b) => b.start - a.start);
 
   let result = original;
   for (const edit of relative) {
@@ -33,4 +42,18 @@ export async function formatRangeWithRoslyn(document: vscode.TextDocument, range
   }
 
   return result;
+}
+
+function validateEdits(edits: RelativeFormattingEdit[], textLength: number): void {
+  const ordered = [...edits].sort((left, right) => left.start - right.start || left.end - right.end);
+  for (let index = 0; index < ordered.length; index++) {
+    const current = ordered[index];
+    if (current.start < 0 || current.end < current.start || current.end > textLength) {
+      throw new Error('The C# formatter returned an invalid edit. Formatting was cancelled.');
+    }
+    const previous = ordered[index - 1];
+    if (previous && (current.start < previous.end || current.start === previous.start)) {
+      throw new Error('The C# formatter returned overlapping edits. Formatting was cancelled.');
+    }
+  }
 }

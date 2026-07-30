@@ -1,40 +1,54 @@
 import { buildCodeMask } from '../csharpLexer';
-import { joinLines, leadingWhitespace, splitLines } from '../textLines';
+import { buildCSharpListModel, CSharpListNode } from '../csharpStructuralModel';
+import { multilineListSignature } from '../formattingStyleDetector';
+import { joinLines, leadingWhitespace, leadingWidth, splitLines } from '../textLines';
+import { continuationIndent } from './continuationIndent';
 import { PassContext } from './types';
-
-interface Pair { open: number; close: number }
 
 export function normalizeMultilineArgumentLists(text: string, ctx: PassContext): string {
   const mask = buildCodeMask(text);
+  const sourceLines = splitLines(text);
   const lines = splitLines(text);
-  const pairs = findParenPairs(text, mask);
+  const pairs = buildCSharpListModel(text, mask);
+  const trivia = buildTriviaIndex(sourceLines);
 
   for (const pair of pairs) {
-    const openLine = lineIndexAt(lines, pair.open);
-    const closeLine = lineIndexAt(lines, pair.close);
-    if (openLine === closeLine || isWithinControlFlow(text, pair, pairs) || hasUnsafeTrivia(lines, openLine, closeLine)) continue;
+    const openLine = lineIndexAt(sourceLines, pair.open);
+    const closeLine = lineIndexAt(sourceLines, pair.close);
+    if (openLine === closeLine
+      || pair.controlFlowAncestor
+      || hasMixedCommentAndDirectiveTrivia(trivia, openLine, closeLine)) continue;
 
-    const separators = topLevelCommas(text, mask, pair.open + 1, pair.close);
+    const separators = pair.separators;
     if (separators.length === 0) continue;
-    const separatorLines = separators.map(offset => lineIndexAt(lines, offset));
+    const separatorLines = separators.map(offset => lineIndexAt(sourceLines, offset));
     const allLeading = separatorLines.every((lineIndex, index) =>
-      lines[lineIndex].text.slice(0, separators[index] - lines[lineIndex].start).trim() === '');
+      sourceLines[lineIndex].text.slice(0, separators[index] - sourceLines[lineIndex].start).trim() === '');
     if (allLeading) {
-      alignLeadingSeparators(lines, pair, separatorLines);
+      alignLeadingSeparators(text, sourceLines, lines, pair, separatorLines, ctx);
       continue;
     }
-    if (separatorLines.some((lineIndex, index) => lines[lineIndex].text.slice(separators[index] - lines[lineIndex].start + 1).trim() !== '')) continue;
+    if (separatorLines.some((lineIndex, index) =>
+      sourceLines[lineIndex].text.slice(separators[index] - sourceLines[lineIndex].start + 1).trim() !== '')) continue;
 
     const baseIndent = leadingWhitespace(lines[openLine].text);
-    const itemIndent = baseIndent + ctx.indentUnit;
-    const firstItemLine = nextContentLine(lines, openLine + 1, closeLine);
+    const itemIndent = resolveDetectedItemIndent(text, pair, baseIndent, ctx)
+      ?? baseIndent + continuationIndent(ctx);
+    const firstItemLine = nextCodeOrCommentLine(sourceLines, openLine + 1, closeLine, false);
     if (firstItemLine !== undefined) reindent(lines[firstItemLine], itemIndent);
 
     for (let i = 0; i < separators.length; i++) {
       const separatorLine = separatorLines[i];
       lines[separatorLine].text = lines[separatorLine].text.replace(/,\s*$/, '');
-      const nextItemLine = nextContentLine(lines, separatorLine + 1, closeLine);
-      if (nextItemLine !== undefined) reindent(lines[nextItemLine], itemIndent + ', ');
+      const nextItemLine = nextCodeOrCommentLine(
+        sourceLines,
+        separatorLine + 1,
+        closeLine,
+        trivia.directivePrefix[closeLine] === trivia.directivePrefix[separatorLine + 1]);
+      if (nextItemLine !== undefined) {
+        reindent(lines[nextItemLine], itemIndent + ', ');
+        reindentAttachedTrivia(sourceLines, lines, nextItemLine + 1, closeLine, itemIndent);
+      }
     }
     reindent(lines[closeLine], baseIndent);
   }
@@ -42,73 +56,96 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
   return joinLines(lines);
 }
 
+function resolveDetectedItemIndent(
+  text: string,
+  pair: CSharpListNode,
+  baseIndent: string,
+  ctx: PassContext
+): string | undefined {
+  if (ctx.continuationIndentMultiplier !== undefined) {
+    return baseIndent + ctx.indentUnit.repeat(ctx.continuationIndentMultiplier);
+  }
+  if (ctx.preserveExistingLayout !== false && ctx.formattingIntent) {
+    const signature = multilineListSignature(text, pair.open, pair.close);
+    const intent = ctx.formattingIntent.multilineLists.find(value => value.signature === signature);
+    if (intent) return appendIndentColumns(baseIndent, intent.continuationIndentColumns, ctx);
+  }
+  const detectedMultiplier = ctx.formattingIntent?.dominantListIndentMultiplier;
+  return detectedMultiplier === undefined
+    ? undefined
+    : baseIndent + ctx.indentUnit.repeat(detectedMultiplier);
+}
+
+function appendIndentColumns(base: string, columns: number, ctx: PassContext): string {
+  if (ctx.indentUnit === '\t') {
+    const targetWidth = leadingWidth(base, ctx.tabSize) + columns;
+    return '\t'.repeat(Math.floor(targetWidth / ctx.tabSize))
+      + ' '.repeat(targetWidth % ctx.tabSize);
+  }
+  return base + ' '.repeat(columns);
+}
+
 function alignLeadingSeparators(
+  text: string,
+  sourceLines: { text: string; start: number; end: number }[],
   lines: { text: string; start: number; end: number }[],
-  pair: Pair,
-  separatorLines: number[]
+  pair: CSharpListNode,
+  separatorLines: number[],
+  ctx: PassContext
 ): void {
-  const openLine = lineIndexAt(lines, pair.open);
-  const closeLine = lineIndexAt(lines, pair.close);
-  const openOffset = pair.open - lines[openLine].start;
-  const firstItemIsInline = lines[openLine].text.slice(openOffset + 1).trim() !== '';
-  const firstItemLine = firstItemIsInline ? undefined : nextContentLine(lines, openLine + 1, closeLine);
-  const anchor = firstItemLine !== undefined
+  const openLine = lineIndexAt(sourceLines, pair.open);
+  const closeLine = lineIndexAt(sourceLines, pair.close);
+  const openOffset = pair.open - sourceLines[openLine].start;
+  const firstItemIsInline = sourceLines[openLine].text.slice(openOffset + 1).trim() !== '';
+  const firstItemLine = firstItemIsInline ? undefined : nextContentLine(sourceLines, openLine + 1, closeLine);
+  const detected = resolveDetectedItemIndent(
+    text,
+    pair,
+    leadingWhitespace(lines[openLine].text),
+    ctx
+  );
+  const anchor = detected ?? (firstItemLine !== undefined
     ? leadingWhitespace(lines[firstItemLine].text)
-    : leadingWhitespace(lines[separatorLines[0]].text);
+    : leadingWhitespace(lines[separatorLines[0]].text));
   for (const lineIndex of separatorLines) {
     lines[lineIndex].text = anchor + lines[lineIndex].text.trimStart();
   }
 }
 
-function isWithinControlFlow(text: string, pair: Pair, pairs: Pair[]): boolean {
-  return pairs.some(candidate => candidate.open <= pair.open && candidate.close >= pair.close && isControlFlow(text, candidate.open));
+interface TriviaIndex {
+  commentPrefix: number[];
+  directivePrefix: number[];
 }
 
-function hasUnsafeTrivia(lines: { text: string }[], start: number, end: number): boolean {
-  for (let i = start + 1; i < end; i++) {
-    const trimmed = lines[i].text.trimStart();
-    if (trimmed.startsWith('#') || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) return true;
+function buildTriviaIndex(lines: readonly { text: string }[]): TriviaIndex {
+  const commentPrefix = new Array<number>(lines.length + 1).fill(0);
+  const directivePrefix = new Array<number>(lines.length + 1).fill(0);
+  for (let index = 0; index < lines.length; index++) {
+    const trimmed = lines[index].text.trimStart();
+    const comment = trimmed.startsWith('//')
+      || trimmed.startsWith('/*')
+      || trimmed.startsWith('*');
+    commentPrefix[index + 1] = commentPrefix[index] + (comment ? 1 : 0);
+    directivePrefix[index + 1] = directivePrefix[index] + (trimmed.startsWith('#') ? 1 : 0);
   }
-  return false;
+  return { commentPrefix, directivePrefix };
 }
 
-function findParenPairs(text: string, mask: boolean[]): Pair[] {
-  const stack: number[] = [];
-  const pairs: Pair[] = [];
-  for (let i = 0; i < text.length; i++) {
-    if (!mask[i]) continue;
-    if (text[i] === '(') stack.push(i);
-    else if (text[i] === ')' && stack.length) pairs.push({ open: stack.pop()!, close: i });
+function hasMixedCommentAndDirectiveTrivia(trivia: TriviaIndex, start: number, end: number): boolean {
+  const comments = trivia.commentPrefix[end] - trivia.commentPrefix[start + 1];
+  const directives = trivia.directivePrefix[end] - trivia.directivePrefix[start + 1];
+  return comments > 0 && directives > 0;
+}
+
+function lineIndexAt(lines: readonly { start: number }[], offset: number): number {
+  let low = 0;
+  let high = lines.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lines[middle].start <= offset) low = middle + 1;
+    else high = middle - 1;
   }
-  return pairs.sort((a, b) => b.open - a.open);
-}
-
-function topLevelCommas(text: string, mask: boolean[], start: number, end: number): number[] {
-  const result: number[] = [];
-  let paren = 0, bracket = 0, brace = 0, angle = 0;
-  for (let i = start; i < end; i++) {
-    if (!mask[i]) continue;
-    const ch = text[i];
-    if (ch === '(') paren++;
-    else if (ch === ')') paren--;
-    else if (ch === '[') bracket++;
-    else if (ch === ']') bracket--;
-    else if (ch === '{') brace++;
-    else if (ch === '}') brace--;
-    else if (ch === '<' && looksLikeGenericOpen(text, i)) angle++;
-    else if (ch === '>' && angle) angle--;
-    else if (ch === ',' && !paren && !bracket && !brace && !angle) result.push(i);
-  }
-  return result;
-}
-
-function looksLikeGenericOpen(text: string, index: number): boolean {
-  return /[\w)>\]]/.test(text[index - 1] ?? '') && /[\w@[(]/.test(text[index + 1] ?? '');
-}
-
-function lineIndexAt(lines: { start: number; end: number }[], offset: number): number {
-  for (let i = 0; i < lines.length; i++) if (offset >= lines[i].start && offset <= lines[i].end) return i;
-  return lines.length - 1;
+  return Math.max(0, high);
 }
 
 function nextContentLine(lines: { text: string }[], start: number, end: number): number | undefined {
@@ -116,11 +153,40 @@ function nextContentLine(lines: { text: string }[], start: number, end: number):
   return undefined;
 }
 
-function reindent(line: { text: string }, indent: string): void {
-  line.text = indent + line.text.trimStart().replace(/^,\s*/, '');
+function nextCodeOrCommentLine(
+  lines: readonly { text: string }[],
+  start: number,
+  end: number,
+  allowComment: boolean
+): number | undefined {
+  for (let index = start; index < end; index++) {
+    const trimmed = lines[index].text.trimStart();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (isCommentLine(trimmed) && !allowComment) continue;
+    return index;
+  }
+  return undefined;
 }
 
-function isControlFlow(text: string, open: number): boolean {
-  const match = text.slice(0, open).match(/([A-Za-z_]\w*)\s*$/);
-  return !!match && new Set(['if', 'while', 'for', 'foreach', 'switch', 'catch', 'using', 'lock', 'fixed', 'return']).has(match[1]);
+function reindentAttachedTrivia(
+  sourceLines: readonly { text: string }[],
+  lines: { text: string }[],
+  start: number,
+  end: number,
+  indent: string
+): void {
+  for (let index = start; index < end; index++) {
+    const trimmed = sourceLines[index].text.trimStart();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!isCommentLine(trimmed)) return;
+    reindent(lines[index], indent);
+  }
+}
+
+function isCommentLine(trimmed: string): boolean {
+  return trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*');
+}
+
+function reindent(line: { text: string }, indent: string): void {
+  line.text = indent + line.text.trimStart().replace(/^,\s*/, '');
 }

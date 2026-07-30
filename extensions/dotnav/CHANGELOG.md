@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.10.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.9.0...dotnav-v0.10.0) (2026-07-30)
+
+
+### Features
+
+* **dotnav:** add structure-aware reformatting ([e7995b6](https://github.com/nguyentuan0307/DotNav/commit/e7995b6aaf23e081cef906e50648350fff85aa0a))
+
+### Changes
+
+* chore: merge release into master ([bb5b6a8](https://github.com/nguyentuan0307/DotNav/commit/bb5b6a85f770e543930a9f4af590b180e85b4511))
+
+
 ## [0.9.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.2...dotnav-v0.9.0) (2026-07-27)
 
 
@@ -24,7 +36,6 @@ All notable changes to DotNav are documented here.
 
 * test(dotnav): cover EF Core workflows ([03cd012](https://github.com/nguyentuan0307/DotNav/commit/03cd012d20fc1fce7a37a2c19f3412f5582cc41d))
 * Merge branch 'release' ([641d01a](https://github.com/nguyentuan0307/DotNav/commit/641d01a016310872476944dde7f106ca7b240a41))
-
 
 ## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.1...dotnav-v0.8.2) (2026-07-24)
 
