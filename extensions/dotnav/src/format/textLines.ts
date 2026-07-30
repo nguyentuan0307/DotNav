@@ -42,7 +42,7 @@ export function leadingWhitespace(line: string): string {
 export function leadingWidth(whitespace: string, tabSize: number): number {
   let width = 0;
   for (const ch of whitespace) {
-    width += ch === '\t' ? tabSize : 1;
+    width += ch === '\t' ? tabSize - (width % tabSize) : 1;
   }
   return width;
 }

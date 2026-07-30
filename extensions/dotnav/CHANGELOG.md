@@ -4,6 +4,23 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+### Features
+
+* reformat multiple C# selections atomically and add an explicit Reformat Document command
+* format argument lists around comments and conditional compilation directives when structurally safe
+* align fluent chains across attached comments and blank lines
+* detect per-construct C# formatting intent before Roslyn and preserve deliberate continuation indentation
+* support native DotNav `.editorconfig` rules for continuation, argument wrapping, and comma preferences
+
+### Bug Fixes
+
+* cancel stale or overlapping formatter edits before they can change a document
+* honor `.editorconfig` `max_line_length = off` and cache parsed configuration
+* preserve raw strings, verbatim strings, and block comments during blank-line cleanup
+* distinguish compact relational expressions from generic argument lists
+* replace quadratic list scanning with a linear structural model and safety fingerprint
+* keep fluent calls aligned across multiline arguments without flattening nested lambda or initializer bodies
+
 ## [0.8.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.1...dotnav-v0.8.2) (2026-07-24)
 
 

@@ -50,7 +50,7 @@ test('ends empty and adjacent regular strings at the correct quote', () => {
 test('recognizes both orders of interpolated verbatim string prefixes', () => {
   for (const text of ['$@"value,{one}"', '@$"value,{one}"']) {
     const spans = classifySpans(text);
-    assert.equal(spans.some(span => span.kind === 'verbatimString'), true);
+    assert.equal(spans.some(span => span.kind === 'interpolationHole'), true);
     assert.equal(buildCodeMask(text)[text.indexOf('value')], false);
   }
 });
@@ -68,4 +68,13 @@ test('does not expose punctuation inside char, verbatim, raw, and interpolated l
     const literalComma = text.indexOf(',');
     assert.equal(mask[literalComma], false);
   }
+});
+
+test('keeps nested strings and comments inside interpolation holes out of the code mask', () => {
+  const text = '$"value={Pick("one,two", /* three,four */ other)}"';
+  const mask = buildCodeMask(text);
+
+  assert.equal(mask[text.indexOf('one,two') + 3], false);
+  assert.equal(mask[text.indexOf('three,four') + 5], false);
+  assert.equal(mask[text.indexOf('Pick')], true);
 });

@@ -1,99 +1,66 @@
-import { buildCodeMask } from '../csharpLexer';
-import { joinLines, leadingWhitespace, splitLines } from '../textLines';
+import {
+  buildCSharpFluentChainModel,
+  fluentChainSignature
+} from '../csharpFluentChainModel';
+import { joinLines, leadingWhitespace, leadingWidth, splitLines } from '../textLines';
 import { PassContext } from './types';
 
 export function formatFluentChains(text: string, ctx: PassContext): string {
-  const mask = buildCodeMask(text);
   const lines = splitLines(text);
-  let i = 0;
+  const sourceLines = lines.map(value => value.text);
 
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.text.trimStart();
-    if (!isContinuation(trimmed) || !isLeadingTokenCode(mask, line)) {
-      i++;
-      continue;
+  for (const chain of buildCSharpFluentChainModel(text)) {
+    if (chain.continuationLines.length < ctx.fluentChainMinSegments) continue;
+    const firstContinuation = chain.continuationLines[0];
+    const rootIndent = chain.rootLine === undefined
+      ? undefined
+      : leadingWhitespace(lines[chain.rootLine].text);
+    const targetIndent = resolveTargetIndent(
+      sourceLines,
+      chain.continuationLines,
+      rootIndent,
+      leadingWhitespace(lines[firstContinuation].text),
+      ctx
+    );
+    for (const lineIndex of [...chain.continuationLines, ...chain.attachedCommentLines]) {
+      lines[lineIndex].text = targetIndent + lines[lineIndex].text.trimStart();
     }
-
-    const previousIndent = inferPreviousIndent(lines, i);
-    const targetIndent = previousIndent === undefined
-      ? leadingWhitespace(line.text)
-      : previousIndent + ctx.indentUnit;
-    const runStart = i;
-    let runEnd = i;
-    let dotCount = 0;
-    let initializerDepth = 0;
-    const rewriteLines = new Set<number>();
-
-    while (runEnd < lines.length) {
-      const current = lines[runEnd];
-      const currentTrimmed = current.text.trimStart();
-      if (isContinuation(currentTrimmed) && isLeadingTokenCode(mask, current)) {
-        dotCount++;
-        rewriteLines.add(runEnd);
-        runEnd++;
-        continue;
-      }
-
-      if (currentTrimmed === '{') {
-        initializerDepth++;
-        rewriteLines.add(runEnd);
-        runEnd++;
-        continue;
-      }
-
-      if (initializerDepth > 0 && /^[A-Za-z_@][\w@]*\s*=/.test(currentTrimmed)) {
-        rewriteLines.add(runEnd);
-        runEnd++;
-        continue;
-      }
-
-      if (initializerDepth > 0 && currentTrimmed === '}') {
-        initializerDepth--;
-        rewriteLines.add(runEnd);
-        runEnd++;
-        continue;
-      }
-
-      if (initializerDepth > 0 && currentTrimmed.startsWith('})')) {
-        initializerDepth--;
-        rewriteLines.add(runEnd);
-        runEnd++;
-        continue;
-      }
-
-      break;
-    }
-
-    if (dotCount >= ctx.fluentChainMinSegments) {
-      for (let j = runStart; j < runEnd; j++) {
-        if (rewriteLines.has(j)) {
-          lines[j].text = targetIndent + lines[j].text.trimStart();
-        }
-      }
-    }
-
-    i = Math.max(runEnd, i + 1);
   }
 
   return joinLines(lines);
 }
 
-function inferPreviousIndent(lines: { text: string }[], index: number): string | undefined {
-  for (let i = index - 1; i >= 0; i--) {
-    const trimmed = lines[i].text.trim();
-    if (trimmed !== '') {
-      return leadingWhitespace(lines[i].text);
+function resolveTargetIndent(
+  lines: readonly string[],
+  continuationLines: readonly number[],
+  previousIndent: string | undefined,
+  currentIndent: string,
+  ctx: PassContext
+): string {
+  if (previousIndent === undefined) return currentIndent;
+  if (ctx.continuationIndentMultiplier !== undefined) {
+    return previousIndent + ctx.indentUnit.repeat(ctx.continuationIndentMultiplier);
+  }
+
+  if (ctx.preserveExistingLayout !== false && ctx.formattingIntent) {
+    const signature = fluentChainSignature(lines, continuationLines);
+    const intent = ctx.formattingIntent.fluentChains.find(value => value.signature === signature);
+    if (intent) {
+      return appendIndentColumns(previousIndent, intent.continuationIndentColumns, ctx);
     }
   }
-  return undefined;
+
+  const detectedMultiplier = ctx.formattingIntent?.dominantFluentIndentMultiplier;
+  return previousIndent + ctx.indentUnit.repeat(detectedMultiplier ?? 1);
 }
 
-function isContinuation(trimmed: string): boolean {
-  return trimmed.startsWith('.') || trimmed.startsWith('?.');
-}
-
-function isLeadingTokenCode(mask: boolean[], line: { text: string; start: number }): boolean {
-  const offset = line.text.length - line.text.trimStart().length;
-  return mask[line.start + offset] === true;
+function appendIndentColumns(base: string, columns: number, ctx: PassContext): string {
+  if (ctx.indentUnit === '\t') {
+    const baseWidth = leadingWidth(base, ctx.tabSize);
+    const targetWidth = baseWidth + columns;
+    const tabs = Math.floor(targetWidth / ctx.tabSize);
+    const spaces = targetWidth % ctx.tabSize;
+    return '\t'.repeat(tabs) + ' '.repeat(spaces);
+  }
+  return base + ' '.repeat(columns);
 }
