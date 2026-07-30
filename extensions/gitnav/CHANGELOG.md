@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.11.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.0...gitnav-v0.11.1) (2026-07-29)
+
+
+### Performance Improvements
+
+* **gitnav:** speed up large repository actions ([eea0629](https://github.com/nguyentuan0307/DotNav/commit/eea06294e12b1b7fc58f5d78e67eb14b676caf91))
+
+### Changes
+
+* Merge remote-tracking branch 'origin/master' into release-candidate ([498f6e5](https://github.com/nguyentuan0307/DotNav/commit/498f6e582dd48fec1bcad74f69926dccc9211e09))
+
+
+## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.5...gitnav-v0.11.0) (2026-07-27)
+
+
+### Features
+
+* **dotnav:** move EF Core tools to a Rider-style context menu and dialog ([6d67ee3](https://github.com/nguyentuan0307/DotNav/commit/6d67ee37ea4584a9f22ce3597ef36f53eaab0d2b))
+
+### Changes
+
+* Merge branch 'release' ([641d01a](https://github.com/nguyentuan0307/DotNav/commit/641d01a016310872476944dde7f106ca7b240a41))
+
+
 ## [0.10.5](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.10.4...gitnav-v0.10.5) (2026-07-24)
 
 
