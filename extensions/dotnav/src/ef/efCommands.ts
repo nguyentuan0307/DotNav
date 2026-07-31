@@ -34,6 +34,7 @@ import {
 } from './efJsonParser';
 import { DiscoveredMigration, ProjectEfModel, loadEfModel, migrationsForContext } from './efModel';
 import type { EfFeature } from './efMain';
+import { EfActionHandlers, bindEfActions } from './efActionRegistry';
 
 interface EfTarget {
   readonly detection: EfProjectDetection;
@@ -78,16 +79,21 @@ export function registerEfCommands(context: vscode.ExtensionContext, feature: Ef
     vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.ef'));
   register('dotnav.ef.installTool', (node?: EfCommandSource) => installTool(feature, node));
   register('dotnav.ef.openCenter', (node?: EfCommandSource) => addMigration(feature, node));
-  register('dotnav.ef.addMigration', (node?: EfCommandSource) => addMigration(feature, node));
-  register('dotnav.ef.removeLastMigration', (node?: EfCommandSource) => removeLastMigration(feature, node));
-  register('dotnav.ef.listMigrations', (node?: EfCommandSource) => listMigrations(feature, node));
-  register('dotnav.ef.updateDatabase', (node?: EfCommandSource) => updateDatabase(feature, node));
-  register('dotnav.ef.generateScript', (node?: EfCommandSource) => generateScript(feature, node));
-  register('dotnav.ef.dropDatabase', (node?: EfCommandSource) => dropDatabase(feature, node));
-  register('dotnav.ef.dbContextInfo', (node?: EfCommandSource) => showDbContextInfo(feature, node));
-  register('dotnav.ef.pendingModelChanges', (node?: EfCommandSource) => checkPendingModelChanges(feature, node));
-  register('dotnav.ef.migrationsBundle', (node?: EfCommandSource) => createMigrationBundle(feature, node));
-  register('dotnav.ef.optimizeDbContext', (node?: EfCommandSource) => optimizeDbContext(feature, node));
+  const handlers: EfActionHandlers<EfCommandSource> = {
+    'dotnav.ef.addMigration': node => addMigration(feature, node),
+    'dotnav.ef.removeLastMigration': node => removeLastMigration(feature, node),
+    'dotnav.ef.listMigrations': node => listMigrations(feature, node),
+    'dotnav.ef.updateDatabase': node => updateDatabase(feature, node),
+    'dotnav.ef.pendingModelChanges': node => checkPendingModelChanges(feature, node),
+    'dotnav.ef.dbContextInfo': node => showDbContextInfo(feature, node),
+    'dotnav.ef.generateScript': node => generateScript(feature, node),
+    'dotnav.ef.migrationsBundle': node => createMigrationBundle(feature, node),
+    'dotnav.ef.optimizeDbContext': node => optimizeDbContext(feature, node),
+    'dotnav.ef.dropDatabase': node => dropDatabase(feature, node)
+  };
+  for (const action of bindEfActions(handlers)) {
+    register(action.id, action.execute);
+  }
 }
 
 // ── Target resolution (no CLI: everything comes from the static model) ───────
