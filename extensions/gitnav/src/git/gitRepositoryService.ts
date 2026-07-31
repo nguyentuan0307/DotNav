@@ -5,6 +5,7 @@ import { GitCommitDetail, GitCommitSummary, GitFileChange, GitFilterOptions, Git
 import { logPrettyFormat, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from './gitPanelParsers';
 import { computeGraphLayout } from './gitGraphLayout';
 import { BoundedCache } from './boundedCache';
+import { RepositoryDomainCache, RepositoryDomainCacheStats } from './repositoryDomainCache';
 
 export class GitCommandError extends Error {
   constructor(readonly args: string[], readonly stderr: string, readonly exitCode: number) {
@@ -19,14 +20,26 @@ export class GitRepositoryReadResult {
   ) {}
 }
 
+export type GitRepositoryStateDomain = 'status' | 'refs' | 'stashes' | 'worktrees';
+
+interface GitStatusDomain {
+  readonly head: string;
+  readonly upstream?: string;
+  readonly ahead: number;
+  readonly behind: number;
+  readonly operation?: GitOperationState;
+  readonly uncommitted: GitFileChange[];
+}
+
 export class GitRepositoryService {
   private diagnosticLogger?: (message: string) => void;
   private readonly lastFetched = new Map<string, number>();
   private repositoryDiscoveryCache?: string[];
   private repositoryDiscoveryInFlight?: Promise<string[]>;
-  private readonly snapshotCache = new Map<string, { readonly expiresAt: number; readonly value: GitRepositoryReadResult }>();
-  private readonly snapshotInFlight = new Map<string, Promise<GitRepositoryReadResult>>();
-  private readonly snapshotGenerations = new Map<string, number>();
+  private readonly statusCache = new RepositoryDomainCache<GitStatusDomain>(300);
+  private readonly refsCache = new RepositoryDomainCache<string>(2_000);
+  private readonly stashesCache = new RepositoryDomainCache<GitStashInfo[]>(2_000);
+  private readonly worktreesCache = new RepositoryDomainCache<GitWorktreeInfo[]>(5_000);
   private readonly graphSnapshots = new BoundedCache<GitGraphSnapshot>(120);
   private readonly logCache = new BoundedCache<GitLogPage>(30);
   private readonly detailCache = new BoundedCache<GitCommitDetail>(80);
@@ -68,53 +81,50 @@ export class GitRepositoryService {
   }
 
   async repositoryState(root: string, token?: vscode.CancellationToken, force = false): Promise<GitRepositoryReadResult> {
-    const generation = this.snapshotGenerations.get(root) ?? 0;
-    const cached = this.snapshotCache.get(root);
-    if (!force && cached && cached.expiresAt > Date.now()) return cached.value;
-    if (!force && !token) {
-      const running = this.snapshotInFlight.get(root);
-      if (running) return running;
-      const request = this.snapshotCore(root, undefined, generation);
-      this.snapshotInFlight.set(root, request);
-      try { return await request; }
-      finally { if (this.snapshotInFlight.get(root) === request) this.snapshotInFlight.delete(root); }
-    }
-    return this.snapshotCore(root, token, generation);
-  }
-
-  private async snapshotCore(root: string, token: vscode.CancellationToken | undefined, generation: number): Promise<GitRepositoryReadResult> {
-    const [status, refs, stashes, worktrees] = await Promise.all([
-      this.git(root, ['status', '--porcelain=v2', '--branch', '-z'], token),
-      this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags'], token),
-      this.git(root, ['stash', 'list', '--format=%gd%x00%H%x00%gs%x00%ct%x00'], token),
-      this.git(root, ['worktree', 'list', '--porcelain'], token)
+    const cacheOptions = { force, shareInFlight: !token };
+    const [status, refsOutput, stashes, worktrees] = await Promise.all([
+      this.statusCache.read(root, () => this.readStatusDomain(root, token), cacheOptions),
+      this.refsCache.read(root, async () =>
+        (await this.git(root, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes', 'refs/tags'], token)).stdout,
+      cacheOptions),
+      this.stashesCache.read(root, async () =>
+        parseStashes((await this.git(root, ['stash', 'list', '--format=%gd%x00%H%x00%gs%x00%ct%x00'], token)).stdout),
+      cacheOptions),
+      this.worktreesCache.read(root, async () =>
+        parseWorktrees((await this.git(root, ['worktree', 'list', '--porcelain'], token)).stdout, root),
+      cacheOptions)
     ]);
-    const statusFields = status.stdout.split('\0');
-    const uncommitted = parseWorkingTreeStatusV2(status.stdout);
-    const branchHead = readStatusHeader(statusFields, '# branch.head ') || 'HEAD';
-    const upstream = readStatusHeader(statusFields, '# branch.upstream ');
-    const ab = readStatusHeader(statusFields, '# branch.ab ');
-    const match = ab ? /\+(\d+)\s+-(\d+)/.exec(ab) : undefined;
     const snapshot = {
       root,
       name: path.basename(root),
-      head: branchHead,
-      detached: branchHead === '(detached)',
-      upstream,
+      head: status.head,
+      detached: status.head === '(detached)',
+      upstream: status.upstream,
+      ahead: status.ahead,
+      behind: status.behind,
+      changedCount: status.uncommitted.length,
+      lastFetchedAt: this.lastFetched.get(root),
+      operation: status.operation,
+      refs: parseRefs(refsOutput, status.head),
+      stashes,
+      worktrees
+    };
+    return new GitRepositoryReadResult(snapshot, status.uncommitted);
+  }
+
+  private async readStatusDomain(root: string, token?: vscode.CancellationToken): Promise<GitStatusDomain> {
+    const result = await this.git(root, ['status', '--porcelain=v2', '--branch', '-z'], token);
+    const fields = result.stdout.split('\0');
+    const ab = readStatusHeader(fields, '# branch.ab ');
+    const match = ab ? /\+(\d+)\s+-(\d+)/.exec(ab) : undefined;
+    return {
+      head: readStatusHeader(fields, '# branch.head ') || 'HEAD',
+      upstream: readStatusHeader(fields, '# branch.upstream '),
       ahead: Number(match?.[1]) || 0,
       behind: Number(match?.[2]) || 0,
-      changedCount: uncommitted.length,
-      lastFetchedAt: this.lastFetched.get(root),
       operation: await detectOperation(root),
-      refs: parseRefs(refs.stdout, branchHead),
-      stashes: parseStashes(stashes.stdout),
-      worktrees: parseWorktrees(worktrees.stdout, root)
+      uncommitted: parseWorkingTreeStatusV2(result.stdout)
     };
-    const value = new GitRepositoryReadResult(snapshot, uncommitted);
-    if ((this.snapshotGenerations.get(root) ?? 0) === generation) {
-      this.snapshotCache.set(root, { value, expiresAt: Date.now() + 300 });
-    }
-    return value;
   }
 
   async log(root: string, offset: number, limit: number, filter: GitLogFilter, token?: vscode.CancellationToken): Promise<GitLogPage> {
@@ -286,10 +296,30 @@ export class GitRepositoryService {
 
   invalidateCaches(root: string): void {
     const prefix = `${root}\0`;
-    this.snapshotGenerations.set(root, (this.snapshotGenerations.get(root) ?? 0) + 1);
-    this.snapshotCache.delete(root);
+    this.invalidateRepositoryState(root);
     this.logCache.deletePrefix(prefix);
     this.graphSnapshots.deletePrefix(prefix);
+  }
+
+  invalidateRepositoryState(
+    root: string,
+    domains: readonly GitRepositoryStateDomain[] = ['status', 'refs', 'stashes', 'worktrees']
+  ): void {
+    for (const domain of domains) {
+      if (domain === 'status') this.statusCache.invalidate(root);
+      else if (domain === 'refs') this.refsCache.invalidate(root);
+      else if (domain === 'stashes') this.stashesCache.invalidate(root);
+      else this.worktreesCache.invalidate(root);
+    }
+  }
+
+  repositoryStateCacheStats(): Record<GitRepositoryStateDomain, RepositoryDomainCacheStats> {
+    return {
+      status: this.statusCache.stats,
+      refs: this.refsCache.stats,
+      stashes: this.stashesCache.stats,
+      worktrees: this.worktreesCache.stats
+    };
   }
 
   invalidateRepositoryDiscovery(): void {

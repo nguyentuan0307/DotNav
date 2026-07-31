@@ -5,9 +5,14 @@ import assert from 'node:assert/strict';
 
 const extensionRoot = path.join(__dirname, '..', '..');
 const read = (...parts: string[]) => readFileSync(path.join(extensionRoot, ...parts), 'utf8');
+const readGitLogSurface = () => [
+  read('src', 'git', 'gitLogViewProvider.ts'),
+  read('src', 'git', 'gitLogWebviewHtml.ts'),
+  read('media', 'webview', 'git-log.js')
+].join('\n');
 
 test('uses one reusable webview UI foundation across GitNav surfaces', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const history = read('src', 'git', 'lineHistoryPanel.ts');
   const ui = read('media', 'webview', 'ui.css');
   const runtime = read('media', 'webview', 'ui.js');
@@ -25,7 +30,7 @@ test('uses one reusable webview UI foundation across GitNav surfaces', () => {
 });
 
 test('avoids operating-system-native popup controls in visible GitNav UI', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const ui = read('media', 'webview', 'ui.css');
 
   assert.doesNotMatch(provider, /<select(?![^>]*\bhidden\b)/);
@@ -39,7 +44,7 @@ test('avoids operating-system-native popup controls in visible GitNav UI', () =>
 });
 
 test('loads shared styles externally while allowing dynamic layout styles', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const history = read('src', 'git', 'lineHistoryPanel.ts');
 
   assert.match(provider, /style-src \$\{webview\.cspSource\} 'unsafe-inline'/);
@@ -51,7 +56,7 @@ test('loads shared styles externally while allowing dynamic layout styles', () =
 });
 
 test('generated webview markup does not depend on blocked inline handlers or styles', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
 
   assert.doesNotMatch(provider, /onclick="/);
   assert.doesNotMatch(provider, /'<[^']+\sstyle="/);
@@ -60,7 +65,7 @@ test('generated webview markup does not depend on blocked inline handlers or sty
 });
 
 test('changed files defaults to list mode and uses one compact folder action', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');
 
   assert.match(provider, /localStorage\.getItem\('gitLog\.fileMode'\)\|\|'flat'/);
@@ -70,7 +75,7 @@ test('changed files defaults to list mode and uses one compact folder action', (
 });
 
 test('custom date range provides a themed calendar and themed filter chips', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');
 
   assert.match(provider, /id="dateCalendar"/);
@@ -83,7 +88,7 @@ test('custom date range provides a themed calendar and themed filter chips', () 
 });
 
 test('context submenu has a visible chevron and closes after pointer exit', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');
 
   assert.match(provider, /class="context-more-chevron"/);
@@ -94,7 +99,7 @@ test('context submenu has a visible chevron and closes after pointer exit', () =
 });
 
 test('stash actions are available only from the context menu', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
 
   assert.match(provider, /if \(kind === 'stash'\) return \[contextAction\('stashApply'/);
   assert.match(provider, /\$\('branches'\)\.oncontextmenu=/);
@@ -116,8 +121,15 @@ test('branch selection uses native list colors while current branch keeps a smal
   assert.doesNotMatch(styles, /\.item\.viewing\s*\{[^}]*box-shadow:\s*inset/s);
 });
 
+test('branch favorite stars stay visible without hover', () => {
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(styles, /\.item button\[data-star\]\s*\{[^}]*visibility:\s*visible;/s);
+  assert.doesNotMatch(styles, /\.item button\[data-star\]\s*\{[^}]*visibility:\s*hidden;/s);
+});
+
 test('commit column visibility uses eye toggle buttons instead of checkboxes', () => {
-  const provider = read('src', 'git', 'gitLogViewProvider.ts');
+  const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');
 
   assert.match(provider, /function columnVisibilityIcon\(visible\)/);
