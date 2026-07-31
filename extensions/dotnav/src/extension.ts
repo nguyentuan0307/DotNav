@@ -132,6 +132,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.copyRelativePath', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, copyRelativePath)),
     vscode.commands.registerCommand('dotnav.revealInOs', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, revealInFileExplorer)),
     vscode.commands.registerCommand('dotnav.addRunConfig', () => addRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnav.editRunConfigProjects', (node: TreeNode) => editRunConfigProjects(context, provider, node)),
     vscode.commands.registerCommand('dotnav.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnav.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnav.selectRunConfig', () => selectRunConfig(context, provider)),
@@ -686,6 +687,55 @@ async function removeRunConfig(context: vscode.ExtensionContext, provider: Dotne
     await runConfigStore.removeAddedSingle(context, node.configId);
   }
 
+  await provider.refresh();
+}
+
+async function editRunConfigProjects(
+  context: vscode.ExtensionContext,
+  provider: DotnetTreeProvider,
+  node: TreeNode
+): Promise<void> {
+  await provider.ensureAllProjectMetadata();
+  const solution = provider.getSolution();
+  if (!solution || !node.configId) {
+    return;
+  }
+
+  const config = runConfigStore.listConfigs(solution, context)
+    .find(candidate => candidate.id === node.configId);
+  if (!config || config.kind !== 'compound') {
+    return;
+  }
+
+  const singles = runConfigStore.listSingles(solution);
+  const items = singles.map(single => ({
+    label: single.label,
+    description: relativeProjectPath(solution, single.targets[0]?.projectPath),
+    config: single,
+    picked: config.targets.some(target =>
+      target.projectPath === single.targets[0]?.projectPath &&
+      target.profileName === single.targets[0]?.profileName)
+  }));
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Edit Selected Projects',
+    canPickMany: true,
+    matchOnDescription: true
+  });
+
+  if (!picked) {
+    return;
+  }
+
+  if (picked.length === 0) {
+    vscode.window.showWarningMessage('Select at least one project for this run configuration.');
+    return;
+  }
+
+  await runConfigStore.saveCompound(context, {
+    ...config,
+    targets: picked.flatMap(item => item.config.targets)
+  });
   await provider.refresh();
 }
 
