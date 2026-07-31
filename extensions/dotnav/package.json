@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -340,6 +340,10 @@
         "command": "dotnav.addRunConfig",
         "title": "Add Run Configuration",
         "icon": "$(add)"
+      },
+      {
+        "command": "dotnav.editRunConfigProjects",
+        "title": "Edit Selected Projects..."
       },
       {
         "command": "dotnav.renameRunConfig",
@@ -819,9 +823,14 @@
           "group": "cfg@1"
         },
         {
+          "command": "dotnav.editRunConfigProjects",
+          "when": "view == dotnav.runConfigurations && viewItem =~ /runConfig/ && viewItem =~ /compound/ && !(viewItem =~ /busy/)",
+          "group": "cfg@2"
+        },
+        {
           "command": "dotnav.renameRunConfig",
           "when": "view == dotnav.runConfigurations && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
-          "group": "cfg@2"
+          "group": "cfg@3"
         },
         {
           "submenu": "dotnav.efCore",

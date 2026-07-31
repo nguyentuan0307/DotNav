@@ -1,6 +1,6 @@
 # GitNav — System & Source Handoff Guide
 
-> Tài liệu bàn giao kỹ thuật cho GitNav `0.7.0`. Nội dung được đối chiếu với source tại `extensions/gitnav` trên nhánh `master` ngày 2026-07-16. Khi tài liệu và code khác nhau, code cùng test tự động là nguồn sự thật cuối cùng.
+> Tài liệu bàn giao kỹ thuật cho GitNav. Phiên bản hiện hành nằm trong `extensions/gitnav/package.json`. Khi tài liệu và code khác nhau, code cùng test tự động là nguồn sự thật cuối cùng.
 
 ## Đọc nhanh tài liệu này
 
@@ -113,7 +113,10 @@ Nguyên tắc phân lớp:
 | File | Trách nhiệm |
 |---|---|
 | `src/extension.ts` | Activate/deactivate, đăng ký provider/command, nối built-in Git extension |
-| `src/git/gitLogViewProvider.ts` | Controller trung tâm, message routing, HTML shell, state rendering và Git action preparation |
+| `src/git/gitLogViewProvider.ts` | Host controller: request lifecycle, refresh coordination và Git action preparation |
+| `src/git/gitLogWebviewHtml.ts` | HTML shell và asset wiring của Git Log |
+| `src/git/gitWebviewProtocol.ts` | Kiểm tra và định kiểu message host ↔ webview |
+| `media/webview/git-log.js` | Client state, rendering và interaction của Git Log |
 | `media/webview/ui.css` | Design token và UI primitive dùng chung: control, trigger, popover, list, menu, chip, dialog |
 | `media/webview/ui.js` | Behavior dùng chung cho overlay positioning, close/focus và keyboard list navigation |
 | `media/webview/git-log.css` | Layout và component composition riêng của Git Log |
@@ -126,7 +129,8 @@ Nguyên tắc phân lớp:
 
 | File | Trách nhiệm |
 |---|---|
-| `src/git/gitRepositoryService.ts` | Discover repository, snapshot, log page, commit detail, diff/file/ref queries, cache |
+| `src/git/gitRepositoryService.ts` | Discover repository, log/detail/diff queries và composition repository state |
+| `src/git/repositoryDomainCache.ts` | Cache độc lập cho status, refs, stash và worktree |
 | `src/git/gitPanelParsers.ts` | Parse output Git an toàn bằng delimiter/NUL |
 | `src/git/gitGraphLayout.ts` | Tính lane graph và giữ continuity giữa các page |
 | `src/git/boundedCache.ts` | Cache giới hạn kích thước |
@@ -726,7 +730,7 @@ Integration test tạo repository Git tạm; môi trường chạy test phải c
 
 1. Thêm kiểu/action vào model nếu cần.
 2. Khai báo label, severity, progress và feedback trong `gitActionPolicy.ts`.
-3. Thêm menu/button chỉ ở context hợp lệ trong `gitLogViewProvider.ts`.
+3. Thêm menu/button chỉ ở context hợp lệ trong `media/webview/git-log.js`; host action tiếp tục đặt trong `gitLogViewProvider.ts`.
 4. Chuẩn hóa request và ref trước khi enqueue.
 5. Implement Git command/workflow trong `gitMutationRunner.ts`.
 6. Thêm safety confirmation/protected guard nếu có thể mất dữ liệu hoặc sửa remote history.
@@ -780,7 +784,7 @@ Integration test tạo repository Git tạm; môi trường chạy test phải c
 - [ ] Cài dependency bằng `npm ci`.
 - [ ] Chạy test GitNav và ghi nhận baseline.
 - [ ] Package VSIX và cài thử vào Extension Development Host.
-- [ ] Đọc `extension.ts`, sau đó `gitLogViewProvider.ts`, `gitRepositoryService.ts`, `gitMutationRunner.ts`.
+- [ ] Đọc `extension.ts`, sau đó `gitLogViewProvider.ts`, `gitWebviewProtocol.ts`, `gitRepositoryService.ts`, `gitMutationRunner.ts`.
 - [ ] Đọc ba lớp recovery và safety trước khi sửa mutation.
 - [ ] Thử thủ công Update ở ba trạng thái: up-to-date, behind-only, diverged.
 - [ ] Thử Push tạo remote branch và non-fast-forward recovery.
@@ -813,7 +817,7 @@ type: VS Code extension
 package_root: extensions/gitnav
 runtime_entry: extensions/gitnav/src/extension.ts
 compiled_entry: extensions/gitnav/out/extension.js
-primary_ui: extensions/gitnav/src/git/gitLogViewProvider.ts
+primary_ui: extensions/gitnav/src/git/gitLogWebviewHtml.ts + media/webview/git-log.js
 read_service: extensions/gitnav/src/git/gitRepositoryService.ts
 mutation_runner: extensions/gitnav/src/git/gitMutationRunner.ts
 git_transport: extensions/gitnav/src/git/gitCli.ts
@@ -832,7 +836,7 @@ source_of_truth_priority:
 
 | Yêu cầu thay đổi | Đọc trước | Test bắt buộc xem |
 |---|---|---|
-| Panel layout, menu, modal, toast | `gitLogViewProvider.ts`, `gitActionPolicy.ts` | `gitFeatures`, `gitActionPolicy` |
+| Panel layout, menu, modal, toast | `gitLogWebviewHtml.ts`, `media/webview/git-log.js`, `gitActionPolicy.ts` | `gitFeatures`, `webviewUi`, `gitActionPolicy` |
 | Log/filter/detail/changed files | `gitRepositoryService.ts`, `gitPanelParsers.ts` | parser, graph, integration |
 | Git action mới | `gitMutationRunner.ts`, models, action policy | safety, lifecycle, operation flow |
 | Update/push behavior | `gitPush.ts`, `gitPushRecovery.ts`, mutation runner | push và recovery tests |

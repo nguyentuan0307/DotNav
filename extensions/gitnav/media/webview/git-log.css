@@ -326,15 +326,10 @@ textarea,
   justify-content: center;
   margin-right: 2px;
   padding: 0;
-  visibility: hidden;
+  visibility: visible;
   color: var(--gn-muted);
   background: transparent;
   border: 0;
-}
-
-.item:hover button[data-star],
-.item.active button[data-star] {
-  visibility: visible;
 }
 
 .item.active button[data-star] {

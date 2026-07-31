@@ -5,6 +5,11 @@ import test from 'node:test';
 
 const gitnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
 const dotnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', '..', 'dotnav', 'package.json'), 'utf8'));
+const gitLogSurface = () => [
+  readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8'),
+  readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogWebviewHtml.ts'), 'utf8'),
+  readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8')
+].join('\n');
 const manifest = {
   activationEvents: [...dotnavManifest.activationEvents, ...gitnavManifest.activationEvents],
   contributes: {
@@ -179,7 +184,7 @@ test('contributes Git Log safety and auto-fetch settings', () => {
 });
 
 test('renders Git Log context actions inside the webview', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const source = gitLogSurface();
   const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
   assert.match(source, /class="context-menu ui-menu" id="contextMenu"/);
   assert.match(source, /showInlineContextMenu/);
@@ -229,7 +234,7 @@ test('renders Git Log context actions inside the webview', () => {
 });
 
 test('renders changed files as a recursive collapsible tree', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const source = gitLogSurface();
   assert.match(source, /function fileTree\(/);
   assert.match(source, /function renderFileNode\(/);
   assert.match(source, /data-file-folder/);
@@ -279,7 +284,7 @@ test('renders changed files as a recursive collapsible tree', () => {
 });
 
 test('renders Git Log lane focus, action feedback, and worktree support', () => {
-  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const provider = gitLogSurface();
   const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
   const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   assert.match(provider, /function selectedFirstParentPath\(\)/);
@@ -298,7 +303,7 @@ test('renders Git Log lane focus, action feedback, and worktree support', () => 
 });
 
 test('builds professional commit filters with AND semantics', () => {
-  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const provider = gitLogSurface();
   const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
   const models = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitPanelModels.ts'), 'utf8');
   const uiStyles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'ui.css'), 'utf8');
@@ -340,7 +345,7 @@ test('builds professional commit filters with AND semantics', () => {
 });
 
 test('reuses mutation state and keeps expensive refresh work off the action critical path', () => {
-  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const provider = gitLogSurface();
   const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
   const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   assert.match(mutations, /class GitMutationExecutionContext/);
@@ -351,12 +356,12 @@ test('reuses mutation state and keeps expensive refresh work off the action crit
   assert.doesNotMatch(mutations, /await vscode\.commands\.executeCommand\('git\.refresh'\)/);
   assert.match(service, /repositoryDiscoveryCache/);
   assert.doesNotMatch(service, /repositoryDiscoveryCache\?.*expiresAt/);
-  assert.match(service, /snapshotInFlight/);
-  assert.match(service, /snapshotGenerations/);
-  assert.match(service, /=== generation/);
-  assert.match(service, /expiresAt: Date\.now\(\) \+ 300/);
+  assert.match(service, /new RepositoryDomainCache<GitStatusDomain>\(300\)/);
+  assert.match(service, /new RepositoryDomainCache<string>\(2_000\)/);
+  assert.match(service, /invalidateRepositoryState\(/);
+  assert.match(service, /repositoryStateCacheStats\(\)/);
   assert.match(service, /repositoryState\(root: string/);
-  assert.match(service, /parseWorkingTreeStatusV2\(status\.stdout\)/);
+  assert.match(service, /parseWorkingTreeStatusV2\(result\.stdout\)/);
   assert.match(service, /new BoundedCache<GitGraphSnapshot>\(120\)/);
   assert.match(provider, /schedulePostMutationRefresh\(root\)/);
   assert.match(provider, /refreshRepositoryContent\(repositories, root\)/);
@@ -373,7 +378,7 @@ test('reuses mutation state and keeps expensive refresh work off the action crit
 });
 
 test('renders advanced Git Log UX and interactive rebase preview', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const source = gitLogSurface();
   const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
   assert.match(source, /\['ready','refresh','loadLog'\]\.includes\(m\.scope\)/);
@@ -457,21 +462,16 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /role="tree" aria-label="Changed files"/);
 });
 
-test('keeps embedded Git Log webview JavaScript syntactically valid', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
-  const template = /function renderHtml[\s\S]*?return `([\s\S]*?)`;\r?\n\s*}/.exec(source)?.[1];
-  assert.ok(template);
-  const html = new Function(
-    'nonce', 'webview', 'uiStyleUri', 'viewStyleUri', 'uiScriptUri',
-    `return \`${template}\`;`
-  )('test-nonce', { cspSource: 'test-csp' }, 'ui.css', 'git-log.css', 'ui.js') as string;
-  const script = /<script nonce="test-nonce">([\s\S]*?)<\/script>/.exec(html)?.[1];
-  assert.ok(script);
+test('keeps external Git Log webview JavaScript syntactically valid', () => {
+  const provider = gitLogSurface();
+  const script = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+  assert.match(provider, /assetUri\('git-log\.js'\)/);
+  assert.match(provider, /src="\$\{viewScriptUri\}"/);
   assert.doesNotThrow(() => new Function(script));
 });
 
 test('preserves repository-specific log filters across full refreshes', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const source = gitLogSurface();
   assert.match(source, /activeFilters\.get\(root, \{\}\)/);
   assert.match(source, /this\.service\.log\(root, 0, 200, activeFilter/);
   assert.match(source, /activeFilter, generation:/);
@@ -502,7 +502,7 @@ test('synchronizes local Git events and keeps automatic fetches in the backgroun
 test('subscribes to Git Log messages before loading webview HTML', () => {
   const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
   const resolver = source.slice(source.indexOf('resolveWebviewView('), source.indexOf('async refresh()'));
-  assert.ok(resolver.indexOf('onDidReceiveMessage') < resolver.indexOf('webview.html = renderHtml'));
+  assert.ok(resolver.indexOf('onDidReceiveMessage') < resolver.indexOf('webview.html = renderGitLogWebviewHtml'));
 });
 
 test('exposes Git Log initialization diagnostics in an output channel', () => {
@@ -515,7 +515,7 @@ test('exposes Git Log initialization diagnostics in an output channel', () => {
 });
 
 test('recovers from invalid persisted Git Log webview state', () => {
-  const source = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const source = gitLogSurface();
   assert.match(source, /function storedArray\(key\)/);
   assert.match(source, /localStorage\.removeItem\(key\)/);
   assert.doesNotMatch(source, /new Set\(JSON\.parse\(localStorage\.getItem/);

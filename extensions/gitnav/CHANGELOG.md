@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.11.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.1...gitnav-v0.11.2) (2026-07-31)
+
+
+### Changes
+
+* refactor(gitnav): split log UI and state cache ([6d6c1a4](https://github.com/nguyentuan0307/DotNav/commit/6d6c1a4f561c3de1d7ea1362f9e3c342bb0fd186))
+* docs: add project state tooling ([c0f63bd](https://github.com/nguyentuan0307/DotNav/commit/c0f63bd933c7934009ed9da58662045425082db0))
+
+
 ## [0.11.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.0...gitnav-v0.11.1) (2026-07-29)
 
 

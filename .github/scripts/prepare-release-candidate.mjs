@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  bumpVersion,
+  componentName,
+  highestBump,
+  parseConventionalCommit
+} from './release-utils.mjs';
 
 const options = parseArgs(process.argv.slice(2));
 const base = options.base ?? 'origin/release';
@@ -16,7 +22,7 @@ for (const [packagePath, packageConfig] of Object.entries(config.packages ?? {})
 
   const currentVersion = manifest[packagePath] ?? JSON.parse(readFileSync(`${packagePath}/package.json`, 'utf8')).version;
   const nextVersion = bumpVersion(currentVersion, highestBump(commits));
-  const component = packageConfig.component ?? packageConfig['package-name'] ?? packagePath.split('/').pop();
+  const component = componentName(packagePath, packageConfig);
   const tagName = `${component}-v${nextVersion}`;
   const previousTag = `${component}-v${currentVersion}`;
   const changelogPath = `${packagePath}/${packageConfig['changelog-path'] ?? 'CHANGELOG.md'}`;
@@ -46,7 +52,14 @@ if (!releases.length) {
 }
 
 function releasableCommits(from, to, packagePath) {
-  const output = git(['log', '--format=%H%x1f%s%x1f%b%x1e', `${from}..${to}`, '--', packagePath]);
+  const output = git([
+    'log',
+    '--no-merges',
+    '--format=%H%x1f%s%x1f%b%x1e',
+    `${from}..${to}`,
+    '--',
+    packagePath
+  ]);
   return output.split('\x1e')
     .map(record => record.trim())
     .filter(Boolean)
@@ -58,30 +71,6 @@ function releasableCommits(from, to, packagePath) {
         : { hash, subject, body, type: 'change', scope: undefined, description: subject, bump: 'patch' };
     })
     .reverse();
-}
-
-function parseConventionalCommit(subject, body) {
-  const match = /^([a-z]+)(?:\(([^)]+)\))?(!)?:\s+(.+)$/.exec(subject);
-  if (!match) return undefined;
-  const [, type, scope, bang, description] = match;
-  const breaking = Boolean(bang) || /^BREAKING[ -]CHANGE:/m.test(body);
-  if (breaking) return { type, scope, description, bump: 'major' };
-  if (type === 'feat') return { type, scope, description, bump: 'minor' };
-  if (['fix', 'perf', 'deps'].includes(type)) return { type, scope, description, bump: 'patch' };
-  return undefined;
-}
-
-function highestBump(commits) {
-  if (commits.some(commit => commit.bump === 'major')) return 'major';
-  if (commits.some(commit => commit.bump === 'minor')) return 'minor';
-  return 'patch';
-}
-
-function bumpVersion(version, bump) {
-  const [major, minor, patch] = version.split('.').map(Number);
-  if (bump === 'major') return `${major + 1}.0.0`;
-  if (bump === 'minor') return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
 }
 
 function updatePackageJson(path, version) {
