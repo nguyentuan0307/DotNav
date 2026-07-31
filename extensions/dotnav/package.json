@@ -342,6 +342,10 @@
         "icon": "$(add)"
       },
       {
+        "command": "dotnav.editRunConfigProjects",
+        "title": "Edit Selected Projects..."
+      },
+      {
         "command": "dotnav.renameRunConfig",
         "title": "Rename Configuration"
       },
@@ -819,9 +823,14 @@
           "group": "cfg@1"
         },
         {
+          "command": "dotnav.editRunConfigProjects",
+          "when": "view == dotnav.runConfigurations && viewItem =~ /runConfig/ && viewItem =~ /compound/ && !(viewItem =~ /busy/)",
+          "group": "cfg@2"
+        },
+        {
           "command": "dotnav.renameRunConfig",
           "when": "view == dotnav.runConfigurations && viewItem =~ /runConfig/ && !(viewItem =~ /busy/)",
-          "group": "cfg@2"
+          "group": "cfg@3"
         },
         {
           "submenu": "dotnav.efCore",

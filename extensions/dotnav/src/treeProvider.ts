@@ -5,7 +5,7 @@ import { isInside, readDirectoryNodes, readDockerProjectNodes } from './fileTree
 import { ProjectModel, SolutionModel, TreeNode } from './models';
 import { normalizePath, samePath } from './pathUtils';
 import { isRunnableProject, isTestProject } from './projectCapabilities';
-import { parseProject } from './projectParser';
+import { createProjectStub, parseProject } from './projectParser';
 import * as runConfigStore from './runConfigStore';
 import { RunPhase } from './runSessionState';
 import { loadSolution, pickSolution } from './solutionParser';
@@ -92,6 +92,37 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   fireChanged(): void {
     this.onDidChangeTreeDataEmitter.fire();
+  }
+
+  invalidateProjectMetadata(filePath: string): boolean {
+    if (!this.solution) return false;
+    const project = this.solution.projects.find(candidate =>
+      samePath(candidate.path, filePath) || isInside(candidate.directory, filePath));
+    if (!project) return false;
+
+    const stub = createProjectStub(project.path, this.solution.rootPath);
+    const next = project.solutionFolder?.length
+      ? { ...stub, solutionFolder: project.solutionFolder }
+      : stub;
+    this.metadataLoads.delete(project.path);
+    this.solution = {
+      ...this.solution,
+      projects: this.solution.projects.map(candidate =>
+        samePath(candidate.path, project.path) ? next : candidate)
+    };
+    this.solutionTree = undefined;
+    this.onDidChangeTreeDataEmitter.fire(this.solutionNode(this.solution));
+    return true;
+  }
+
+  invalidateDirectory(directoryPath: string): boolean {
+    const project = this.findProjectContaining(directoryPath);
+    if (!project) return false;
+    const node = samePath(directoryPath, project.directory)
+      ? this.projectNode(project)
+      : this.fileSystemFolderNode(directoryPath, project);
+    this.onDidChangeTreeDataEmitter.fire(node);
+    return true;
   }
 
   setOutdatedPackages(packages: OutdatedPackages): void {

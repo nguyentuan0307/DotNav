@@ -2,6 +2,7 @@
 .github/**
 .gitignore
 .claude/**
+.obsidian/**
 .vscode/**
 .vscode-test/**
 .release-please-manifest.json
