@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.2...gitnav-v0.12.0) (2026-07-31)
+
+
+### Features
+
+* **gitnav:** expand editor context menu ([a5dcb66](https://github.com/nguyentuan0307/DotNav/commit/a5dcb663a906db6180df49dd8d46d478ff109bde))
+
+
 ## [0.11.2](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.1...gitnav-v0.11.2) (2026-07-31)
 
 

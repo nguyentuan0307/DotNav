@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { LineHistoryEntry } from './lineHistory';
 
 interface PanelState {
+  readonly title: string;
   readonly header: string;
   readonly entries: LineHistoryEntry[];
 }
@@ -9,9 +10,7 @@ interface PanelState {
 export class LineHistoryPanel {
   private static panel: vscode.WebviewPanel | undefined;
 
-  static show(entries: LineHistoryEntry[], header: string, extensionUri: vscode.Uri): void {
-    const title = 'History for Selection';
-
+  static show(entries: LineHistoryEntry[], header: string, extensionUri: vscode.Uri, title = 'History for Selection'): void {
     if (!LineHistoryPanel.panel) {
       LineHistoryPanel.panel = vscode.window.createWebviewPanel(
         'gitnav.lineHistory',
@@ -31,7 +30,7 @@ export class LineHistoryPanel {
     }
 
     LineHistoryPanel.panel.title = title;
-    LineHistoryPanel.panel.webview.html = renderHtml(LineHistoryPanel.panel.webview, { entries, header }, extensionUri);
+    LineHistoryPanel.panel.webview.html = renderHtml(LineHistoryPanel.panel.webview, { title, entries, header }, extensionUri);
   }
 }
 
@@ -50,7 +49,7 @@ function renderHtml(webview: vscode.Webview, state: PanelState, extensionUri: vs
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>History for Selection</title>
+  <title>${escapeHtml(state.title)}</title>
   <link rel="stylesheet" href="${uiStyleUri}">
   <link rel="stylesheet" href="${viewStyleUri}">
   <style media="not all">
@@ -486,4 +485,15 @@ function createNonce(): string {
   }
 
   return value;
+}
+
+function escapeHtml(value: string): string {
+  const replacements: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  };
+  return value.replace(/[&<>"']/g, char => replacements[char]);
 }

@@ -1,6 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { findRepoRoot, runGit, toGitRelativePath } from './gitCli';
+import { readFileRevision } from './fileRevision';
+import { pickFileRevision } from './fileRevisionPicker';
 
 interface GitBranchItem extends vscode.QuickPickItem {
   readonly ref: string;
@@ -63,10 +65,40 @@ export async function compareSelectionWithBranch(provider: BranchCompareDocument
   });
 }
 
+export async function compareFileWithCommit(provider: BranchCompareDocumentProvider): Promise<void> {
+  await runCompareCommand(async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'file') {
+      vscode.window.showInformationMessage('Open a file before comparing with a commit.');
+      return;
+    }
+
+    const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
+    if (!repoRoot) {
+      vscode.window.showInformationMessage('This file is not inside a Git repository.');
+      return;
+    }
+
+    const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
+    const revision = await pickFileRevision(repoRoot, relPath, 'Compare File With Commit');
+    if (!revision) {
+      return;
+    }
+
+    const content = await readFileRevision(repoRoot, revision);
+    const left = fullDocument(provider, `Revision: ${revision.shortHash}/${revision.path}`, relPath, content);
+    const title = `${path.basename(relPath)}: ${revision.shortHash} ↔ Working Tree`;
+    await vscode.commands.executeCommand('vscode.diff', left.uri, editor.document.uri, title, { preview: true });
+  });
+}
+
 async function runCompareCommand(action: () => Promise<void>): Promise<void> {
   try {
     await action();
   } catch (error) {
+    if (error instanceof vscode.CancellationError) {
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (message.trim().length > 0) {
       vscode.window.showErrorMessage(message);

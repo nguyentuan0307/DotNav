@@ -90,6 +90,21 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     return this.refreshRunner.run(() => this.refreshCore());
   }
 
+  async revealCommit(root: string, hash: string): Promise<void> {
+    await vscode.commands.executeCommand(`${GitLogViewProvider.viewId}.focus`);
+    if (!this.view) {
+      throw new Error('Git Log view could not be opened.');
+    }
+
+    const discovered = await this.service.discoverRepositories();
+    this.repositories = discovered.includes(root) ? discovered : [root, ...discovered];
+    this.cancelReads();
+    this.root = root;
+    this.activeFilters.set(root, { text: hash });
+    await this.refreshRepositoryContent(this.repositories, root);
+    this.post({ type: 'focusCommit', hash });
+  }
+
   private async refreshCore(): Promise<void> {
     if (!this.view) return;
     const startedAt = Date.now();

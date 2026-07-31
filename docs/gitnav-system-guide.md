@@ -52,7 +52,7 @@ Các giá trị chính:
 2. Tìm kiếm/lọc lịch sử và xem changed files/diff nhanh.
 3. Thực hiện branch/commit/stash/worktree workflow với xác nhận phù hợp rủi ro.
 4. Đưa lỗi Git về ba mức recovery: tự xử lý, hướng dẫn lựa chọn, hoặc báo lỗi thủ công.
-5. Hỗ trợ line history và compare trực tiếp từ editor selection.
+5. Hỗ trợ file/line/selection history, compare revision và điều hướng Git Log trực tiếp từ editor.
 
 ### 2.1 Phạm vi hiện tại
 
@@ -73,9 +73,14 @@ Package: `extensions/gitnav/package.json`
 |---|---|---|
 | Bottom panel container | `gitnavPanel` | Container “GitNav” |
 | Webview view | `gitnav.gitLog` | Git Log chính |
-| Editor command | `gitnav.showHistoryForSelection` | Lịch sử của dòng/selection |
+| Editor command | `gitnav.showFileHistory` | Lịch sử toàn file, theo dõi rename |
+| Editor command | `gitnav.showHistoryForCurrentLine` | Lịch sử dòng tại cursor |
+| Editor command | `gitnav.showHistoryForSelection` | Lịch sử selection |
 | Editor command | `gitnav.compareFileWithBranch` | So sánh file với branch/ref |
+| Editor command | `gitnav.compareFileWithCommit` | So sánh file với commit/tag/SHA |
 | Editor command | `gitnav.compareSelectionWithBranch` | So sánh selection với branch/ref |
+| Editor command | `gitnav.revealLastChangeInGitLog` | Focus commit gần nhất trong Git Log |
+| Editor command | `gitnav.openFileAtRevision` | Mở file read-only tại revision |
 | Settings command | `gitnav.openSettings` | Mở settings của extension |
 
 Extension activate khi panel hoặc một trong các command trên được gọi. Entry point runtime là `extensions/gitnav/src/extension.ts`, compile ra `extensions/gitnav/out/extension.js`.
@@ -581,12 +586,12 @@ Backup option có thể dùng cho một số reset/drop/update-reset chung. Riê
 
 ## 16. Line history và compare
 
-### 16.1 History for selection
+### 16.1 File, line và selection history
 
-1. Lấy active editor và selected line range.
+1. Lấy active editor và file, dòng tại cursor hoặc selected line range.
 2. Tìm repository root và Git-relative path.
 3. Nếu file đang dirty, map range working tree về `HEAD` bằng diff mapping.
-4. Chạy line history (`git log -L`) với giới hạn `gitnav.history.maxCommits`.
+4. Chạy `git log -L` cho line/selection hoặc `git log --follow -p` cho toàn file, với giới hạn `gitnav.history.maxCommits`.
 5. Hiện `LineHistoryPanel`; user chọn commit để xem diff/metadata.
 
 Operation có progress cancellable. Mapping giúp history không bị lệch chỉ vì user đã thêm/xóa dòng chưa commit.
@@ -594,8 +599,14 @@ Operation có progress cancellable. Mapping giúp history không bị lệch ch�
 ### 16.2 Compare
 
 - Compare toàn file hoặc selection với branch/ref được chọn.
+- Compare toàn file với commit gần đây hoặc commit/tag/SHA nhập thủ công.
 - Revision content được cung cấp bằng virtual document scheme, sau đó dùng VS Code diff editor.
 - Root commit và merge parent được xử lý theo base phù hợp; file rename được parse bằng NUL-delimited output.
+
+### 16.3 Revision navigation
+
+- `Reveal Last Change in Git Log` dùng selection nếu có, nếu không dùng dòng tại cursor; commit gần nhất được focus trong đúng repository.
+- `Open File at Revision` dùng file history để giữ đúng đường dẫn qua rename và mở virtual document read-only, không checkout.
 
 ## 17. Multi-repository và đồng bộ trạng thái
 
@@ -611,7 +622,7 @@ Operation có progress cancellable. Mapping giúp history không bị lệch ch�
 
 | Setting | Default | Ý nghĩa |
 |---|---:|---|
-| `gitnav.history.maxCommits` | `50` | Số commit tối đa cho line history |
+| `gitnav.history.maxCommits` | `50` | Số commit tối đa cho editor history và revision picker |
 | `gitnav.protectedBranches` | `main`, `master`, `develop`, `release/*` | Pattern branch được bảo vệ |
 | `gitnav.autoFetch` | `true` | Tự fetch khi Git Log view hoạt động |
 | `gitnav.autoFetchMinutes` | `20` | Khoảng thời gian auto-fetch, tối thiểu 1 phút |
