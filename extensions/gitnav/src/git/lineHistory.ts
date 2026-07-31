@@ -36,6 +36,11 @@ export interface LineHistoryQuery {
   readonly headEnd: number;
 }
 
+export interface FileHistoryQuery {
+  readonly repoRoot: string;
+  readonly relPath: string;
+}
+
 export class GitOperationCancelledError extends Error {
   constructor() {
     super('Git operation cancelled.');
@@ -57,6 +62,35 @@ export async function getLineHistory(
     `--format=${recordSeparator}%H${fieldSeparator}%an${fieldSeparator}%ae${fieldSeparator}%at${fieldSeparator}%s`,
     `--max-count=${maxCommits}`,
     '--no-color'
+  ], token);
+
+  if (result.exitCode !== 0) {
+    if (result.cancelled) {
+      throw new GitOperationCancelledError();
+    }
+
+    throw new Error(result.stderr.trim() || 'git log failed.');
+  }
+
+  return parseLineHistory(result.stdout, query.repoRoot, query.relPath);
+}
+
+export async function getFileHistory(
+  query: FileHistoryQuery,
+  maxCommits: number,
+  token?: vscode.CancellationToken
+): Promise<LineHistoryEntry[]> {
+  const result = await runGit(query.repoRoot, [
+    'log',
+    '--follow',
+    '--find-renames',
+    '--root',
+    '-p',
+    `--format=${recordSeparator}%H${fieldSeparator}%an${fieldSeparator}%ae${fieldSeparator}%at${fieldSeparator}%s`,
+    `--max-count=${maxCommits}`,
+    '--no-color',
+    '--',
+    query.relPath
   ], token);
 
   if (result.exitCode !== 0) {
@@ -263,4 +297,8 @@ function parseHunkHeader(line: string): { oldStart: number; newStart: number } |
 
 export function lineHistoryLabel(query: LineHistoryQuery): string {
   return `${path.basename(query.relPath)}:${query.headStart}-${query.headEnd}`;
+}
+
+export function fileHistoryLabel(query: FileHistoryQuery): string {
+  return query.relPath;
 }

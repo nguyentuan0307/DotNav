@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
-import { BranchCompareDocumentProvider, compareFileWithBranch, compareSelectionWithBranch } from './git/branchCompare';
+import { BranchCompareDocumentProvider, compareFileWithBranch, compareFileWithCommit, compareSelectionWithBranch } from './git/branchCompare';
 import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
-import { GitOperationCancelledError, LineHistoryQuery, getLineHistory, lineHistoryLabel } from './git/lineHistory';
+import { FileHistoryQuery, GitOperationCancelledError, LineHistoryQuery, fileHistoryLabel, getFileHistory, getLineHistory, lineHistoryLabel } from './git/lineHistory';
 import { LineHistoryPanel } from './git/lineHistoryPanel';
 import { mapWorktreeRangeToHead } from './git/lineMapping';
 import { GitLogViewProvider } from './git/gitLogViewProvider';
 import { GitRepositoryService } from './git/gitRepositoryService';
 import { GitRevisionProvider, gitRevisionScheme } from './git/gitRevisionProvider';
 import { subscribeToBuiltInGitChanges } from './git/gitLocalSync';
+import { openFileAtRevision } from './git/revisionCommands';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const branchCompareProvider = new BranchCompareDocumentProvider();
@@ -21,9 +22,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       webviewOptions: { retainContextWhenHidden: true }
     }),
     gitLogProvider,
+    vscode.commands.registerCommand('gitnav.showFileHistory', () => showFileHistory(context)),
+    vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', () => showHistoryForCurrentLine(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForSelection', () => showHistoryForSelection(context)),
     vscode.commands.registerCommand('gitnav.compareFileWithBranch', () => compareFileWithBranch(branchCompareProvider)),
+    vscode.commands.registerCommand('gitnav.compareFileWithCommit', () => compareFileWithCommit(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
+    vscode.commands.registerCommand('gitnav.revealLastChangeInGitLog', () => revealLastChangeInGitLog(gitLogProvider)),
+    vscode.commands.registerCommand('gitnav.openFileAtRevision', openFileAtRevision),
     vscode.commands.registerCommand('gitnav.openSettings', () =>
       vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.gitnav-workflows')),
     vscode.workspace.onDidChangeConfiguration(event => {
@@ -45,6 +51,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 }
 
+async function showFileHistory(context: vscode.ExtensionContext): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    vscode.window.showInformationMessage('Open a file before viewing its history.');
+    return;
+  }
+
+  const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
+  if (!repoRoot) {
+    vscode.window.showInformationMessage('This file is not inside a Git repository.');
+    return;
+  }
+
+  const query: FileHistoryQuery = {
+    repoRoot,
+    relPath: toGitRelativePath(repoRoot, editor.document.uri.fsPath)
+  };
+  const maxCommits = historyMaxCommits();
+
+  try {
+    const entries = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      cancellable: true,
+      title: 'Loading file history'
+    }, (_progress, token) => getFileHistory(query, maxCommits, token));
+    if (entries.length === 0) {
+      vscode.window.showInformationMessage('No committed history was found for this file.');
+      return;
+    }
+    LineHistoryPanel.show(entries, fileHistoryLabel(query), context.extensionUri, 'File History');
+  } catch (error) {
+    showHistoryError(error);
+  }
+}
+
+async function showHistoryForCurrentLine(context: vscode.ExtensionContext): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    vscode.window.showInformationMessage('Open a file before viewing line history.');
+    return;
+  }
+
+  const line = editor.selection.active.line + 1;
+  const query = await resolveEditorLineHistoryQuery(editor, line, line);
+  if (query) {
+    await runLineHistoryQuery(context, query, 'History for Current Line');
+  }
+}
+
 async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.uri.scheme !== 'file') {
@@ -58,30 +113,65 @@ async function showHistoryForSelection(context: vscode.ExtensionContext): Promis
     return;
   }
 
-  let startLine = selection.start.line + 1;
-  let endLine = selection.end.line + 1;
-  if (selection.end.character === 0 && endLine > startLine) {
-    endLine -= 1;
+  const range = selectedLineRange(selection);
+  const query = await resolveEditorLineHistoryQuery(editor, range.startLine, range.endLine);
+  if (query) {
+    await runLineHistoryQuery(context, query, 'History for Selection');
   }
+}
 
-  if (endLine < startLine) {
-    [startLine, endLine] = [endLine, startLine];
-  }
-
-  const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
-  if (!repoRoot) {
-    vscode.window.showInformationMessage('This file is not inside a Git repository.');
+async function revealLastChangeInGitLog(provider: GitLogViewProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    vscode.window.showInformationMessage('Open a file before revealing its last change.');
     return;
   }
 
-  const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
-  const query = await resolveLineHistoryQuery(repoRoot, relPath, startLine, endLine);
+  const range = editor.selection.isEmpty
+    ? { startLine: editor.selection.active.line + 1, endLine: editor.selection.active.line + 1 }
+    : selectedLineRange(editor.selection);
+  const query = await resolveEditorLineHistoryQuery(editor, range.startLine, range.endLine);
   if (!query) {
-    vscode.window.showInformationMessage('This selected range has not been committed yet.');
     return;
   }
 
-  await runLineHistoryQuery(context, query);
+  try {
+    const entries = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Window,
+      title: 'Finding last change'
+    }, (_progress, token) => getLineHistory(query, 1, token));
+    if (entries.length === 0) {
+      vscode.window.showInformationMessage('No commit touched this line or selection.');
+      return;
+    }
+    await provider.revealCommit(query.repoRoot, entries[0].hash);
+  } catch (error) {
+    showHistoryError(error);
+  }
+}
+
+async function resolveEditorLineHistoryQuery(
+  editor: vscode.TextEditor,
+  startLine: number,
+  endLine: number
+): Promise<LineHistoryQuery | undefined> {
+  try {
+    const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
+    if (!repoRoot) {
+      vscode.window.showInformationMessage('This file is not inside a Git repository.');
+      return undefined;
+    }
+
+    const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
+    const query = await resolveLineHistoryQuery(repoRoot, relPath, startLine, endLine);
+    if (!query) {
+      vscode.window.showInformationMessage('This line or selection has not been committed yet.');
+    }
+    return query;
+  } catch (error) {
+    showHistoryError(error);
+    return undefined;
+  }
 }
 
 async function resolveLineHistoryQuery(
@@ -104,31 +194,52 @@ async function resolveLineHistoryQuery(
   return mapped ? { repoRoot, relPath, headStart: mapped.start, headEnd: mapped.end } : undefined;
 }
 
-async function runLineHistoryQuery(context: vscode.ExtensionContext, query: LineHistoryQuery): Promise<void> {
-  const maxCommits = vscode.workspace.getConfiguration('gitnav').get<number>('history.maxCommits', 50);
-
+async function runLineHistoryQuery(
+  context: vscode.ExtensionContext,
+  query: LineHistoryQuery,
+  title: string
+): Promise<void> {
   try {
     const entries = await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       cancellable: true,
       title: 'Loading line history'
-    }, (_progress, token) => getLineHistory(query, Math.max(1, maxCommits), token));
+    }, (_progress, token) => getLineHistory(query, historyMaxCommits(), token));
 
     if (entries.length === 0) {
-      vscode.window.showInformationMessage('No commit touched this selected range.');
+      vscode.window.showInformationMessage('No commit touched this line or selection.');
       return;
     }
 
-    LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri);
+    LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri, title);
   } catch (error) {
-    if (error instanceof GitOperationCancelledError) {
-      return;
-    }
+    showHistoryError(error);
+  }
+}
 
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.trim().length > 0) {
-      vscode.window.showErrorMessage(message);
-    }
+function selectedLineRange(selection: vscode.Selection): { startLine: number; endLine: number } {
+  let startLine = selection.start.line + 1;
+  let endLine = selection.end.line + 1;
+  if (selection.end.character === 0 && endLine > startLine) {
+    endLine -= 1;
+  }
+  if (endLine < startLine) {
+    [startLine, endLine] = [endLine, startLine];
+  }
+  return { startLine, endLine };
+}
+
+function historyMaxCommits(): number {
+  return Math.max(1, vscode.workspace.getConfiguration('gitnav').get<number>('history.maxCommits', 50));
+}
+
+function showHistoryError(error: unknown): void {
+  if (error instanceof GitOperationCancelledError || error instanceof vscode.CancellationError) {
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.trim().length > 0) {
+    vscode.window.showErrorMessage(message);
   }
 }
 

@@ -43,9 +43,14 @@
   ],
   "activationEvents": [
     "onView:gitnav.gitLog",
+    "onCommand:gitnav.showFileHistory",
+    "onCommand:gitnav.showHistoryForCurrentLine",
     "onCommand:gitnav.showHistoryForSelection",
     "onCommand:gitnav.compareFileWithBranch",
+    "onCommand:gitnav.compareFileWithCommit",
     "onCommand:gitnav.compareSelectionWithBranch",
+    "onCommand:gitnav.revealLastChangeInGitLog",
+    "onCommand:gitnav.openFileAtRevision",
     "onCommand:gitnav.openSettings"
   ],
   "main": "./out/extension.js",
@@ -70,6 +75,16 @@
     },
     "commands": [
       {
+        "command": "gitnav.showFileHistory",
+        "title": "Show File History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitnav.showHistoryForCurrentLine",
+        "title": "Show History for Current Line",
+        "icon": "$(git-commit)"
+      },
+      {
         "command": "gitnav.showHistoryForSelection",
         "title": "Show History for Selection",
         "icon": "$(git-commit)"
@@ -80,9 +95,24 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "gitnav.compareFileWithCommit",
+        "title": "Compare File With Commit...",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "gitnav.compareSelectionWithBranch",
         "title": "Compare Selection With Branch...",
         "icon": "$(git-compare)"
+      },
+      {
+        "command": "gitnav.revealLastChangeInGitLog",
+        "title": "Reveal Last Change in Git Log",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitnav.openFileAtRevision",
+        "title": "Open File at Revision...",
+        "icon": "$(open-preview)"
       },
       {
         "command": "gitnav.openSettings",
@@ -100,23 +130,44 @@
       "editor/context": [
         {
           "submenu": "gitnav.editorMenu",
+          "when": "resourceScheme == file",
           "group": "6_gitnav@1"
         }
       ],
       "gitnav.editorMenu": [
         {
+          "command": "gitnav.showFileHistory",
+          "group": "1_history@1"
+        },
+        {
+          "command": "gitnav.showHistoryForCurrentLine",
+          "group": "1_history@2"
+        },
+        {
           "command": "gitnav.showHistoryForSelection",
           "when": "editorHasSelection",
-          "group": "history@1"
+          "group": "1_history@3"
         },
         {
           "command": "gitnav.compareFileWithBranch",
-          "group": "compare@1"
+          "group": "2_compare@1"
+        },
+        {
+          "command": "gitnav.compareFileWithCommit",
+          "group": "2_compare@2"
         },
         {
           "command": "gitnav.compareSelectionWithBranch",
           "when": "editorHasSelection",
-          "group": "compare@2"
+          "group": "2_compare@3"
+        },
+        {
+          "command": "gitnav.revealLastChangeInGitLog",
+          "group": "3_navigation@1"
+        },
+        {
+          "command": "gitnav.openFileAtRevision",
+          "group": "3_navigation@2"
         }
       ],
       "view/title": [
@@ -134,7 +185,7 @@
           "type": "number",
           "default": 50,
           "minimum": 1,
-          "description": "Maximum commits returned by Show History for Selection."
+          "description": "Maximum commits returned by editor history and revision pickers."
         },
         "gitnav.protectedBranches": {
           "type": "array",

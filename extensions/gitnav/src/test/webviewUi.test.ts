@@ -128,6 +128,25 @@ test('branch favorite stars stay visible without hover', () => {
   assert.doesNotMatch(styles, /\.item button\[data-star\]\s*\{[^}]*visibility:\s*hidden;/s);
 });
 
+test('editor reveal focuses an exact commit in the Git Log view', () => {
+  const provider = readGitLogSurface();
+
+  assert.match(provider, /async revealCommit\(root: string, hash: string\)/);
+  assert.match(provider, /executeCommand\(`\$\{GitLogViewProvider\.viewId\}\.focus`\)/);
+  assert.match(provider, /this\.activeFilters\.set\(root, \{ text: hash \}\)/);
+  assert.match(provider, /this\.post\(\{ type: 'focusCommit', hash \}\)/);
+  assert.match(provider, /function focusCommit\(hash\)/);
+  assert.match(provider, /m\.type==='focusCommit'/);
+});
+
+test('history panel supports command-specific titles', () => {
+  const history = read('src', 'git', 'lineHistoryPanel.ts');
+
+  assert.match(history, /title = 'History for Selection'/);
+  assert.match(history, /\{ title, entries, header \}/);
+  assert.match(history, /<title>\$\{escapeHtml\(state\.title\)\}<\/title>/);
+});
+
 test('commit column visibility uses eye toggle buttons instead of checkboxes', () => {
   const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');

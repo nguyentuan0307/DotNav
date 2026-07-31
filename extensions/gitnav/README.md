@@ -59,7 +59,7 @@ You can also download a packaged VSIX from [GitHub Releases](https://github.com/
 2. Open the bottom Panel and select **GitNav**.
 3. Select a branch or commit to inspect its history and changed files.
 4. Open an item's context menu to see the Git actions available for its current state.
-5. Select lines in an editor and open the **GitNav** submenu to view line history or compare the selection with another branch.
+5. Open the editor **GitNav** submenu to inspect file, line, or selection history; compare with a branch or commit; reveal the latest change; or open a read-only revision.
 
 ## Requirements
 
@@ -87,7 +87,7 @@ Open **Settings** and search for `GitNav`.
 | `gitnav.autoFetch` | Fetch while the Git Log view is active | `true` |
 | `gitnav.autoFetchMinutes` | Set the automatic fetch interval | `20` |
 | `gitnav.protectedBranches` | Define branch patterns protected from history rewrites | `main`, `master`, `develop`, `release/*` |
-| `gitnav.history.maxCommits` | Limit commits returned by selection history | `50` |
+| `gitnav.history.maxCommits` | Limit commits returned by editor history and revision pickers | `50` |
 
 ## Feedback
 

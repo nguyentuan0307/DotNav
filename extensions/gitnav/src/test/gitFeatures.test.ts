@@ -126,14 +126,23 @@ test('keeps Git contributions in GitNav and installs it with DotNav', () => {
 
 test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
   const commandIds = new Set(manifest.contributes.commands.map((command: { command: string }) => command.command));
-  assert.ok(commandIds.has('gitnav.compareFileWithBranch'));
-  assert.ok(commandIds.has('gitnav.compareSelectionWithBranch'));
-  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
-    command.command === 'gitnav.showHistoryForSelection')?.title, 'Show History for Selection');
-  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
-    command.command === 'gitnav.compareFileWithBranch')?.title, 'Compare File With Branch...');
-  assert.equal(gitnavManifest.contributes.commands.find((command: { command: string }) =>
-    command.command === 'gitnav.compareSelectionWithBranch')?.title, 'Compare Selection With Branch...');
+  const expectedCommands = [
+    ['gitnav.showFileHistory', 'Show File History'],
+    ['gitnav.showHistoryForCurrentLine', 'Show History for Current Line'],
+    ['gitnav.showHistoryForSelection', 'Show History for Selection'],
+    ['gitnav.compareFileWithBranch', 'Compare File With Branch...'],
+    ['gitnav.compareFileWithCommit', 'Compare File With Commit...'],
+    ['gitnav.compareSelectionWithBranch', 'Compare Selection With Branch...'],
+    ['gitnav.revealLastChangeInGitLog', 'Reveal Last Change in Git Log'],
+    ['gitnav.openFileAtRevision', 'Open File at Revision...']
+  ];
+  for (const [command, title] of expectedCommands) {
+    assert.ok(commandIds.has(command));
+    assert.equal(gitnavManifest.contributes.commands.find(
+      (item: { command: string }) => item.command === command
+    )?.title, title);
+    assert.ok(gitnavManifest.activationEvents.includes(`onCommand:${command}`));
+  }
 
   assert.ok(manifest.contributes.submenus.some((submenu: { id: string; label: string }) =>
     submenu.id === 'gitnav.editorMenu' && submenu.label === 'GitNav'
@@ -144,7 +153,7 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
     item.command === 'dotnav.formatSelection' && item.group?.startsWith('6_dotnav')
   ));
   assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string; group?: string }) =>
-    item.submenu === 'gitnav.editorMenu' && item.when === undefined && item.group?.startsWith('6_gitnav')
+    item.submenu === 'gitnav.editorMenu' && item.when === 'resourceScheme == file' && item.group?.startsWith('6_gitnav')
   ));
   assert.ok(!editorContext.some((item: { command?: string }) =>
     item.command === 'gitnav.showHistoryForSelection'
@@ -152,13 +161,25 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
 
   const gitMenu = manifest.contributes.menus['gitnav.editorMenu'];
   assert.deepEqual(gitMenu.map((item: { command: string }) => item.command), [
+    'gitnav.showFileHistory',
+    'gitnav.showHistoryForCurrentLine',
     'gitnav.showHistoryForSelection',
     'gitnav.compareFileWithBranch',
-    'gitnav.compareSelectionWithBranch'
+    'gitnav.compareFileWithCommit',
+    'gitnav.compareSelectionWithBranch',
+    'gitnav.revealLastChangeInGitLog',
+    'gitnav.openFileAtRevision'
   ]);
-  assert.ok(gitMenu.some((item: { command: string }) =>
-    item.command === 'gitnav.compareFileWithBranch'
-  ));
+  assert.deepEqual(gitMenu.map((item: { group: string }) => item.group), [
+    '1_history@1',
+    '1_history@2',
+    '1_history@3',
+    '2_compare@1',
+    '2_compare@2',
+    '2_compare@3',
+    '3_navigation@1',
+    '3_navigation@2'
+  ]);
   assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
     item.command === 'gitnav.compareSelectionWithBranch' && item.when?.includes('editorHasSelection')
   ));

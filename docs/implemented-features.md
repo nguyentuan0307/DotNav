@@ -98,6 +98,7 @@ Key files:
 - The command runs `git log -L <start>,<end>:<file>` asynchronously and supports cancellation.
 - Git is executed through `child_process.spawn` with argv arrays, not a shell.
 - Repo root is resolved from the selected file, so files in different repos work independently.
+- The editor GitNav menu also supports whole-file history with rename tracking, current-line history, file comparison with a commit/tag/SHA, revealing the latest line change in Git Log, and opening read-only file revisions.
 - Dirty worktree line numbers are mapped back to HEAD using `git diff --no-color -U0`.
 - Fully uncommitted selected ranges stop early with a user-facing message instead of calling `git log`.
 - Results render in a single reusable webview panel titled `History for Selection`.
