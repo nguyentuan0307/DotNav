@@ -7,6 +7,14 @@ on:
         description: Component release tag to package
         required: true
         type: string
+      component:
+        description: Expected component name
+        required: true
+        type: string
+      version:
+        description: Expected package version
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       ref:
@@ -51,11 +59,13 @@ jobs:
         run: |
           case "$RELEASE_REF" in
             dotnav-v*)
+              COMPONENT="dotnav"
               WORKSPACE="dotnav"
               PACKAGE_PATH="extensions/dotnav"
               TAG_VERSION="${RELEASE_REF#dotnav-v}"
               ;;
             gitnav-v*)
+              COMPONENT="gitnav"
               WORKSPACE="extensions/gitnav"
               PACKAGE_PATH="extensions/gitnav"
               TAG_VERSION="${RELEASE_REF#gitnav-v}"
@@ -66,14 +76,26 @@ jobs:
               ;;
           esac
 
+          EXPECTED_COMPONENT="${{ inputs.component }}"
+          EXPECTED_VERSION="${{ inputs.version }}"
+          if [ -n "$EXPECTED_COMPONENT" ] && [ "$EXPECTED_COMPONENT" != "$COMPONENT" ]; then
+            echo "Release component $COMPONENT does not match expected component $EXPECTED_COMPONENT" >&2
+            exit 1
+          fi
+          if [ -n "$EXPECTED_VERSION" ] && [ "$EXPECTED_VERSION" != "$TAG_VERSION" ]; then
+            echo "Release version $TAG_VERSION does not match expected version $EXPECTED_VERSION" >&2
+            exit 1
+          fi
+
           PACKAGE_VERSION="$(node -p "require('./$PACKAGE_PATH/package.json').version")"
           if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
             echo "Release tag $RELEASE_REF does not match $PACKAGE_PATH version $PACKAGE_VERSION" >&2
             exit 1
           fi
 
+          echo "component=$COMPONENT" >> "$GITHUB_OUTPUT"
           echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
-          echo "vsix=$WORKSPACE-$PACKAGE_VERSION.vsix" >> "$GITHUB_OUTPUT"
+          echo "vsix=$COMPONENT-$PACKAGE_VERSION.vsix" >> "$GITHUB_OUTPUT"
 
       - name: Package component VSIX
         run: npm run package:vsix --workspace "${{ steps.metadata.outputs.workspace }}" -- --out "../../${{ steps.metadata.outputs.vsix }}"

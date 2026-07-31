@@ -19,8 +19,10 @@ jobs:
     timeout-minutes: 10
     outputs:
       dotnav_release_created: ${{ steps.release.outputs.dotnav_release_created }}
+      dotnav_version: ${{ steps.release.outputs.dotnav_version }}
       dotnav_tag_name: ${{ steps.release.outputs.dotnav_tag_name }}
       gitnav_release_created: ${{ steps.release.outputs.gitnav_release_created }}
+      gitnav_version: ${{ steps.release.outputs.gitnav_version }}
       gitnav_tag_name: ${{ steps.release.outputs.gitnav_tag_name }}
 
     steps:
@@ -53,6 +55,8 @@ jobs:
     uses: ./.github/workflows/build-release.yml
     with:
       ref: ${{ needs.release.outputs.dotnav_tag_name }}
+      component: dotnav
+      version: ${{ needs.release.outputs.dotnav_version }}
 
   build-gitnav-release-asset:
     needs: release
@@ -60,3 +64,5 @@ jobs:
     uses: ./.github/workflows/build-release.yml
     with:
       ref: ${{ needs.release.outputs.gitnav_tag_name }}
+      component: gitnav
+      version: ${{ needs.release.outputs.gitnav_version }}
