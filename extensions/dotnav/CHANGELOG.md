@@ -4,6 +4,23 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.10.0...dotnav-v0.11.0) (2026-07-31)
+
+
+### Features
+
+* **dotnav:** edit compound projects ([61a8830](https://github.com/nguyentuan0307/DotNav/commit/61a8830d74cd0b8594c108c062948faac74f16c8))
+
+### Performance Improvements
+
+* **dotnav:** narrow workspace refreshes ([14b11a3](https://github.com/nguyentuan0307/DotNav/commit/14b11a3096f458082385ca977576fd2b778198ec))
+
+### Changes
+
+* refactor(dotnav): modularize EF center ([e36dc7e](https://github.com/nguyentuan0307/DotNav/commit/e36dc7e91964b51c25f9d0142d23c1056e729307))
+* docs: add project state tooling ([c0f63bd](https://github.com/nguyentuan0307/DotNav/commit/c0f63bd933c7934009ed9da58662045425082db0))
+
+
 ## [0.10.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.9.0...dotnav-v0.10.0) (2026-07-30)
 
 
