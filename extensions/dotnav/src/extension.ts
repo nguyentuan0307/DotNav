@@ -17,6 +17,11 @@ import { DotnetTreeProvider } from './treeProvider';
 import { activateEfCore } from './ef/efMain';
 import { addPackage, checkOutdated, removePackage, restorePackages, updatePackage } from './nugetCommands';
 import { addProjectReference, removeProjectReference } from './projectReferenceCommands';
+import {
+  WorkspaceChange,
+  WorkspaceFileEventKind,
+  classifyWorkspaceChange
+} from './workspaceChangeClassifier';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -498,60 +503,55 @@ async function runSelectedResourceCommand(
 function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider: DotnetTreeProvider): void {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*');
   let refreshTimer: NodeJS.Timeout | undefined;
-  let fullRefresh = false;
+  const pending = new Map<string, WorkspaceChange>();
 
-  const scheduleRefresh = (uri: vscode.Uri, forceFullRefresh: boolean) => {
-    if (!isRelevantWorkspaceFile(uri.fsPath)) {
+  const flush = async () => {
+    const changes = [...pending.values()];
+    pending.clear();
+    refreshTimer = undefined;
+    if (changes.some(item => item.kind === 'solution')) {
+      await provider.refresh();
       return;
     }
 
-    fullRefresh ||= forceFullRefresh || requiresFullSolutionRefresh(uri.fsPath);
+    for (const item of changes.filter(candidate => candidate.kind === 'projectMetadata')) {
+      if (!provider.invalidateProjectMetadata(item.filePath)) {
+        await provider.refresh();
+        return;
+      }
+    }
+    const directories = new Set(changes
+      .filter(candidate => candidate.kind === 'directory')
+      .map(candidate => candidate.directoryPath)
+      .filter((value): value is string => Boolean(value)));
+    for (const directory of directories) {
+      provider.invalidateDirectory(directory);
+    }
+  };
+
+  const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
+    const change = classifyWorkspaceChange(uri.fsPath, eventKind);
+    if (change.kind === 'ignored') {
+      return;
+    }
+
+    pending.set(uri.fsPath, change);
     if (refreshTimer) {
       clearTimeout(refreshTimer);
     }
 
     refreshTimer = setTimeout(() => {
-      if (fullRefresh) {
-        provider.refresh();
-      } else {
-        provider.fireChanged();
-      }
-      fullRefresh = false;
-      refreshTimer = undefined;
+      void flush().catch(error => console.error(`DotNav workspace refresh failed: ${error}`));
     }, 250);
   };
 
   context.subscriptions.push(
     watcher,
-    watcher.onDidCreate(uri => scheduleRefresh(uri, false)),
-    watcher.onDidDelete(uri => scheduleRefresh(uri, false)),
-    watcher.onDidChange(uri => {
-      if (requiresFullSolutionRefresh(uri.fsPath)) {
-        scheduleRefresh(uri, true);
-      }
-    }),
+    watcher.onDidCreate(uri => scheduleRefresh(uri, 'create')),
+    watcher.onDidDelete(uri => scheduleRefresh(uri, 'delete')),
+    watcher.onDidChange(uri => scheduleRefresh(uri, 'change')),
     { dispose: () => refreshTimer && clearTimeout(refreshTimer) }
   );
-}
-
-function isRelevantWorkspaceFile(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
-  if (/\/(bin|obj|node_modules|\.vs)\//i.test(normalized)) {
-    return false;
-  }
-
-  return true;
-}
-
-function requiresFullSolutionRefresh(filePath: string): boolean {
-  const fileName = path.basename(filePath).toLowerCase();
-  if (/\.(sln|slnx|csproj|fsproj|vbproj|dcproj)$/i.test(fileName)) {
-    return true;
-  }
-
-  return fileName === 'launchsettings.json'
-    || /^directory\.(build|packages)\.(props|targets)$/i.test(fileName)
-    || fileName === 'global.json';
 }
 
 async function withActiveConfig(
