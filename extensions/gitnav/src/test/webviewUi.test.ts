@@ -106,10 +106,12 @@ test('stash actions are available only from the context menu', () => {
   assert.doesNotMatch(provider, /data-stash-action|stash-actions|function stashAction/);
 });
 
-test('branch and repository picker lists scroll without chaining to the log', () => {
+test('branch and repository pickers keep toolbar-sized search controls above scrolling lists', () => {
   const styles = read('media', 'webview', 'git-log.css');
 
-  assert.match(styles, /#branchPickerItems,\s*#repoPickerItems\s*\{[^}]*min-height:\s*0;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
+  assert.match(styles, /--gn-toolbar-control-height:\s*34px/);
+  assert.match(styles, /\.branch-picker-search,\s*\.repo-picker-search\s*\{[^}]*height:\s*var\(--gn-toolbar-control-height\);[^}]*min-height:\s*var\(--gn-toolbar-control-height\);[^}]*flex:\s*0 0 var\(--gn-toolbar-control-height\);/s);
+  assert.match(styles, /#branchPickerItems,\s*#repoPickerItems\s*\{[^}]*min-height:\s*0;[^}]*flex:\s*1 1 auto;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
 });
 
 test('branch selection uses native list colors while current branch keeps a small edge marker', () => {

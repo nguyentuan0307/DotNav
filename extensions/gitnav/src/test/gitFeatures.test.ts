@@ -254,6 +254,14 @@ test('renders Git Log context actions inside the webview', () => {
   assert.match(source, /active repository changed while this action was open/i);
 });
 
+test('keeps push options and the overflow menu to one necessary choice per action', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const script = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+  assert.doesNotMatch(provider, /title: 'Push Tags'/);
+  assert.match(provider, /options: \{ forceLease: forceLease\.value, tags: false \}/);
+  assert.doesNotMatch(script, /Update Current Branch/);
+});
+
 test('renders changed files as a recursive collapsible tree', () => {
   const source = gitLogSurface();
   assert.match(source, /function fileTree\(/);
@@ -296,7 +304,10 @@ test('renders changed files as a recursive collapsible tree', () => {
   assert.match(source, /clearTimeout\(branchSearchTimer\)/);
   assert.match(source, /cancelAnimationFrame\(branchSearchFrame\)/);
   assert.match(source, /generation!==branchSearchGeneration/);
-  assert.match(source, /branchSearch'\)\.oninput=scheduleBranchSearch/);
+  assert.match(source, /for\(const input of \[\$\('branchSearch'\),\$\('stashSearch'\)\]\)/);
+  assert.match(source, /function activeLeftSearch\(\)/);
+  assert.match(source, /\$\('branchSearch'\)\.hidden=stashes/);
+  assert.match(source, /\$\('stashSearch'\)\.hidden=!stashes/);
   assert.match(source, /data-open-local/);
   assert.match(source, /Open local file \(Ctrl\+Enter\)/);
   assert.match(source, /if\(e\.ctrlKey\|\|e\.metaKey\)send\('openFile'/);
@@ -426,6 +437,8 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /id="branchTrigger"/);
   assert.match(source, /id="branchPicker"/);
   assert.match(source, /id="branchSearch" placeholder="Search branches"/);
+  assert.match(source, /stashListSearch\.id='stashSearch'/);
+  assert.match(source, /stashListSearch\.placeholder='Search stashes'/);
   assert.match(source, /const current=r\.refs\.find\(x=>x\.current\),matching=r\.refs\.filter\(x=>x!==current/);
   assert.match(source, /'<div class="group">Current branch<\/div>'\+refItem\(current,current\.name\)/);
   assert.match(source, /m\.repositories\.length>1\?'block':'none'/);
