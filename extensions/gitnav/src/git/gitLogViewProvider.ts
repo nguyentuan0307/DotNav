@@ -691,8 +691,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         { label: 'Force with Lease', value: true, description: `Safely rewrite ${pushPlan.destination} only if it has not changed` }
       ], { title: 'Push Current Branch' });
       if (!forceLease) return undefined;
-      const tags = await vscode.window.showQuickPick([{ label: 'Branch only', value: false }, { label: 'Include tags', value: true }], { title: 'Push Tags' });
-      return tags ? { action: 'push', options: { forceLease: forceLease.value, tags: tags.value } } : undefined;
+      return { action: 'push', options: { forceLease: forceLease.value, tags: false } };
     }
     if (action === 'merge') {
       const mode = await vscode.window.showQuickPick([
