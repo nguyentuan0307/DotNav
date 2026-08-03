@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.12.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.0...gitnav-v0.12.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **gitnav:** streamline branch controls ([fdddc78](https://github.com/nguyentuan0307/DotNav/commit/fdddc78eff47a7bbc4c740f78f4c4645ae6e7d35))
+
+
 ## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.2...gitnav-v0.12.0) (2026-07-31)
 
 
