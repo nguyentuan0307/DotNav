@@ -4,22 +4,34 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.10.0...dotnav-v0.11.0) (2026-07-31)
+
+
 ### Features
 
-* reformat multiple C# selections atomically and add an explicit Reformat Document command
-* format argument lists around comments and conditional compilation directives when structurally safe
-* align fluent chains across attached comments and blank lines
-* detect per-construct C# formatting intent before Roslyn and preserve deliberate continuation indentation
-* support native DotNav `.editorconfig` rules for continuation, argument wrapping, and comma preferences
+* **dotnav:** edit compound projects ([61a8830](https://github.com/nguyentuan0307/DotNav/commit/61a8830d74cd0b8594c108c062948faac74f16c8))
 
-### Bug Fixes
+### Performance Improvements
 
-* cancel stale or overlapping formatter edits before they can change a document
-* honor `.editorconfig` `max_line_length = off` and cache parsed configuration
-* preserve raw strings, verbatim strings, and block comments during blank-line cleanup
-* distinguish compact relational expressions from generic argument lists
-* replace quadratic list scanning with a linear structural model and safety fingerprint
-* keep fluent calls aligned across multiline arguments without flattening nested lambda or initializer bodies
+* **dotnav:** narrow workspace refreshes ([14b11a3](https://github.com/nguyentuan0307/DotNav/commit/14b11a3096f458082385ca977576fd2b778198ec))
+
+### Changes
+
+* refactor(dotnav): modularize EF center ([e36dc7e](https://github.com/nguyentuan0307/DotNav/commit/e36dc7e91964b51c25f9d0142d23c1056e729307))
+* docs: add project state tooling ([c0f63bd](https://github.com/nguyentuan0307/DotNav/commit/c0f63bd933c7934009ed9da58662045425082db0))
+
+
+## [0.10.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.9.0...dotnav-v0.10.0) (2026-07-30)
+
+
+### Features
+
+* **dotnav:** add structure-aware reformatting ([e7995b6](https://github.com/nguyentuan0307/DotNav/commit/e7995b6aaf23e081cef906e50648350fff85aa0a))
+
+### Changes
+
+* chore: merge release into master ([bb5b6a8](https://github.com/nguyentuan0307/DotNav/commit/bb5b6a85f770e543930a9f4af590b180e85b4511))
+
 
 ## [0.9.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.8.2...dotnav-v0.9.0) (2026-07-27)
 
