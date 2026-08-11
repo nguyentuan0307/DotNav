@@ -124,6 +124,9 @@ Update, Drop và các CLI hỗ trợ `--connection` có password field:
 - Chấp nhận connection string đầy đủ.
 - Không persist vào workspace/global/webview state.
 - `retainContextWhenHidden` bị tắt; DOM bị hủy khi webview ẩn.
+- Form values được giữ trong memory của extension host khi Center còn mở để
+  khôi phục DOM và cho phép chạy nhiều action liên tiếp; đóng Center sẽ xóa
+  toàn bộ session này, bao gồm connection string.
 - Preview, Output và error đi qua masking.
 - Password field có Show/Hide tạm thời.
 

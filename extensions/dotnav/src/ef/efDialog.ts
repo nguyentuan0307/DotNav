@@ -41,6 +41,12 @@ export interface EfDialogCallbacks {
   readonly preview: (values: EfDialogValues) => string;
   readonly onChange?: (values: EfDialogValues, handle: EfDialogHandle) => void | Promise<void>;
   readonly onAction?: (action: string, values: EfDialogValues, handle: EfDialogHandle) => void | Promise<void>;
+  /**
+   * Runs the primary action without ending the Center session. When supplied,
+   * the form remains live and can be submitted again after this callback
+   * settles. Older callers may still use the one-shot promise result.
+   */
+  readonly onSubmit?: (values: EfDialogValues, handle: EfDialogHandle) => void | Promise<void>;
 }
 
 /**
@@ -55,6 +61,76 @@ let openDialog: { panel: vscode.WebviewPanel; dismiss: (disposePanel?: boolean) 
 let centerMessageSubscription: vscode.Disposable | undefined;
 let centerPanelDisposeSubscription: vscode.Disposable | undefined;
 
+interface EfCenterSession {
+  readonly common: EfDialogValues;
+  readonly actions: Map<string, EfDialogValues>;
+}
+
+const SESSION_COMMON_FIELDS = new Set([
+  'project', 'startup', 'context', 'connection', 'configuration', 'noBuild', 'extraArgs'
+]);
+let centerSession: EfCenterSession | undefined;
+
+function sessionForCenter(): EfCenterSession {
+  centerSession ??= { common: {}, actions: new Map() };
+  return centerSession;
+}
+
+function rememberSessionValues(actionId: string | undefined, values: EfDialogValues): void {
+  const session = sessionForCenter();
+  const actionValues = actionId ? { ...(session.actions.get(actionId) ?? {}) } : undefined;
+  for (const [field, value] of Object.entries(values)) {
+    if (SESSION_COMMON_FIELDS.has(field)) {
+      session.common[field] = value;
+    } else if (actionValues) {
+      actionValues[field] = value;
+    }
+  }
+  if (actionId && actionValues) {
+    session.actions.set(actionId, actionValues);
+  }
+}
+
+function prepareSessionForSpec(spec: EfDialogSpec): void {
+  const defaults = defaultValues(spec.fields);
+  const requestedProject = defaults['project'];
+  const rememberedProject = centerSession?.common['project'];
+  if (
+    typeof requestedProject === 'string' && requestedProject.length > 0 &&
+    typeof rememberedProject === 'string' && rememberedProject.length > 0 &&
+    requestedProject !== rememberedProject
+  ) {
+    // A context-menu action for another project starts a distinct Center
+    // session. Navigation inside the Center passes the current project and
+    // therefore continues to preserve values.
+    centerSession = undefined;
+  }
+}
+
+function sessionValues(spec: EfDialogSpec): EfDialogValues {
+  const defaults = defaultValues(spec.fields);
+  const session = sessionForCenter();
+  const remembered = spec.actionId ? session.actions.get(spec.actionId) : undefined;
+  const values: EfDialogValues = { ...defaults };
+  for (const field of spec.fields) {
+    const value = remembered?.[field.id] ?? session.common[field.id];
+    if (value !== undefined) {
+      values[field.id] = value;
+    }
+  }
+  return values;
+}
+
+function specWithValues(spec: EfDialogSpec, values: EfDialogValues): EfDialogSpec {
+  return {
+    ...spec,
+    fields: spec.fields.map(field => ({
+      ...field,
+      value: values[field.id] ?? field.value
+    }))
+  };
+}
+
 export function setEfCenterBusy(busy: boolean, status?: string, error = false): void {
   if (!centerPanel) {
     return;
@@ -63,6 +139,18 @@ export function setEfCenterBusy(busy: boolean, status?: string, error = false): 
   if (status !== undefined) {
     void centerPanel.webview.postMessage({ type: 'status', text: status, error });
   }
+}
+
+export function setEfCenterStatus(status: string, error = false): void {
+  if (!centerPanel) {
+    return;
+  }
+  void centerPanel.webview.postMessage({
+    type: 'status',
+    text: status,
+    textVi: localizeEfText(status, 'vi'),
+    error
+  });
 }
 
 export function setEfCenterProgress(progress: EfProgressUpdate | undefined): void {
@@ -110,6 +198,7 @@ export function disposeEfCenter(): void {
   centerPanelDisposeSubscription = undefined;
   centerPanel?.dispose();
   centerPanel = undefined;
+  centerSession = undefined;
 }
 
 export function showEfDialog(
@@ -121,6 +210,9 @@ export function showEfDialog(
   openDialog?.dismiss(false);
   centerMessageSubscription?.dispose();
   centerPanelDisposeSubscription?.dispose();
+  if (!reusablePanel) {
+    centerSession = undefined;
+  }
   const panel = reusablePanel ?? vscode.window.createWebviewPanel(
     'dotnav.efCenter',
     'EF Core Center',
@@ -132,7 +224,15 @@ export function showEfDialog(
 
   const nonce = createNonce();
   const initialLocale = resolveEfLocale();
-  panel.webview.html = renderDialogHtml(spec, nonce, panel.webview.cspSource, initialLocale);
+  prepareSessionForSpec(spec);
+  const initialValues = sessionValues(spec);
+  rememberSessionValues(spec.actionId, initialValues);
+  panel.webview.html = renderDialogHtml(
+    specWithValues(spec, initialValues),
+    nonce,
+    panel.webview.cspSource,
+    initialLocale
+  );
 
   const handle: EfDialogHandle = {
     setPreview: text => void panel.webview.postMessage({ type: 'preview', text }),
@@ -158,6 +258,7 @@ export function showEfDialog(
 
   return new Promise<EfDialogValues | undefined>(resolve => {
     let settled = false;
+    let submitting = false;
     const finish = (result: EfDialogValues | undefined, disposePanel = true) => {
       if (settled) {
         return;
@@ -187,13 +288,25 @@ export function showEfDialog(
       text?: string;
       locale?: EfLocale;
     }) => {
-      const values = message.values ?? defaultValues(spec.fields);
+      const values = message.values ?? sessionValues(spec);
       switch (message.type) {
-        case 'ready':
+        case 'ready': {
+          if (settled) {
+            return;
+          }
+          // The DOM may have been destroyed while hidden. Rehydrate from host
+          // memory before accepting its initial/default values.
+          const remembered = sessionValues(spec);
+          void panel.webview.postMessage({ type: 'values', values: remembered });
+          handle.setPreview(callbacks.preview(remembered));
+          await callbacks.onChange?.(remembered, handle);
+          break;
+        }
         case 'change':
           if (settled) {
             return;
           }
+          rememberSessionValues(spec.actionId, values);
           handle.setPreview(callbacks.preview(values));
           await callbacks.onChange?.(values, handle);
           break;
@@ -202,16 +315,34 @@ export function showEfDialog(
             return;
           }
           if (message.action) {
+            rememberSessionValues(spec.actionId, values);
             await callbacks.onAction?.(message.action, values, handle);
           }
           break;
         case 'submit':
-          if (settled) {
+          if (settled || submitting) {
             return;
           }
           handle.setBusy(true);
           handle.setStatus('Running command…');
-          finish(values, false);
+          rememberSessionValues(spec.actionId, values);
+          if (callbacks.onSubmit) {
+            submitting = true;
+            try {
+              await callbacks.onSubmit(values, handle);
+            } catch {
+              // Unexpected exceptions can contain process arguments. Keep the
+              // Center status generic so a connection string is never echoed.
+              handle.setStatus('Command failed unexpectedly. See the notification or Output for details.', true);
+            } finally {
+              submitting = false;
+              if (!settled) {
+                handle.setBusy(false);
+              }
+            }
+          } else {
+            finish(values, false);
+          }
           break;
         case 'cancel':
           if (settled) {
@@ -267,6 +398,7 @@ export function showEfDialog(
       centerPanel = undefined;
       centerMessageSubscription?.dispose();
       centerPanelDisposeSubscription = undefined;
+      centerSession = undefined;
       finish(undefined, false);
     });
   });

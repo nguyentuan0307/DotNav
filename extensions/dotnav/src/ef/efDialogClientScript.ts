@@ -431,6 +431,24 @@ window.addEventListener('message', event => {
       if (root && root._refresh) { root._refresh(message.value); }
       notifyChange();
     }
+  } else if (message.type === 'values') {
+    let changed = false;
+    for (const [field, value] of Object.entries(message.values || {})) {
+      const node = form.querySelector('[data-field="' + field + '"]');
+      if (!node) { continue; }
+      if (node.type === 'checkbox') {
+        const checked = Boolean(value);
+        changed = changed || node.checked !== checked;
+        node.checked = checked;
+      } else {
+        const text = typeof value === 'string' ? value : '';
+        changed = changed || node.value !== text;
+        node.value = text;
+      }
+      const root = document.querySelector('[data-combo="' + field + '"]');
+      if (root && root._refresh) { root._refresh(typeof value === 'string' ? value : undefined); }
+    }
+    if (changed) { notifyChange(); }
   } else if (message.type === 'options') {
     OPTIONS[message.field] = message.options || [];
     const root = document.querySelector('[data-combo="' + message.field + '"]');
