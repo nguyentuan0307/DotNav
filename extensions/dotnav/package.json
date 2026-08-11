@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -1013,9 +1013,25 @@
         "dotnav.localHistory.trackedExtensions": {
           "type": "array",
           "default": [
-            ".cs", ".fs", ".vb", ".csproj", ".fsproj", ".vbproj", ".dcproj",
-            ".props", ".targets", ".json", ".jsonc", ".xml", ".config", ".sln",
-            ".slnx", ".editorconfig", ".md", ".razor", ".cshtml"
+            ".cs",
+            ".fs",
+            ".vb",
+            ".csproj",
+            ".fsproj",
+            ".vbproj",
+            ".dcproj",
+            ".props",
+            ".targets",
+            ".json",
+            ".jsonc",
+            ".xml",
+            ".config",
+            ".sln",
+            ".slnx",
+            ".editorconfig",
+            ".md",
+            ".razor",
+            ".cshtml"
           ],
           "items": {
             "type": "string"
