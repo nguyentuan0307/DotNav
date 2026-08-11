@@ -58,6 +58,11 @@
     "onCommand:dotnav.removeProjectReference",
     "onCommand:dotnav.searchSolutionTree",
     "onCommand:dotnav.buildSolution",
+    "onCommand:dotnav.smartBuildProject",
+    "onCommand:dotnav.smartBuildFolderProjects",
+    "onCommand:dotnav.smartBuildSolution",
+    "onCommand:dotnav.explainSmartBuildPlan",
+    "onCommand:dotnav.invalidateSmartBuildCache",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
     "onCommand:dotnav.cleanSolution",
@@ -194,9 +199,18 @@
         "title": "Build"
       },
       {
+        "command": "dotnav.smartBuildProject",
+        "title": "Smart Build"
+      },
+      {
         "command": "dotnav.buildFolderProjects",
         "title": "Build Projects in Folder",
         "icon": "$(tools)"
+      },
+      {
+        "command": "dotnav.smartBuildFolderProjects",
+        "title": "Smart Build Projects in Folder",
+        "icon": "$(zap)"
       },
       {
         "command": "dotnav.rebuildProject",
@@ -206,6 +220,19 @@
         "command": "dotnav.buildSolution",
         "title": "Build Solution",
         "icon": "$(tools)"
+      },
+      {
+        "command": "dotnav.smartBuildSolution",
+        "title": "Smart Build Solution",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "dotnav.explainSmartBuildPlan",
+        "title": "Explain Smart Build Plan"
+      },
+      {
+        "command": "dotnav.invalidateSmartBuildCache",
+        "title": "Invalidate Smart Build Cache"
       },
       {
         "command": "dotnav.rebuildSolution",
@@ -715,14 +742,29 @@
           "group": "solution@1"
         },
         {
-          "command": "dotnav.rebuildSolution",
+          "command": "dotnav.smartBuildSolution",
           "when": "view == dotnav && viewItem == solution",
           "group": "solution@2"
         },
         {
-          "command": "dotnav.cleanSolution",
+          "command": "dotnav.rebuildSolution",
           "when": "view == dotnav && viewItem == solution",
           "group": "solution@3"
+        },
+        {
+          "command": "dotnav.cleanSolution",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solution@4"
+        },
+        {
+          "command": "dotnav.explainSmartBuildPlan",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solutionDiagnostics@1"
+        },
+        {
+          "command": "dotnav.invalidateSmartBuildCache",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solutionDiagnostics@2"
         },
         {
           "command": "dotnav.openSolutionFile",
@@ -800,14 +842,24 @@
           "group": "2_build@1"
         },
         {
+          "command": "dotnav.smartBuildProject",
+          "when": "view == dotnav && viewItem =~ /project/",
+          "group": "2_build@2"
+        },
+        {
           "command": "dotnav.buildFolderProjects",
           "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
           "group": "2_build@1"
         },
         {
+          "command": "dotnav.smartBuildFolderProjects",
+          "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
+          "group": "2_build@2"
+        },
+        {
           "command": "dotnav.rebuildProject",
           "when": "view == dotnav && viewItem =~ /project/",
-          "group": "2_build@2"
+          "group": "2_build@3"
         },
         {
           "command": "dotnav.stopProject",
@@ -817,12 +869,12 @@
         {
           "command": "dotnav.testProject",
           "when": "view == dotnav && viewItem =~ /project/ && viewItem =~ /test/",
-          "group": "2_build@4"
+          "group": "2_build@5"
         },
         {
           "command": "dotnav.cleanProject",
           "when": "view == dotnav && viewItem =~ /project/",
-          "group": "2_build@3"
+          "group": "2_build@4"
         },
         {
           "command": "dotnav.openTerminalHere",
@@ -1168,6 +1220,30 @@
           "default": "Debug",
           "description": "Build configuration used when running or debugging projects."
         },
+        "dotnav.buildPlatform": {
+          "type": "string",
+          "default": "AnyCPU",
+          "description": "MSBuild platform used by Smart Build evaluation and execution."
+        },
+        "dotnav.smartBuild.maxParallelBuilds": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "description": "Maximum number of MSBuild workers used by Smart Build."
+        },
+        "dotnav.smartBuild.mode": {
+          "type": "string",
+          "enum": [
+            "execute",
+            "shadow"
+          ],
+          "enumDescriptions": [
+            "Execute the evaluated Smart Build plan.",
+            "Log the Smart Build plan, then run the standard Build path without committing Smart Build state."
+          ],
+          "default": "execute",
+          "description": "Smart Build rollout mode. The regular Build command is never affected."
+        },
         "dotnav.buildTimeoutSeconds": {
           "type": "number",
           "default": 600,
@@ -1300,8 +1376,9 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "compile:host": "dotnet publish build-host/DotNav.BuildHost.csproj --configuration Release --output build-host/out --nologo",
+    "compile": "npm run compile:host && tsc -p ./",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
     "test:formatter-corpus": "npm run compile && node --test out/test/formatterCorpus.test.js",
     "formatter:corpus:list": "npm run compile && node out/test/formatterCorpusReport.js",
     "watch": "tsc -watch -p ./",

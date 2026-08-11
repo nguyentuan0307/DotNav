@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
+import { loadLaunchProfiles } from '../launchSettings';
 import { createProjectStub, parseProject } from '../projectParser';
 
 test('creates a lightweight project stub without loaded metadata', () => {
@@ -62,6 +63,21 @@ test('parses mixed self-closing and paired PackageReference elements independent
     { name: 'Microsoft.EntityFrameworkCore.Design', version: '8.0.7' },
     { name: 'Npgsql.EntityFrameworkCore.PostgreSQL', version: '8.0.4' }
   ]);
+});
+
+test('loads launch profiles when launchSettings.json starts with a UTF-8 BOM', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-launch-settings-'));
+  const propertiesPath = path.join(root, 'Properties');
+  await fs.mkdir(propertiesPath);
+  await fs.writeFile(
+    path.join(propertiesPath, 'launchSettings.json'),
+    '\uFEFF{"profiles":{"Interface Dev":{"commandName":"Project","environmentVariables":{"ASPNETCORE_ENVIRONMENT":"Development"}},"Interface QA":{"commandName":"Project","environmentVariables":{"ASPNETCORE_ENVIRONMENT":"qa"}},"IIS Express":{"commandName":"IISExpress"}}}',
+    'utf8'
+  );
+
+  const profiles = await loadLaunchProfiles(root);
+
+  assert.deepEqual(profiles.map(profile => profile.name), ['Interface Dev', 'Interface QA']);
 });
 
 function projectXml(targetFramework: string): string {
