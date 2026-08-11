@@ -21,8 +21,8 @@ import {
   EfDialogSpec,
   EfDialogValues,
   EfProgressStepState,
-  setEfCenterBusy,
   setEfCenterProgress,
+  setEfCenterStatus,
   showEfDialog
 } from './efDialog';
 import {
@@ -507,20 +507,20 @@ async function runFromValues(
   reportProgress(0, 'running');
   if (!options.project) {
     vscode.window.showErrorMessage('The selected migrations project could not be resolved.');
-    setEfCenterBusy(false, 'The selected migrations project could not be resolved.', true);
+    setEfCenterStatus('The selected migrations project could not be resolved.', true);
     reportProgress(0, 'error', 'The migrations project could not be resolved.');
     return undefined;
   }
   if (options.argumentError) {
     vscode.window.showErrorMessage(options.argumentError);
-    setEfCenterBusy(false, options.argumentError, true);
+    setEfCenterStatus(options.argumentError, true);
     reportProgress(0, 'error', options.argumentError);
     return undefined;
   }
 
   reportProgress(1, 'running');
   if (!await feature.toolManager.ensureTool(options.project.directory)) {
-    setEfCenterBusy(false, 'dotnet-ef is required to run this command.', true);
+    setEfCenterStatus('dotnet-ef is required to run this command.', true);
     reportProgress(1, 'error', 'dotnet-ef is required to run this command.');
     return undefined;
   }
@@ -564,8 +564,7 @@ async function runFromValues(
     feature.invalidateModel(options.project.directory);
   }
 
-  setEfCenterBusy(
-    false,
+  setEfCenterStatus(
     result.kind === 'success'
       ? `Completed in ${(result.durationMs / 1000).toFixed(1)}s.`
       : result.errorSummary ?? (result.kind === 'cancelled' ? 'Command cancelled.' : 'Command failed.'),
@@ -643,7 +642,7 @@ async function addMigration(feature: EfFeature, node?: EfCommandSource): Promise
     write: true
   });
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.addMigration'),
       title: 'Add Migration',
@@ -678,49 +677,48 @@ async function addMigration(feature: EfFeature, node?: EfCommandSource): Promise
         const problem = validateMigrationName(String(current[FIELD.name] ?? ''), existingNames);
         handle.setStatus(problem ?? '', Boolean(problem));
         handle.setValid(!problem);
+      },
+      onSubmit: async (values, handle) => {
+        const name = String(values[FIELD.name] ?? '').trim();
+        const problem = validateMigrationName(name, existingNames);
+        if (problem) {
+          vscode.window.showErrorMessage(problem);
+          return;
+        }
+
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (!result) {
+          return;
+        }
+
+        if (result.kind === 'error') {
+          await reportEfFailure(feature.cli, `Adding migration '${name}'`, result);
+          return;
+        }
+
+        if (result.kind === 'cancelled') {
+          vscode.window.showWarningMessage(
+            `Adding '${name}' was cancelled. If migration files were already generated, remove them with "EF Core: Remove Last Migration".`
+          );
+          return;
+        }
+
+        const project = feature.findProject(String(values[FIELD.project] ?? ''));
+        const model = project ? await loadEfModel(project.directory) : undefined;
+        existingNames = model?.migrations.map(migration => migration.name) ?? existingNames;
+        const created = model?.migrations.find(migration => migration.name === name);
+        handle.setValue(FIELD.name, '');
+        if (created) {
+          await vscode.window.showTextDocument(vscode.Uri.file(created.filePath), { preview: false });
+        }
+
+        const action = await vscode.window.showInformationMessage(`Migration '${name}' created.`, 'Update Database');
+        if (action === 'Update Database') {
+          void vscode.commands.executeCommand('dotnav.ef.updateDatabase', String(values[FIELD.project] ?? ''));
+        }
       }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const name = String(values[FIELD.name] ?? '').trim();
-  const problem = validateMigrationName(name, existingNames);
-  if (problem) {
-    vscode.window.showErrorMessage(problem);
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (!result) {
-    return;
-  }
-
-  if (result.kind === 'error') {
-    await reportEfFailure(feature.cli, `Adding migration '${name}'`, result);
-    return;
-  }
-
-  if (result.kind === 'cancelled') {
-    vscode.window.showWarningMessage(
-      `Adding '${name}' was cancelled. If migration files were already generated, remove them with "EF Core: Remove Last Migration".`
-    );
-    return;
-  }
-
-  const project = feature.findProject(String(values[FIELD.project] ?? ''));
-  const model = project ? await loadEfModel(project.directory) : undefined;
-  const created = model?.migrations.find(migration => migration.name === name);
-  if (created) {
-    await vscode.window.showTextDocument(vscode.Uri.file(created.filePath), { preview: false });
-  }
-
-  const action = await vscode.window.showInformationMessage(`Migration '${name}' created.`, 'Update Database');
-  if (action === 'Update Database') {
-    await updateDatabase(feature, node);
-  }
 }
 
 async function removeLastMigration(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -748,7 +746,7 @@ async function removeLastMigration(feature: EfFeature, node?: EfCommandSource): 
     acceptsConnection: target.capabilities.removeConnection
   });
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.removeLastMigration'),
       title: 'Remove Last Migration',
@@ -793,21 +791,31 @@ async function removeLastMigration(feature: EfFeature, node?: EfCommandSource): 
           !doomed || mutuallyExclusive
         );
         handle.setValid(Boolean(doomed) && !mutuallyExclusive);
+      },
+      onSubmit: async (values, handle) => {
+        const doomed = await resolveLastMigration(feature, values);
+        if (!doomed) {
+          handle.setStatus('No migrations were found for this project and DbContext.', true);
+          handle.setValid(false);
+          return;
+        }
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (result?.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Removing the last migration', result);
+        } else if (result?.kind === 'success') {
+          vscode.window.showInformationMessage(`Migration '${doomed.name}' removed.`);
+          const next = await resolveLastMigration(feature, values);
+          handle.setStatus(
+            next
+              ? `Will remove '${next.name}' (${formatMigrationDate(next.id)}).`
+              : 'No migrations were found for this project and DbContext.',
+            !next
+          );
+          handle.setValid(Boolean(next));
+        }
       }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const doomed = await resolveLastMigration(feature, values) ?? last;
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (result?.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Removing the last migration', result);
-  } else if (result?.kind === 'success') {
-    vscode.window.showInformationMessage(`Migration '${doomed.name}' removed.`);
-  }
 }
 
 /** The migration `migrations remove` would delete for the current selection. */
@@ -833,7 +841,7 @@ async function listMigrations(feature: EfFeature, node?: EfCommandSource): Promi
 
   const detections = await feature.getDetections();
   const cascade = new EfTargetCascade(feature, detections, target);
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.listMigrations'),
       title: 'Browse Migrations',
@@ -844,13 +852,17 @@ async function listMigrations(feature: EfFeature, node?: EfCommandSource): Promi
     },
     {
       preview: () => '',
-      onChange: (current, handle) => cascade.update(current, handle)
+      onChange: (current, handle) => cascade.update(current, handle),
+      onSubmit: values => openMigrationBrowser(feature, target, values)
     }
   );
-  if (!values) {
-    return;
-  }
+}
 
+async function openMigrationBrowser(
+  feature: EfFeature,
+  target: EfTarget,
+  values: EfDialogValues
+): Promise<void> {
   const projectPath = String(values[FIELD.project] ?? '');
   const contextName = String(values[FIELD.context] ?? '').trim() || undefined;
   const project = feature.findProject(projectPath);
@@ -923,7 +935,7 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
     };
   };
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.updateDatabase'),
       title: 'Update Database',
@@ -1015,28 +1027,35 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
         } finally {
           handle.setBusy(false);
         }
+      },
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (!result) {
+          return;
+        }
+
+        if (result.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Updating the database', result);
+        } else if (result.kind === 'cancelled') {
+          vscode.window.showWarningMessage(
+            'The database update was cancelled mid-run. The database may be in a partial state — run "Check database" to verify.'
+          );
+        } else {
+          checkedState = undefined;
+          checkedTargetKey = undefined;
+          if (values['add'] === true) {
+            const selectedModel = await feature.modelForProjectPath(String(values[FIELD.project] ?? ''));
+            updateExistingNames = selectedModel?.migrations.map(migration => migration.name) ?? updateExistingNames;
+            handle.setValue(FIELD.target, '');
+          } else {
+            handle.setSubmit('Update');
+            handle.setValid(true);
+          }
+          vscode.window.showInformationMessage('Database updated.');
+        }
       }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (!result) {
-    return;
-  }
-
-  if (result.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Updating the database', result);
-  } else if (result.kind === 'cancelled') {
-    vscode.window.showWarningMessage(
-      'The database update was cancelled mid-run. The database may be in a partial state — run "Check database" to verify.'
-    );
-  } else {
-    vscode.window.showInformationMessage('Database updated.');
-  }
 }
 
 interface EfDatabaseState {
@@ -1139,7 +1158,7 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
     };
   };
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.generateScript'),
       title: 'Generate SQL Script',
@@ -1194,45 +1213,42 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
         if (selected) {
           handle.setValue(FIELD.output, selected.fsPath);
         }
+      },
+      onSubmit: async values => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (!result) {
+          return;
+        }
+
+        if (result.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Generating the SQL script', result);
+          return;
+        }
+
+        if (result.kind !== 'success') {
+          return;
+        }
+
+        try {
+          const selectedOutput = String(values[FIELD.output] ?? '').trim();
+          const outputPath = selectedOutput || temporaryOutputPath;
+          if (selectedOutput) {
+            await vscode.window.showTextDocument(vscode.Uri.file(outputPath), { preview: false });
+          } else {
+            const sql = await fs.readFile(outputPath, 'utf8');
+            const document = await vscode.workspace.openTextDocument({ language: 'sql', content: sql });
+            await vscode.window.showTextDocument(document, { preview: false });
+          }
+        } catch {
+          vscode.window.showErrorMessage('The script was generated but could not be read back. See output for details.');
+        } finally {
+          if (!String(values[FIELD.output] ?? '').trim()) {
+            void fs.unlink(temporaryOutputPath).catch(() => undefined);
+          }
+        }
       }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (!result) {
-    return;
-  }
-
-  if (result.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Generating the SQL script', result);
-    return;
-  }
-
-  if (result.kind !== 'success') {
-    return;
-  }
-
-  try {
-    const selectedOutput = String(values[FIELD.output] ?? '').trim();
-    const outputPath = selectedOutput || temporaryOutputPath;
-    if (selectedOutput) {
-      await vscode.window.showTextDocument(vscode.Uri.file(outputPath), { preview: false });
-    } else {
-      const sql = await fs.readFile(outputPath, 'utf8');
-      const document = await vscode.workspace.openTextDocument({ language: 'sql', content: sql });
-      await vscode.window.showTextDocument(document, { preview: false });
-    }
-  } catch {
-    vscode.window.showErrorMessage('The script was generated but could not be read back. See output for details.');
-  } finally {
-    if (!String(values[FIELD.output] ?? '').trim()) {
-      void fs.unlink(temporaryOutputPath).catch(() => undefined);
-    }
-  }
 }
 
 async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1253,7 +1269,7 @@ async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise
     acceptsConnection: target.capabilities.dropConnection
   });
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.dropDatabase'),
       title: 'Drop Database',
@@ -1347,26 +1363,27 @@ async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise
         } finally {
           handle.setBusy(false);
         }
+      },
+      onSubmit: async (values, handle) => {
+        const wanted = expected;
+        if (!databaseIdentified || String(values['confirm'] ?? '').trim() !== wanted) {
+          vscode.window.showWarningMessage('The confirmation text did not match. The database was not dropped.');
+          return;
+        }
+
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+        if (result?.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Dropping the database', result);
+        } else if (result?.kind === 'success') {
+          databaseIdentified = false;
+          identifiedTargetKey = undefined;
+          handle.setValue('confirm', '');
+          handle.setValid(false);
+          vscode.window.showInformationMessage('Database dropped.');
+        }
       }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const wanted = expected;
-  if (!databaseIdentified || String(values['confirm'] ?? '').trim() !== wanted) {
-    vscode.window.showWarningMessage('The confirmation text did not match. The database was not dropped.');
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(), target.startupProjectPath);
-  if (result?.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Dropping the database', result);
-  } else if (result?.kind === 'success') {
-    vscode.window.showInformationMessage('Database dropped.');
-  }
 }
 
 async function showDbContextInfo(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1384,7 +1401,7 @@ async function showDbContextInfo(feature: EfFeature, node?: EfCommandSource): Pr
     json: true
   });
 
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.dbContextInfo'),
       title: 'DbContext Info',
@@ -1394,44 +1411,41 @@ async function showDbContextInfo(feature: EfFeature, node?: EfCommandSource): Pr
     },
     {
       preview: current => previewCommand(feature, current, request()),
-      onChange: (current, handle) => cascade.update(current, handle)
+      onChange: (current, handle) => cascade.update(current, handle),
+      onSubmit: async values => {
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+        if (!result) {
+          return;
+        }
+
+        if (result.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Reading DbContext info', result);
+          return;
+        }
+
+        if (result.kind !== 'success') {
+          return;
+        }
+
+        const info = parseDbContextInfo(result.stdout);
+        const lines = [
+          values[FIELD.context] ? `DbContext: ${values[FIELD.context]}` : undefined,
+          info?.providerName ? `Provider: ${info.providerName}` : undefined,
+          info?.databaseName ? `Database: ${info.databaseName}` : undefined,
+          info?.dataSource ? `Data source: ${maskConnectionString(info.dataSource)}` : undefined
+        ].filter((line): line is string => Boolean(line));
+
+        const choice = await vscode.window.showInformationMessage(
+          lines.length > 0 ? lines.join('\n') : 'No DbContext info was returned.',
+          { modal: true },
+          'Show Output'
+        );
+        if (choice === 'Show Output') {
+          feature.cli.showOutput();
+        }
+      }
     }
   );
-
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(), target.startupProjectPath);
-  if (!result) {
-    return;
-  }
-
-  if (result.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Reading DbContext info', result);
-    return;
-  }
-
-  if (result.kind !== 'success') {
-    return;
-  }
-
-  const info = parseDbContextInfo(result.stdout);
-  const lines = [
-    values[FIELD.context] ? `DbContext: ${values[FIELD.context]}` : undefined,
-    info?.providerName ? `Provider: ${info.providerName}` : undefined,
-    info?.databaseName ? `Database: ${info.databaseName}` : undefined,
-    info?.dataSource ? `Data source: ${maskConnectionString(info.dataSource)}` : undefined
-  ].filter((line): line is string => Boolean(line));
-
-  const choice = await vscode.window.showInformationMessage(
-    lines.length > 0 ? lines.join('\n') : 'No DbContext info was returned.',
-    { modal: true },
-    'Show Output'
-  );
-  if (choice === 'Show Output') {
-    feature.cli.showOutput();
-  }
 }
 
 async function checkPendingModelChanges(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1453,7 +1467,7 @@ async function checkPendingModelChanges(feature: EfFeature, node?: EfCommandSour
     title: 'Checking the EF Core model',
     write: false
   });
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.pendingModelChanges'),
       title: 'Check Pending Model Changes',
@@ -1463,24 +1477,22 @@ async function checkPendingModelChanges(feature: EfFeature, node?: EfCommandSour
     },
     {
       preview: current => previewCommand(feature, current, request()),
-      onChange: (current, handle) => cascade.update(current, handle)
+      onChange: (current, handle) => cascade.update(current, handle),
+      onSubmit: async values => {
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+        if (!result) {
+          return;
+        }
+        if (result.kind === 'success') {
+          vscode.window.showInformationMessage('No pending EF Core model changes were detected.');
+        } else if (result.errorKind === 'pendingModelChanges') {
+          vscode.window.showWarningMessage('The current model has changes that are not covered by a migration.');
+        } else if (result.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Checking pending model changes', result);
+        }
+      }
     }
   );
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(), target.startupProjectPath);
-  if (!result) {
-    return;
-  }
-  if (result.kind === 'success') {
-    vscode.window.showInformationMessage('No pending EF Core model changes were detected.');
-  } else if (result.errorKind === 'pendingModelChanges') {
-    vscode.window.showWarningMessage('The current model has changes that are not covered by a migration.');
-  } else if (result.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Checking pending model changes', result);
-  }
 }
 
 async function createMigrationBundle(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1510,7 +1522,7 @@ async function createMigrationBundle(feature: EfFeature, node?: EfCommandSource)
       write: false
     };
   };
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.migrationsBundle'),
       title: 'Create Migration Bundle',
@@ -1537,20 +1549,18 @@ async function createMigrationBundle(feature: EfFeature, node?: EfCommandSource)
     },
     {
       preview: current => previewCommand(feature, current, request(current)),
-      onChange: (current, handle) => cascade.update(current, handle)
+      onChange: (current, handle) => cascade.update(current, handle),
+      onSubmit: async values => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (result?.kind === 'success') {
+          const output = String(values[FIELD.output] ?? defaultOutput);
+          vscode.window.showInformationMessage(`Migration bundle created: ${output}`);
+        } else if (result?.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Creating the migration bundle', result);
+        }
+      }
     }
   );
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (result?.kind === 'success') {
-    const output = String(values[FIELD.output] ?? defaultOutput);
-    vscode.window.showInformationMessage(`Migration bundle created: ${output}`);
-  } else if (result?.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Creating the migration bundle', result);
-  }
 }
 
 async function optimizeDbContext(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1582,7 +1592,7 @@ async function optimizeDbContext(feature: EfFeature, node?: EfCommandSource): Pr
       write: true
     };
   };
-  const values = await showEfDialog(
+  await showEfDialog(
     {
       ...centerIdentity(target, 'dotnav.ef.optimizeDbContext'),
       title: 'Optimize DbContext',
@@ -1628,17 +1638,15 @@ async function optimizeDbContext(feature: EfFeature, node?: EfCommandSource): Pr
     },
     {
       preview: current => previewCommand(feature, current, request(current)),
-      onChange: (current, handle) => cascade.update(current, handle)
+      onChange: (current, handle) => cascade.update(current, handle),
+      onSubmit: async values => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        if (result?.kind === 'success') {
+          vscode.window.showInformationMessage('Optimized DbContext model generated.');
+        } else if (result?.kind === 'error') {
+          await reportEfFailure(feature.cli, 'Optimizing DbContext', result);
+        }
+      }
     }
   );
-  if (!values) {
-    return;
-  }
-
-  const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
-  if (result?.kind === 'success') {
-    vscode.window.showInformationMessage('Optimized DbContext model generated.');
-  } else if (result?.kind === 'error') {
-    await reportEfFailure(feature.cli, 'Optimizing DbContext', result);
-  }
 }

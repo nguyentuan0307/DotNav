@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -63,7 +63,9 @@
     "onCommand:dotnav.cleanSolution",
     "onCommand:dotnav.openWorkspaceFolder",
     "onCommand:dotnav.formatSelection",
-    "onCommand:dotnav.formatDocument"
+    "onCommand:dotnav.formatDocument",
+    "onCommand:dotnav.localHistory.show",
+    "onCommand:dotnav.localHistory.showSelection"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -159,6 +161,16 @@
         "command": "dotnav.formatDocument",
         "title": "Reformat Document",
         "icon": "$(file-code)"
+      },
+      {
+        "command": "dotnav.localHistory.show",
+        "title": "Show Local History for File",
+        "icon": "$(history)"
+      },
+      {
+        "command": "dotnav.localHistory.showSelection",
+        "title": "Show Local History for Selection",
+        "icon": "$(history)"
       },
       {
         "command": "dotnav.openItem",
@@ -485,6 +497,10 @@
         "label": "Copy"
       },
       {
+        "id": "dotnav.localChanges",
+        "label": "Local changes"
+      },
+      {
         "id": "dotnav.efCore",
         "label": "Entity Framework Core"
       }
@@ -517,6 +533,22 @@
           "command": "dotnav.formatDocument",
           "when": "editorLangId == csharp",
           "group": "6_dotnav@1"
+        },
+        {
+          "submenu": "dotnav.localChanges",
+          "when": "resourceScheme == file && dotnav.localHistoryEnabled",
+          "group": "7_dotnav@1"
+        }
+      ],
+      "dotnav.localChanges": [
+        {
+          "command": "dotnav.localHistory.show",
+          "group": "1_history@1"
+        },
+        {
+          "command": "dotnav.localHistory.showSelection",
+          "when": "editorHasSelection && editorTextFocus",
+          "group": "1_history@2"
         }
       ],
       "view/title": [
@@ -716,6 +748,11 @@
           "command": "dotnav.openItem",
           "when": "view == dotnav && viewItem =~ /file/",
           "group": "navigation@1"
+        },
+        {
+          "submenu": "dotnav.localChanges",
+          "when": "view == dotnav && viewItem =~ /file/ && dotnav.localHistoryEnabled",
+          "group": "6_history@1"
         },
         {
           "command": "dotnav.renameItem",
@@ -938,6 +975,69 @@
     "configuration": {
       "title": "DotNav",
       "properties": {
+        "dotnav.localHistory.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Record local snapshots for supported text files in the workspace. When disabled, DotNav does not start Local History file watchers or write new snapshots. Existing history stays on this machine."
+        },
+        "dotnav.localHistory.retentionDays": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Number of days to retain Local History revisions."
+        },
+        "dotnav.localHistory.maximumStorageMb": {
+          "type": "number",
+          "default": 250,
+          "minimum": 1,
+          "description": "Maximum compressed storage used by Local History for this workspace, in MB."
+        },
+        "dotnav.localHistory.maximumFileSizeMb": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "description": "Maximum file size recorded by Local History, in MB."
+        },
+        "dotnav.localHistory.maximumRevisionsPerFile": {
+          "type": "number",
+          "default": 250,
+          "minimum": 1,
+          "description": "Maximum visible Local History revisions retained per file. One additional internal baseline may be retained for diff calculation."
+        },
+        "dotnav.localHistory.snapshotCoalescingSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "Minimum interval between automatic snapshots of the same file. Changes inside the interval are coalesced into the latest state; manual Local History commands remain immediate."
+        },
+        "dotnav.localHistory.trackedExtensions": {
+          "type": "array",
+          "default": [
+            ".cs",
+            ".fs",
+            ".vb",
+            ".csproj",
+            ".fsproj",
+            ".vbproj",
+            ".dcproj",
+            ".props",
+            ".targets",
+            ".json",
+            ".jsonc",
+            ".xml",
+            ".config",
+            ".sln",
+            ".slnx",
+            ".editorconfig",
+            ".md",
+            ".razor",
+            ".cshtml"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "File extensions recorded by Local History."
+        },
         "dotnav.ef.enable": {
           "type": "boolean",
           "default": true,

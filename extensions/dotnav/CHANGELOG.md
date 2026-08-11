@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.11.0...dotnav-v0.12.0) (2026-08-11)
+
+
+### Features
+
+* **dotnav:** add opt-in local history ([a8092b0](https://github.com/nguyentuan0307/DotNav/commit/a8092b0b024aab33116a17b39441fba82a1b6e6d))
+
+### Bug Fixes
+
+* **dotnav:** keep EF Core Center actions reusable ([7ae91a6](https://github.com/nguyentuan0307/DotNav/commit/7ae91a6af1ecf022110c0d47ae38af6cfa980c0e))
+
+
 ## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.10.0...dotnav-v0.11.0) (2026-07-31)
 
 

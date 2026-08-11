@@ -20,13 +20,14 @@ class MockEventEmitter<T> {
   }
 }
 
+let outputShowCount = 0;
 const vscodeMock = {
   EventEmitter: MockEventEmitter,
   window: {
     createOutputChannel: () => ({
       append: () => undefined,
       appendLine: () => undefined,
-      show: () => undefined,
+      show: () => { outputShowCount += 1; },
       dispose: () => undefined
     }),
     showErrorMessage: async () => undefined,
@@ -47,7 +48,7 @@ moduleWithLoader._load = function load(request, parent, isMain) {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { buildEfArgs, FreshnessTracker, readEfSettings } = require('../ef/efCli') as typeof import('../ef/efCli');
+const { buildEfArgs, EfCli, FreshnessTracker, readEfSettings } = require('../ef/efCli') as typeof import('../ef/efCli');
 
 const project = {
   name: 'Data',
@@ -127,4 +128,14 @@ test('freshness tracker marks and clears build freshness per project', () => {
   tracker.markBuilt(project.path);
   tracker.markAllDirty();
   assert.equal(tracker.isFresh(project.path), false);
+});
+
+test('writing EF output does not reveal the Output panel', () => {
+  outputShowCount = 0;
+  const cli = new EfCli();
+  cli.appendOutput('command output');
+  assert.equal(outputShowCount, 0);
+  cli.showOutput();
+  assert.equal(outputShowCount, 1);
+  cli.dispose();
 });
