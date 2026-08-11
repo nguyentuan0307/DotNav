@@ -14,6 +14,17 @@ export interface SmartBuildExecutionResult {
   readonly success: boolean;
   readonly cancelled: boolean;
   readonly exitCode?: number;
+  readonly copiedFiles: number;
+  readonly copyFailures: number;
+  readonly builtProjects: number;
+  readonly copyMs: number;
+  readonly msbuildMs: number;
+  readonly binaryLogPath?: string;
+}
+
+export interface SmartBuildExecutionOptions {
+  readonly workingDirectory?: string;
+  readonly binaryLogPath?: string;
 }
 
 export class SmartBuildExecutor {
@@ -21,8 +32,9 @@ export class SmartBuildExecutor {
     plan: SmartBuildPlan,
     solution: SolutionModel,
     processManager: ProcessManager,
-    workingDirectory = solution.rootPath
+    options: SmartBuildExecutionOptions = {}
   ): Promise<SmartBuildExecutionResult> {
+    const workingDirectory = options.workingDirectory ?? solution.rootPath;
     const affectedVariants = plan.projects.filter(item => item.decision !== 'up-to-date').map(item => item.project);
     const affectedProjects = uniqueProjects(affectedVariants.map(variant =>
       solution.projects.find(project => samePath(project.path, variant.projectPath))
@@ -30,17 +42,23 @@ export class SmartBuildExecutor {
     const busy = affectedProjects.find(project => processManager.getProjectPhase(project));
     if (busy) {
       vscode.window.showInformationMessage(`${busy.name} already has an active operation.`);
-      return { success: false, cancelled: false };
+      return emptyResult(false, options.binaryLogPath);
     }
 
+    const copyStart = Date.now();
     const copyPlans = plan.projects.filter(item => item.decision === 'copy');
     const synchronization = await synchronizeCopies(copyPlans.flatMap(item => item.copies));
+    const copyMs = Date.now() - copyStart;
     const failedCopyProjects = new Set(synchronization.failed.map(failure => normalize(failure.copy.destination)));
     const selectedVariants = plan.projects
       .filter(item => item.decision === 'build' || item.decision === 'fallback'
         || (item.decision === 'copy' && item.copies.some(copy => failedCopyProjects.has(normalize(copy.destination)))))
       .map(item => item.project);
-    if (selectedVariants.length === 0) return { success: true, cancelled: false, exitCode: 0 };
+    if (selectedVariants.length === 0) return {
+      success: true, cancelled: false, exitCode: 0,
+      copiedFiles: synchronization.copied.length, copyFailures: synchronization.failed.length,
+      builtProjects: 0, copyMs, msbuildMs: 0, binaryLogPath: options.binaryLogPath
+    };
 
     const selectedProjects = uniqueProjects(selectedVariants.map(variant =>
       solution.projects.find(project => samePath(project.path, variant.projectPath))
@@ -60,7 +78,8 @@ export class SmartBuildExecutor {
     await fs.writeFile(traversalPath, createSmartBuildTraversal(selectedVariants, plan.requiresRestore, fallbackPaths), 'utf8');
 
     try {
-      return await vscode.window.withProgress({
+      const msbuildStart = Date.now();
+      const result = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         cancellable: true,
         title: `Smart Build ${solution.name} (${selectedProjects.length}/${solution.projects.length} projects)`
@@ -73,7 +92,8 @@ export class SmartBuildExecutor {
           '.NET Navigator',
           new vscode.ProcessExecution('dotnet', [
             'msbuild', traversalPath, `-maxCpuCount:${maxParallelBuilds}`,
-            `-p:Configuration=${configuration}`, `-p:Platform=${platform}`, '-nologo'
+            `-p:Configuration=${configuration}`, `-p:Platform=${platform}`, '-nologo',
+            ...(options.binaryLogPath ? [`-binaryLogger:${options.binaryLogPath}`] : [])
           ], { cwd: workingDirectory }),
           ['$msCompile']
         );
@@ -105,10 +125,26 @@ export class SmartBuildExecutor {
           cancellation.dispose();
         }
       });
+      return {
+        ...result,
+        copiedFiles: synchronization.copied.length,
+        copyFailures: synchronization.failed.length,
+        builtProjects: selectedProjects.length,
+        copyMs,
+        msbuildMs: Date.now() - msbuildStart,
+        binaryLogPath: options.binaryLogPath
+      };
     } finally {
       await fs.rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+}
+
+function emptyResult(success: boolean, binaryLogPath?: string): SmartBuildExecutionResult {
+  return {
+    success, cancelled: false, copiedFiles: 0, copyFailures: 0,
+    builtProjects: 0, copyMs: 0, msbuildMs: 0, binaryLogPath
+  };
 }
 
 function uniqueProjects(projects: ProjectModel[]): ProjectModel[] {

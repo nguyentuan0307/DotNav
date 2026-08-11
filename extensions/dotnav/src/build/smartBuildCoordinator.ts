@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { runDotnetForProject, runDotnetForProjects, runDotnetForSolution } from '../dotnetCli';
@@ -8,6 +9,7 @@ import { BuildChangeTracker } from './buildChangeTracker';
 import { BuildHostClient } from './buildHostClient';
 import { BuildStateStore, StoredBuildState } from './buildStateStore';
 import { SmartBuildExecutor } from './smartBuildExecutor';
+import { SmartBuildMetrics, metricsSummary, planSummary } from './smartBuildDiagnostics';
 import { SmartBuildPlanner } from './smartBuildPlanner';
 import { EvaluatedBuildGraph, SmartBuildPlan } from './types';
 
@@ -16,6 +18,15 @@ interface SolutionRuntime {
   graphRevision?: number;
   readonly store: BuildStateStore;
   readonly rootPath: string;
+}
+
+interface PreparedPlan {
+  readonly graph: EvaluatedBuildGraph;
+  readonly plan: SmartBuildPlan;
+  readonly runtime: SolutionRuntime;
+  readonly state?: StoredBuildState;
+  readonly evaluationMs: number;
+  readonly planningMs: number;
 }
 
 export class SmartBuildCoordinator implements vscode.Disposable {
@@ -40,62 +51,84 @@ export class SmartBuildCoordinator implements vscode.Disposable {
     this.changes.recordChange(filePath);
   }
 
-  async buildSolution(solution: SolutionModel, processManager: ProcessManager): Promise<void> {
-    await this.buildScope(solution, processManager, true);
+  async buildSolution(solution: SolutionModel, processManager: ProcessManager): Promise<boolean> {
+    return this.buildScope(solution, processManager, true);
   }
 
-  async buildProjects(solution: SolutionModel, projects: readonly ProjectModel[], processManager: ProcessManager, label?: string): Promise<void> {
-    if (projects.length === 0) return;
-    await this.buildScope({ ...solution, name: label ?? projects[0].name, projects: [...projects] }, processManager, false);
+  async buildProjects(solution: SolutionModel, projects: readonly ProjectModel[], processManager: ProcessManager, label?: string): Promise<boolean> {
+    if (projects.length === 0) return true;
+    return this.buildScope({ ...solution, name: label ?? projects[0].name, projects: [...projects] }, processManager, false);
   }
 
-  private async buildScope(solution: SolutionModel, processManager: ProcessManager, useSolutionConfiguration: boolean): Promise<void> {
+  private async buildScope(solution: SolutionModel, processManager: ProcessManager, useSolutionConfiguration: boolean): Promise<boolean> {
     const projectPaths = solution.projects.map(project => normalizedPath(project.path));
     if (projectPaths.some(projectPath => this.activeProjectPaths.has(projectPath))) {
       vscode.window.showInformationMessage('A Smart Build is already active for one or more selected projects.');
-      return;
+      return false;
     }
     for (const projectPath of projectPaths) this.activeProjectPaths.add(projectPath);
     const buildStart = Date.now();
     const generation = this.changes.snapshot();
     try {
-      const { graph, plan, runtime, state } = await this.preparePlan(solution, useSolutionConfiguration);
+      const { graph, plan, runtime, state, evaluationMs, planningMs } = await this.preparePlan(solution, useSolutionConfiguration);
       this.logPlan(solution, plan);
       if (vscode.workspace.getConfiguration('dotnav').get<string>('smartBuild.mode', 'execute') === 'shadow') {
         this.log('Shadow mode: the Smart Build plan was not executed; running standard Build.');
-        await this.runStandardScope(solution, processManager, useSolutionConfiguration);
-        return;
+        return this.runStandardScope(solution, processManager, useSolutionConfiguration);
       }
       if (plan.projects.every(item => item.decision === 'up-to-date')) {
+        this.logMetrics({
+          evaluationMs, planningMs, copyMs: 0, msbuildMs: 0, stateCaptureMs: 0,
+          totalMs: Date.now() - buildStart, builtProjects: 0, copiedFiles: 0, copyFailures: 0,
+          stateFound: Boolean(state), restoreRequired: plan.requiresRestore
+        });
         vscode.window.showInformationMessage(`Smart Build: ${solution.name} is up-to-date.`);
-        return;
+        return true;
       }
       if (useSolutionConfiguration && plan.projects.some(item => item.decision === 'fallback')) {
         this.log('The active solution contains opaque build logic; preserving exact solution semantics with standard Build.');
-        await this.runStandardScope(solution, processManager, true);
-        return;
+        return this.runStandardScope(solution, processManager, true);
       }
-      const result = await this.executor.execute(plan, solution, processManager, buildWorkingDirectory(solution, useSolutionConfiguration));
+      const binaryLogPath = await this.createBinaryLogPath(solution);
+      const result = await this.executor.execute(plan, solution, processManager, {
+        workingDirectory: buildWorkingDirectory(solution, useSolutionConfiguration),
+        binaryLogPath
+      });
       if (!result.success) {
+        this.logMetrics({
+          evaluationMs, planningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
+          stateCaptureMs: 0, totalMs: Date.now() - buildStart, builtProjects: result.builtProjects,
+          copiedFiles: result.copiedFiles, copyFailures: result.copyFailures,
+          stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath: result.binaryLogPath
+        });
         if (!result.cancelled) vscode.window.showErrorMessage(`Smart Build failed for ${solution.name}.`);
-        return;
+        return false;
       }
       const buildEnd = Date.now();
       if (this.changes.changedSince(generation)) {
         this.log('State was not committed because workspace inputs changed during the build.');
         vscode.window.showWarningMessage('Smart Build succeeded, but files changed during the build; the next build will validate them again.');
-        return;
+        return false;
       }
+      const captureStart = Date.now();
       const captured = await this.planner.captureSuccessfulState(graph, buildStart, buildEnd);
+      const stateCaptureMs = Date.now() - captureStart;
       this.logReferenceAssemblyEffect(state, captured, plan);
       await runtime.store.save(captured);
       this.changes.consumeChanges();
+      this.logMetrics({
+        evaluationMs, planningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
+        stateCaptureMs, totalMs: Date.now() - buildStart, builtProjects: result.builtProjects,
+        copiedFiles: result.copiedFiles, copyFailures: result.copyFailures,
+        stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath: result.binaryLogPath
+      });
       vscode.window.showInformationMessage(summaryMessage(solution, plan, buildEnd - buildStart));
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Smart Build unavailable: ${message}`);
       vscode.window.showWarningMessage(`Smart Build could not safely plan this build. Continuing with standard Build. ${message}`);
-      await this.runStandardScope(solution, processManager, useSolutionConfiguration);
+      return this.runStandardScope(solution, processManager, useSolutionConfiguration);
     } finally {
       for (const projectPath of projectPaths) this.activeProjectPaths.delete(projectPath);
     }
@@ -103,9 +136,35 @@ export class SmartBuildCoordinator implements vscode.Disposable {
 
   async explainPlan(solution: SolutionModel): Promise<void> {
     try {
-      const { plan } = await this.preparePlan(solution, true);
+      const started = Date.now();
+      const { plan, state, evaluationMs, planningMs } = await this.preparePlan(solution, true);
       this.logPlan(solution, plan);
-      this.output.show(true);
+      const metrics: SmartBuildMetrics = {
+        evaluationMs, planningMs, copyMs: 0, msbuildMs: 0, stateCaptureMs: 0,
+        totalMs: Date.now() - started, builtProjects: 0, copiedFiles: 0, copyFailures: 0,
+        stateFound: Boolean(state), restoreRequired: plan.requiresRestore
+      };
+      this.logMetrics(metrics);
+      const picked = await vscode.window.showQuickPick([
+        {
+          label: '$(pulse) Smart Build summary',
+          description: planSummary(plan),
+          detail: metricsSummary(metrics)
+        },
+        ...plan.projects.map(item => ({
+          label: `${decisionIcon(item.decision)} ${item.project.projectName}`,
+          description: `${item.decision} · ${item.project.targetFramework || 'default'}`,
+          detail: item.reasons.length > 0
+            ? item.reasons.map(reason => `${reason.code}${reason.detail ? `: ${reason.detail}` : ''}`).join('; ')
+            : 'All evaluated inputs and required outputs are current.'
+        }))
+      ], {
+        title: `Smart Build Plan — ${solution.name}`,
+        placeHolder: 'Select any row to open the detailed output log',
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+      if (picked) this.output.show(true);
     } catch (error) {
       vscode.window.showErrorMessage(`Could not create Smart Build plan: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -129,25 +188,52 @@ export class SmartBuildCoordinator implements vscode.Disposable {
     void this.host.dispose();
   }
 
-  private async preparePlan(solution: SolutionModel, useSolutionConfiguration: boolean): Promise<{ graph: EvaluatedBuildGraph; plan: SmartBuildPlan; runtime: SolutionRuntime; state?: StoredBuildState }> {
+  private async preparePlan(solution: SolutionModel, useSolutionConfiguration: boolean): Promise<PreparedPlan> {
     const runtime = this.runtimeFor(solution, useSolutionConfiguration);
+    let evaluationMs = 0;
     if (!runtime.graph || runtime.graphRevision !== this.changes.graphRevision()) {
       if (runtime.graph) await this.host.restart();
+      const evaluationStart = Date.now();
       runtime.graph = await this.evaluate(solution, useSolutionConfiguration);
+      evaluationMs += Date.now() - evaluationStart;
       runtime.graphRevision = this.changes.graphRevision();
     }
     let state = await runtime.store.load();
+    const planningStart = Date.now();
     let plan = await this.planner.createPlan(runtime.graph, state);
+    let planningMs = Date.now() - planningStart;
     if (plan.projects.some(item => item.reasons.some(reason => reason.detail && isGraphFile(reason.detail)))) {
+      const evaluationStart = Date.now();
       runtime.graph = await this.evaluate(solution, useSolutionConfiguration);
+      evaluationMs += Date.now() - evaluationStart;
       runtime.graphRevision = this.changes.graphRevision();
       state = await runtime.store.load();
+      const replanningStart = Date.now();
       plan = await this.planner.createPlan(runtime.graph, state);
+      planningMs += Date.now() - replanningStart;
     }
-    return { graph: runtime.graph, plan, runtime, state };
+    return { graph: runtime.graph, plan, runtime, state, evaluationMs, planningMs };
   }
 
-  private async runStandardScope(solution: SolutionModel, processManager: ProcessManager, useSolutionConfiguration: boolean): Promise<void> {
+  private async createBinaryLogPath(solution: SolutionModel): Promise<string | undefined> {
+    const configuration = vscode.workspace.getConfiguration('dotnav');
+    if (!configuration.get<boolean>('smartBuild.generateBinaryLog', false)) return undefined;
+    const configured = configuration.get<string>('smartBuild.binaryLogDirectory', '').trim();
+    const storageRoot = this.context.storageUri?.fsPath ?? this.context.globalStorageUri.fsPath;
+    const directory = configured
+      ? (path.isAbsolute(configured) ? configured : path.resolve(solution.rootPath, configured))
+      : path.join(storageRoot, 'smart-build', 'binlogs');
+    await fs.mkdir(directory, { recursive: true });
+    const safeName = solution.name.replace(/[^a-z0-9_.-]+/gi, '-');
+    return path.join(directory, `${safeName}-${new Date().toISOString().replace(/[:.]/g, '-')}.binlog`);
+  }
+
+  private logMetrics(metrics: SmartBuildMetrics): void {
+    this.log(`Metrics: ${metricsSummary(metrics)}`);
+    if (metrics.binaryLogPath) this.log(`Binary log: ${metrics.binaryLogPath}`);
+  }
+
+  private async runStandardScope(solution: SolutionModel, processManager: ProcessManager, useSolutionConfiguration: boolean): Promise<boolean> {
     if (useSolutionConfiguration && solution.path) return runDotnetForSolution(solution, 'build', processManager);
     if (solution.projects.length === 1) return runDotnetForProject(solution.projects[0], 'build', processManager);
     return runDotnetForProjects(
@@ -250,4 +336,13 @@ function countDecisions(plan: SmartBuildPlan): Record<'build' | 'copy' | 'fallba
 function summaryMessage(solution: SolutionModel, plan: SmartBuildPlan, elapsedMs: number): string {
   const counts = countDecisions(plan);
   return `Smart Build succeeded for ${solution.name}: ${counts.build + counts.fallback + counts.copy} processed, ${counts['up-to-date']} up-to-date (${elapsedMs} ms).`;
+}
+
+function decisionIcon(decision: 'build' | 'copy' | 'fallback' | 'up-to-date'): string {
+  switch (decision) {
+    case 'build': return '$(tools)';
+    case 'copy': return '$(files)';
+    case 'fallback': return '$(warning)';
+    case 'up-to-date': return '$(check)';
+  }
 }

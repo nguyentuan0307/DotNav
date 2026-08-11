@@ -15,6 +15,8 @@ test('manifest exposes separate Build and Smart Build commands at every supporte
   ]) assert.ok(commands.has(command), `${command} must be declared`);
   assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.maxParallelBuilds'].minimum, 1);
   assert.deepEqual(manifest.contributes.configuration.properties['dotnav.smartBuild.mode'].enum, ['execute', 'shadow']);
+  assert.deepEqual(manifest.contributes.configuration.properties['dotnav.buildBeforeRunMode'].enum, ['standard', 'smart', 'none']);
+  assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.generateBinaryLog'].default, false);
 });
 
 test('all Smart Build commands activate the extension explicitly', () => {

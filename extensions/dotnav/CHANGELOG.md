@@ -9,6 +9,9 @@ All notable changes to DotNav are documented here.
 * add separate Build and Smart Build actions for project, folder, and solution scopes
 * add an out-of-process MSBuild graph host, persistent content fingerprints, dependency-wave execution, smart restore, verified artifact copies, explain-plan diagnostics, and shadow rollout mode
 * conservatively fall back to MSBuild for custom or unsupported build logic and to standard Build on planning failures
+* add Standard, Smart, and None build-before-run modes for Run, Debug, compound configurations, and Test
+* add phase timings, execution counters, searchable plan explanations, and opt-in MSBuild binary logs
+* add differential mutation coverage for shared build properties, default-glob source additions, missing outputs, dependency implementation changes, and clean-build artifact equivalence
 * add client-only file and selection Local History with filtered revision timelines and inline diffs
 * coalesce automatic snapshots and add indexed, bounded Local History retention
 * make Local History opt-in through Settings and an upgrade introduction prompt

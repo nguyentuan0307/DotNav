@@ -49,7 +49,11 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
       changedPlan.projects.filter(item => item.decision === 'build').map(item => item.project),
       changedPlan.requiresRestore
     ));
-    await run('dotnet', ['msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo'], root);
+    const binaryLog = path.join(root, 'smart-build.binlog');
+    await run('dotnet', [
+      'msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo', `-binaryLogger:${binaryLog}`
+    ], root);
+    assert.ok((await fs.stat(binaryLog)).size > 0, 'optional Smart Build binary log must be generated');
 
     assert.equal((await run('dotnet', [app.targetPath], root)).stdout, 'after');
     assert.notEqual(await sha256(library.targetPath), beforeImplementation);
@@ -67,6 +71,72 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('Smart Build mutation matrix remains equivalent to a clean build', { timeout: 90_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-mutation-matrix-'));
+  const project = path.join(root, 'Matrix.csproj');
+  const program = path.join(root, 'Program.cs');
+  const feature = path.join(root, 'Feature.cs');
+  await fs.writeFile(project, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework></PropertyGroup></Project>');
+  await fs.writeFile(program, 'System.Console.Write(Feature.Value);');
+  await fs.writeFile(feature, 'public static class Feature { public static string Value => "base"; }');
+  const client = new BuildHostClient({
+    extensionPath: path.resolve(__dirname, '..', '..'), workspaceRoot: root, requestTimeoutMs: 20_000
+  });
+  try {
+    await run('dotnet', ['build', project, '--configuration', 'Debug', '--nologo'], root);
+    let graph = await client.evaluate([project], { Configuration: 'Debug', Platform: 'AnyCPU' });
+    const planner = new SmartBuildPlanner();
+    let state = await planner.captureSuccessfulState(graph, Date.now() - 1, Date.now());
+    const target = () => graph.projects.find(item => item.projectPath === project)!.targetPath;
+    assert.equal((await run('dotnet', [target()], root)).stdout, 'base');
+
+    // Project-wide property mutation.
+    await fs.writeFile(path.join(root, 'Directory.Build.props'), '<Project><PropertyGroup><DefineConstants>$(DefineConstants);FEATURE</DefineConstants></PropertyGroup></Project>');
+    await fs.writeFile(feature, '#if FEATURE\npublic static class Feature { public static string Value => "feature"; }\n#else\npublic static class Feature { public static string Value => "base"; }\n#endif');
+    graph = await client.evaluate([project], { Configuration: 'Debug', Platform: 'AnyCPU' });
+    state = await executeSmartPlan(root, graph, planner, state);
+    assert.equal((await run('dotnet', [target()], root)).stdout, 'feature');
+
+    // Required output deletion.
+    await fs.unlink(target());
+    state = await executeSmartPlan(root, graph, planner, state);
+    assert.equal((await run('dotnet', [target()], root)).stdout, 'feature');
+
+    // New default-glob source plus a dependent source edit.
+    await fs.writeFile(path.join(root, 'Added.cs'), 'public static class Added { public static string Value => "-added"; }');
+    await fs.writeFile(program, 'System.Console.Write(Feature.Value + Added.Value);');
+    graph = await client.evaluate([project], { Configuration: 'Debug', Platform: 'AnyCPU' });
+    state = await executeSmartPlan(root, graph, planner, state);
+    assert.equal((await run('dotnet', [target()], root)).stdout, 'feature-added');
+    const smartHash = await sha256(target());
+
+    await run('dotnet', ['clean', project, '--configuration', 'Debug', '--nologo'], root);
+    await run('dotnet', ['build', project, '--configuration', 'Debug', '--nologo'], root);
+    assert.equal((await run('dotnet', [target()], root)).stdout, 'feature-added');
+    assert.equal(await sha256(target()), smartHash, 'final Smart Build artifact must equal a clean deterministic build');
+    assert.ok(state.projects[graph.projects[0].id]);
+  } finally {
+    await client.dispose();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+async function executeSmartPlan(
+  root: string,
+  graph: Awaited<ReturnType<BuildHostClient['evaluate']>>,
+  planner: SmartBuildPlanner,
+  state: Awaited<ReturnType<SmartBuildPlanner['captureSuccessfulState']>>
+) {
+  const plan = await planner.createPlan(graph, state);
+  assert.ok(plan.projects.some(item => item.decision !== 'up-to-date'), 'mutation must invalidate at least one project');
+  const selected = plan.projects.filter(item => item.decision === 'build' || item.decision === 'fallback').map(item => item.project);
+  const traversal = path.join(root, 'smart-build.proj');
+  await fs.writeFile(traversal, createSmartBuildTraversal(selected, plan.requiresRestore,
+    new Set(plan.projects.filter(item => item.decision === 'fallback').map(item => item.project.projectPath))));
+  await run('dotnet', ['msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo'], root);
+  return planner.captureSuccessfulState(graph, Date.now() - 1, Date.now());
+}
 
 async function sha256(filePath: string): Promise<string> {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');

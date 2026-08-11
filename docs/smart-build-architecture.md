@@ -47,6 +47,35 @@ than per solution.
 - **Shadow**: compute and log a Smart Build plan, then execute standard Build.
   This mode is for validation and is not exposed as a primary command.
 
+## Run, debug, and test integration
+
+`dotnav.buildBeforeRunMode` controls execution safety without changing the two
+explicit build commands:
+
+- **Standard** is the default and preserves the normal build-before-run path.
+- **Smart** completes a Smart Build before starting any target. A failed,
+  cancelled, timed-out, or concurrently modified build prevents Run, Debug, or
+  Test from starting. Tests then use `--no-build`; run/debug resolve only the
+  verified output.
+- **None** intentionally uses existing output and performs no freshness check.
+
+Compound configurations perform one graph-aware pre-build for all selected
+projects before creating target processes. This prevents one target from
+starting while another target's required dependency build is still failing.
+
+## Observability
+
+Every Smart Build records evaluation, planning, artifact-copy, MSBuild,
+state-capture, and total elapsed time together with build/copy counts, cache
+presence, and restore status. Explain Plan presents the summary and each
+project's decision reasons in a searchable picker while retaining the full
+text in the Smart Build output channel.
+
+MSBuild binary logs are opt-in with `dotnav.smartBuild.generateBinaryLog` and
+are stored in extension workspace storage unless
+`dotnav.smartBuild.binaryLogDirectory` is set. They are diagnostic artifacts,
+not cache inputs, and must not affect correctness if removed.
+
 ## Release gates
 
 - No false up-to-date result in differential mutation tests.

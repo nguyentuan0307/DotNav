@@ -1209,7 +1209,23 @@
         "dotnav.buildBeforeRun": {
           "type": "boolean",
           "default": true,
-          "description": "Build the selected project before running or debugging it."
+          "deprecationMessage": "Use dotnav.buildBeforeRunMode instead.",
+          "description": "Legacy switch for building before Run/Debug. False maps to 'none' until buildBeforeRunMode is explicitly configured."
+        },
+        "dotnav.buildBeforeRunMode": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "smart",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Run the standard .NET build before Run, Debug, and Test.",
+            "Run DotNav Smart Build and continue only after verified success.",
+            "Do not build; use existing outputs."
+          ],
+          "default": "standard",
+          "description": "Build strategy used before Run, Debug, and Test."
         },
         "dotnav.buildConfiguration": {
           "type": "string",
@@ -1243,6 +1259,16 @@
           ],
           "default": "execute",
           "description": "Smart Build rollout mode. The regular Build command is never affected."
+        },
+        "dotnav.smartBuild.generateBinaryLog": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate an MSBuild binary log for Smart Build executions. Binary logs may contain project paths and build properties."
+        },
+        "dotnav.smartBuild.binaryLogDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for Smart Build .binlog files. Relative paths are resolved from the workspace; empty uses VS Code workspace storage."
         },
         "dotnav.buildTimeoutSeconds": {
           "type": "number",
