@@ -128,3 +128,26 @@ test('Build Host refuses to evaluate with an unavailable global.json SDK', { tim
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('a retiring Build Host cannot reject requests owned by its replacement', { timeout: 30_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-restart-'));
+  const client = new BuildHostClient({
+    extensionPath: path.resolve(__dirname, '..', '..'),
+    workspaceRoot: root,
+    requestTimeoutMs: 20_000
+  });
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      const projectRoot = path.join(root, `project-${index}`);
+      const projectPath = path.join(projectRoot, `Project${index}.csproj`);
+      await fs.mkdir(projectRoot, { recursive: true });
+      await fs.writeFile(projectPath, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework></PropertyGroup></Project>');
+      await client.setWorkingDirectory(projectRoot);
+      const graph = await client.evaluate([projectPath], { Configuration: 'Debug', Platform: 'AnyCPU' });
+      assert.equal(graph.projects[0].projectPath, projectPath);
+    }
+  } finally {
+    await client.dispose();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -13,6 +13,7 @@ interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: Error) => void;
   readonly timer: NodeJS.Timeout;
+  readonly owner: ChildProcessWithoutNullStreams;
 }
 
 export interface BuildHostClientOptions {
@@ -90,15 +91,18 @@ export class BuildHostClient {
   }
 
   private async stop(): Promise<void> {
-    if (this.process && !this.process.killed) {
+    const child = this.process;
+    if (child && !child.killed) {
       try {
         await this.request('shutdown', {}, 1_000);
       } catch {
-        this.process.kill();
+        child.kill();
       }
     }
-    this.process = undefined;
-    this.startPromise = undefined;
+    if (this.process === child) {
+      this.process = undefined;
+      this.startPromise = undefined;
+    }
   }
 
   private async startCore(): Promise<BuildHostInfo> {
@@ -112,14 +116,12 @@ export class BuildHostClient {
     this.process = child;
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', data => this.options.onDiagnostic?.(String(data).trimEnd()));
-    child.on('error', error => this.rejectAll(new Error(`Could not start Smart Build host: ${error.message}`)));
+    child.on('error', error => this.handleTermination(child, new Error(`Could not start Smart Build host: ${error.message}`)));
     child.on('exit', (code, signal) => {
-      if (this.process === child) this.process = undefined;
-      this.startPromise = undefined;
-      this.rejectAll(new Error(`Smart Build host exited (${code ?? signal ?? 'unknown'}).`));
+      this.handleTermination(child, new Error(`Smart Build host exited (${code ?? signal ?? 'unknown'}).`));
     });
     const lines = readline.createInterface({ input: child.stdout });
-    lines.on('line', line => this.handleLine(line));
+    lines.on('line', line => this.handleLine(child, line));
 
     const info = await this.request<BuildHostInfo>('ping', {});
     if (info.protocolVersion !== smartBuildProtocolVersion) {
@@ -140,11 +142,11 @@ export class BuildHostClient {
         this.pending.delete(id);
         reject(new Error(`Smart Build host request '${method}' timed out.`));
       }, timeoutMs);
-      this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });
+      this.pending.set(id, { resolve: value => resolve(value as T), reject, timer, owner: process });
       process.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
         if (!error) return;
         const pending = this.pending.get(id);
-        if (!pending) return;
+        if (!pending || pending.owner !== process) return;
         clearTimeout(pending.timer);
         this.pending.delete(id);
         pending.reject(error);
@@ -152,7 +154,7 @@ export class BuildHostClient {
     });
   }
 
-  private handleLine(line: string): void {
+  private handleLine(owner: ChildProcessWithoutNullStreams, line: string): void {
     let envelope: HostEnvelope<unknown>;
     try {
       envelope = JSON.parse(line) as HostEnvelope<unknown>;
@@ -162,7 +164,7 @@ export class BuildHostClient {
     }
     if (!envelope.id) return;
     const pending = this.pending.get(envelope.id);
-    if (!pending) return;
+    if (!pending || pending.owner !== owner) return;
     clearTimeout(pending.timer);
     this.pending.delete(envelope.id);
     if (envelope.error) {
@@ -178,6 +180,19 @@ export class BuildHostClient {
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private handleTermination(owner: ChildProcessWithoutNullStreams, error: Error): void {
+    if (this.process === owner) {
+      this.process = undefined;
+      this.startPromise = undefined;
+    }
+    for (const [id, pending] of this.pending) {
+      if (pending.owner !== owner) continue;
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.pending.delete(id);
+    }
   }
 }
 
