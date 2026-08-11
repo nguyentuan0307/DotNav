@@ -4,6 +4,12 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+### Features
+
+* add client-only file and selection Local History with filtered revision timelines and inline diffs
+* coalesce automatic snapshots and add indexed, bounded Local History retention
+* make Local History opt-in through Settings and an upgrade introduction prompt
+
 ## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.10.0...dotnav-v0.11.0) (2026-07-31)
 
 

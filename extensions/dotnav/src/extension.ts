@@ -22,6 +22,7 @@ import {
   WorkspaceFileEventKind,
   classifyWorkspaceChange
 } from './workspaceChangeClassifier';
+import { activateLocalHistory } from './localHistory/localHistoryMain';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -195,6 +196,7 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
   registerWorkspaceFileWatcher(context, provider);
+  activateLocalHistory(context);
   activateEfCore(context, provider, processManager);
 }
 

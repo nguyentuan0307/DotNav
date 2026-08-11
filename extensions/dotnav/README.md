@@ -17,6 +17,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 - Reformat whole C# documents or multiple selections with Roslyn plus safe, configurable readability passes.
 - Manage EF Core from a project-aware Center: add/remove/browse migrations, apply or roll back databases, generate SQL scripts and bundles, check model changes, and optimize DbContexts.
 - Reveal the active editor file, filter the solution tree, and customize project icons.
+- Keep local snapshots of supported text files and compare any saved revision from **Local changes > Show Local History**.
 
 DotNav depends on [GitNav](https://marketplace.visualstudio.com/items?itemName=tuna-ex.gitnav-workflows), which is installed automatically and supplies the integrated Git Log, comparison, and history workflows.
 
@@ -61,6 +62,24 @@ until their target is identified and explicitly confirmed.
 ## Configuration
 
 Open **Settings** and search for `DotNav`. Settings use the `dotnav.*` namespace for solution navigation, run behavior, file nesting, icons, and C# formatting.
+
+### Local History
+
+Right-click a file in the editor or DotNav Solution tree, then choose
+**Local changes > Show Local History for File**. In the editor, select code and
+choose **Show Local History for Selection** to keep only revisions and diff hunks
+that affect the selected lines. Unsaved editor content is captured on demand. A
+two-pane history view lists matching revisions on the left and shows the selected
+revision's changes from its previous revision on the right. Snapshots are compressed,
+deduplicated, stored in VS Code's workspace storage on the current machine, and never
+added to the repository.
+
+Automatic snapshots of the same file are coalesced into five-second windows.
+Local History is off by default and can be enabled or disabled at any time with
+`dotnav.localHistory.enabled`. DotNav also introduces the feature with an opt-in
+prompt after upgrading. When enabled, storage defaults to 250 MB per workspace
+and 250 visible revisions per file; both limits are configurable under
+`dotnav.localHistory.*`. Disabling it stops its file watcher and all new snapshots.
 
 ## C# reformatting
 
