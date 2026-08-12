@@ -79,18 +79,36 @@ static HostEnvironment ResolveDotnetSdk()
     var selectedVersion = RunDotnet(dotnet, "--version").Trim();
     if (string.IsNullOrWhiteSpace(selectedVersion)) throw new InvalidOperationException("dotnet --version returned no SDK version.");
     var installed = RunDotnet(dotnet, "--list-sdks").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-    foreach (var line in installed)
+    var runtimeMajor = Environment.Version.Major;
+    var candidates = installed
+        .Select(ParseSdk)
+        .Where(item => item is not null)
+        .Select(item => item!)
+        .Where(item => item.Version.Major == runtimeMajor)
+        .OrderByDescending(item => item.Version)
+        .ToArray();
+
+    if (candidates.Length > 0)
     {
-        var bracket = line.IndexOf('[');
-        var closing = line.LastIndexOf(']');
-        if (bracket <= 0 || closing <= bracket) continue;
-        var version = line[..bracket].Trim();
-        if (!string.Equals(version, selectedVersion, StringComparison.OrdinalIgnoreCase)) continue;
-        var basePath = line[(bracket + 1)..closing].Trim();
-        var sdkPath = Path.Combine(basePath, version);
-        if (Directory.Exists(sdkPath)) return new HostEnvironment(sdkPath, version);
+        var selected = candidates[0];
+        return new HostEnvironment(selected.Path, selected.Version.ToString());
     }
-    throw new InvalidOperationException($"The selected .NET SDK {selectedVersion} was not present in dotnet --list-sdks.");
+
+    throw new InvalidOperationException(
+        $"No installed .NET SDK is compatible with the Build Host runtime major version {runtimeMajor}. " +
+        $"dotnet selected SDK {selectedVersion}.");
+}
+
+static SdkInstallation? ParseSdk(string line)
+{
+    var bracket = line.IndexOf('[');
+    var closing = line.LastIndexOf(']');
+    if (bracket <= 0 || closing <= bracket) return null;
+    if (!Version.TryParse(line[..bracket].Trim(), out var version)) return null;
+
+    var basePath = line[(bracket + 1)..closing].Trim();
+    var sdkPath = Path.Combine(basePath, version.ToString());
+    return Directory.Exists(sdkPath) ? new SdkInstallation(version, sdkPath) : null;
 }
 
 static string RunDotnet(string executable, string argument)
@@ -115,3 +133,4 @@ static string RunDotnet(string executable, string argument)
 }
 
 internal sealed record HostEnvironment(string MSBuildPath, string Version);
+internal sealed record SdkInstallation(Version Version, string Path);

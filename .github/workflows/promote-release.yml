@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch origin master --prune
+          git fetch origin master release-candidate --prune
 
           if ! git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
             git push origin origin/master:refs/heads/release
