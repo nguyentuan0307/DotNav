@@ -35,7 +35,7 @@ test('Build Host evaluates SDK inputs and restore configuration from the workspa
     assert.deepEqual(graph.projects[0].opaqueReasons, []);
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
 
@@ -74,7 +74,7 @@ EndGlobal
     );
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
 
@@ -98,7 +98,7 @@ test('Build Host resolves conditional project references and rejects custom buil
     assert.ok(app.opaqueReasons.some(reason => reason.startsWith('custom-target:')));
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
 
@@ -113,7 +113,7 @@ test('Build Host expands multi-targeted projects into independently fingerprinte
     assert.equal(new Set(graph.projects.map(item => item.id)).size, graph.projects.length);
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
 
@@ -125,7 +125,7 @@ test('Build Host refuses to evaluate with an unavailable global.json SDK', { tim
     await assert.rejects(client.start(), /exited|dotnet --version failed/i);
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
 
@@ -148,6 +148,10 @@ test('a retiring Build Host cannot reject requests owned by its replacement', { 
     }
   } finally {
     await client.dispose();
-    await fs.rm(root, { recursive: true, force: true });
+    await removeTemporaryDirectory(root);
   }
 });
+
+async function removeTemporaryDirectory(path: string): Promise<void> {
+  await fs.rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
