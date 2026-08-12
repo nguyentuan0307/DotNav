@@ -98,6 +98,11 @@ export class BuildHostClient {
       } catch {
         child.kill();
       }
+      await waitForExit(child, 1_000);
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill();
+        await waitForExit(child, 1_000);
+      }
     }
     if (this.process === child) {
       this.process = undefined;
@@ -200,4 +205,19 @@ function samePath(left: string, right: string): boolean {
   return process.platform === 'win32'
     ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase()
     : path.resolve(left) === path.resolve(right);
+}
+
+function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve();
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    child.once('exit', onExit);
+  });
 }

@@ -42,17 +42,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        shell: bash
-        run: |
-          set +e
-          npm test > test-output.log 2>&1
-          status=$?
-          cat test-output.log
-          if [ "$status" -ne 0 ]; then
-            failure="$(grep -A 35 -m 1 'not ok' test-output.log | tr '\n' ' ' | sed 's/::/%3A%3A/g')"
-            echo "::error title=Test failure::$failure"
-            exit "$status"
-          fi
+        run: npm test
 
   package:
     needs: test
