@@ -1404,7 +1404,7 @@
   "scripts": {
     "compile:host": "dotnet publish build-host/DotNav.BuildHost.csproj --configuration Release --output build-host/out --nologo",
     "compile": "npm run compile:host && tsc -p ./",
-    "test": "npm run compile && node --test \"out/test/*.test.js\"",
+    "test": "npm run compile && node --test --test-concurrency=1 \"out/test/*.test.js\"",
     "test:formatter-corpus": "npm run compile && node --test out/test/formatterCorpus.test.js",
     "formatter:corpus:list": "npm run compile && node out/test/formatterCorpusReport.js",
     "watch": "tsc -watch -p ./",
