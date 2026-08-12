@@ -93,15 +93,15 @@ export class BuildHostClient {
   private async stop(): Promise<void> {
     const child = this.process;
     if (child && !child.killed) {
+      const closed = waitForClose(child, 1_000);
       try {
         await this.request('shutdown', {}, 1_000);
       } catch {
         child.kill();
       }
-      await waitForExit(child, 1_000);
-      if (child.exitCode === null && child.signalCode === null) {
+      if (!await closed) {
         child.kill();
-        await waitForExit(child, 1_000);
+        await waitForClose(child, 1_000);
       }
     }
     if (this.process === child) {
@@ -207,17 +207,17 @@ function samePath(left: string, right: string): boolean {
     : path.resolve(left) === path.resolve(right);
 }
 
-function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+function waitForClose(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
   return new Promise(resolve => {
     const timer = setTimeout(() => {
-      child.off('exit', onExit);
-      resolve();
+      child.off('close', onClose);
+      resolve(false);
     }, timeoutMs);
-    const onExit = () => {
+    const onClose = () => {
       clearTimeout(timer);
-      resolve();
+      resolve(true);
     };
-    child.once('exit', onExit);
+    child.once('close', onClose);
   });
 }
