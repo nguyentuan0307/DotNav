@@ -4,6 +4,33 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.12.0...dotnav-v0.13.0) (2026-08-13)
+
+
+### Features
+
+* **dotnav:** add correctness-first smart build ([f745201](https://github.com/nguyentuan0307/DotNav/commit/f745201196ea26095bc1a9e370d379711a6aebcc))
+* **dotnav:** complete smart build rollout phases ([fdb6c5b](https://github.com/nguyentuan0307/DotNav/commit/fdb6c5b9cb1b741fb118b673aba901c8e2149fd1))
+* **dotnav:** ship opt-in smart build preview ([af6c64a](https://github.com/nguyentuan0307/DotNav/commit/af6c64ae1a426549cffd628cdfa06a8bd7096f08))
+
+### Bug Fixes
+
+* **dotnav:** isolate smart build host requests ([4a89d1b](https://github.com/nguyentuan0307/DotNav/commit/4a89d1b1f4ec477672cdc3610c6009e41478b269))
+* **ci:** use a compatible MSBuild SDK ([878118b](https://github.com/nguyentuan0307/DotNav/commit/878118b93e77f2158b3b8fd48e91d7f7f533f9ef))
+* **ci:** serialize DotNav integration tests ([77bb1d5](https://github.com/nguyentuan0307/DotNav/commit/77bb1d519bed34ae00de97b6944bc4bbe77e68c5))
+* **dotnav:** await Build Host shutdown ([0655cf4](https://github.com/nguyentuan0307/DotNav/commit/0655cf47ddc0a0861538638b0f9d2e92b59483bf))
+* **dotnav:** wait for Build Host streams to close ([f0926a9](https://github.com/nguyentuan0307/DotNav/commit/f0926a9e654ec75c673caa00ccf005badcafb379))
+
+### Performance Improvements
+
+* **dotnav:** refine smart build dependencies ([5fd5376](https://github.com/nguyentuan0307/DotNav/commit/5fd53767315d096ed5feb4f8d3b37ae04aced281))
+
+### Changes
+
+* test(dotnav): retry Windows Build Host cleanup ([7445f4c](https://github.com/nguyentuan0307/DotNav/commit/7445f4c31e561a6d2b582a9377bd7760a4ab9312))
+* test(dotnav): allow Windows Build Host cleanup lag ([c06dacb](https://github.com/nguyentuan0307/DotNav/commit/c06dacb0dfc94a9abdcbae9d5cbf07132604e91f))
+
+
 ## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.11.0...dotnav-v0.12.0) (2026-08-11)
 
 

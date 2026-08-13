@@ -9,6 +9,13 @@
 release-please-config.json
 node_modules/**
 src/**
+build-host/**/*.cs
+build-host/**/*.csproj
+build-host/bin/**
+build-host/obj/**
+build-host/out/DotNav.BuildHost
+build-host/out/*.pdb
+build-host/out/*.dll.config
 out/test/**
 out/**/*.map
 media/icon.svg

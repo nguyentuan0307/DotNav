@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { addCodeItem, addExistingItem, addFile, addFolder } from './addCommands';
-import { buildConfig, pickProfile, runConfig, startTarget } from './debugRunner';
+import { buildConfig, configuredBuildBeforeRunMode, pickProfile, runConfig, startTarget } from './debugRunner';
 import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForProjects, runDotnetForSolution } from './dotnetCli';
 import { projectsUnderFolder, projectsUnderSolutionFolder } from './folderBuild';
 import { ExplorerInteractionController, isMovableNode } from './explorerInteraction';
@@ -23,12 +23,16 @@ import {
   classifyWorkspaceChange
 } from './workspaceChangeClassifier';
 import { activateLocalHistory } from './localHistory/localHistoryMain';
+import { SmartBuildCoordinator } from './build/smartBuildCoordinator';
+import { isSmartBuildEnabled, smartBuildEnabledConfiguration } from './build/smartBuildFeature';
+import { showFeatureAnnouncements } from './featureAnnouncements';
 
 let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
+  const smartBuild = new SmartBuildCoordinator(context);
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
     configId => {
@@ -72,6 +76,7 @@ export function activate(context: vscode.ExtensionContext): void {
     treeView,
     runConfigTreeView,
     processManager,
+    smartBuild,
     ...statusItems,
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
@@ -94,16 +99,33 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.openSolutionFile', () => openSolutionFile(provider)),
     vscode.commands.registerCommand('dotnav.openSolutionTerminal', () => openSolutionTerminal(provider)),
     vscode.commands.registerCommand('dotnav.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
+    vscode.commands.registerCommand('dotnav.smartBuildProject', (node: TreeNode) => smartBuildProject(provider, smartBuild, processManager, node)),
     vscode.commands.registerCommand('dotnav.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node)),
-    vscode.commands.registerCommand('dotnav.rebuildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'rebuild')),
+    vscode.commands.registerCommand('dotnav.smartBuildFolderProjects', (node: TreeNode) => smartBuildFolderProjects(provider, smartBuild, processManager, node)),
+    vscode.commands.registerCommand('dotnav.rebuildProject', async (node: TreeNode) => {
+      await runProjectCommand(processManager, node, 'rebuild');
+      await smartBuild.invalidate(provider.getSolution(), false);
+    }),
     vscode.commands.registerCommand('dotnav.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
-    vscode.commands.registerCommand('dotnav.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
-    vscode.commands.registerCommand('dotnav.cleanSolution', () => runSolutionCommand(provider, processManager, 'clean')),
+    vscode.commands.registerCommand('dotnav.smartBuildSolution', () => runSmartBuildSolution(provider, smartBuild, processManager)),
+    vscode.commands.registerCommand('dotnav.rebuildSolution', async () => {
+      await runSolutionCommand(provider, processManager, 'rebuild');
+      await smartBuild.invalidate(provider.getSolution(), false);
+    }),
+    vscode.commands.registerCommand('dotnav.cleanSolution', async () => {
+      await runSolutionCommand(provider, processManager, 'clean');
+      await smartBuild.invalidate(provider.getSolution(), false);
+    }),
+    vscode.commands.registerCommand('dotnav.explainSmartBuildPlan', () => explainSmartBuildPlan(provider, smartBuild)),
+    vscode.commands.registerCommand('dotnav.invalidateSmartBuildCache', () => smartBuild.invalidate(provider.getSolution())),
     vscode.commands.registerCommand('dotnav.openWorkspaceFolder', () => vscode.commands.executeCommand('workbench.action.files.openFolder')),
-    vscode.commands.registerCommand('dotnav.runProject', (node: TreeNode) => runOrDebugProject(provider, processManager, node, false)),
-    vscode.commands.registerCommand('dotnav.debugProject', (node: TreeNode) => runOrDebugProject(provider, processManager, node, true)),
-    vscode.commands.registerCommand('dotnav.testProject', (node: TreeNode) => runProjectCommand(processManager, node, 'test')),
-    vscode.commands.registerCommand('dotnav.cleanProject', (node: TreeNode) => runProjectCommand(processManager, node, 'clean')),
+    vscode.commands.registerCommand('dotnav.runProject', (node: TreeNode) => runOrDebugProject(provider, smartBuild, processManager, node, false)),
+    vscode.commands.registerCommand('dotnav.debugProject', (node: TreeNode) => runOrDebugProject(provider, smartBuild, processManager, node, true)),
+    vscode.commands.registerCommand('dotnav.testProject', (node: TreeNode) => testProject(provider, smartBuild, processManager, node)),
+    vscode.commands.registerCommand('dotnav.cleanProject', async (node: TreeNode) => {
+      await runProjectCommand(processManager, node, 'clean');
+      await smartBuild.invalidate(provider.getSolution(), false);
+    }),
     vscode.commands.registerCommand('dotnav.stopProject', (node: TreeNode) => stopProject(processManager, node)),
     vscode.commands.registerCommand('dotnav.stopAll', () => processManager.stopAll()),
     vscode.commands.registerCommand('dotnav.stopActiveConfig', () => stopActiveConfig(context, provider, processManager)),
@@ -140,11 +162,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.newCompound', () => newCompound(context, provider)),
     vscode.commands.registerCommand('dotnav.deleteCompound', () => deleteCompound(context, provider)),
     vscode.commands.registerCommand('dotnav.setActiveConfig', (node: TreeNode) => setActiveConfig(context, provider, node)),
-    vscode.commands.registerCommand('dotnav.runActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: false, processManager }))),
-    vscode.commands.registerCommand('dotnav.debugActiveConfig', () => withActiveConfig(context, provider, config => runConfig(provider.getSolution()!, config, { debug: true, processManager }))),
+    vscode.commands.registerCommand('dotnav.runActiveConfig', () => withActiveConfig(context, provider, config => runConfiguredConfig(provider.getSolution()!, config, false, smartBuild, processManager))),
+    vscode.commands.registerCommand('dotnav.debugActiveConfig', () => withActiveConfig(context, provider, config => runConfiguredConfig(provider.getSolution()!, config, true, smartBuild, processManager))),
     vscode.commands.registerCommand('dotnav.buildActiveConfig', () => withActiveConfig(context, provider, config => buildConfig(provider.getSolution()!, config, processManager))),
-    vscode.commands.registerCommand('dotnav.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
-    vscode.commands.registerCommand('dotnav.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
+    vscode.commands.registerCommand('dotnav.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, smartBuild, processManager)),
+    vscode.commands.registerCommand('dotnav.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, smartBuild, processManager)),
     vscode.commands.registerCommand('dotnav.formatSelection', () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
@@ -172,6 +194,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (event.affectsConfiguration('dotnav')) {
         provider.refresh();
       }
+      if (event.affectsConfiguration(smartBuildEnabledConfiguration)) {
+        void vscode.commands.executeCommand('setContext', 'dotnav.smartBuildEnabled', isSmartBuildEnabled());
+      }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
       const follow = vscode.workspace
@@ -195,9 +220,11 @@ export function activate(context: vscode.ExtensionContext): void {
   provider.refresh();
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
-  registerWorkspaceFileWatcher(context, provider);
+  registerWorkspaceFileWatcher(context, provider, smartBuild);
+  void vscode.commands.executeCommand('setContext', 'dotnav.smartBuildEnabled', isSmartBuildEnabled());
   activateLocalHistory(context);
   activateEfCore(context, provider, processManager);
+  void showFeatureAnnouncements(context);
 }
 
 export async function deactivate(): Promise<void> {
@@ -330,6 +357,27 @@ async function runProjectCommand(processManager: ProcessManager, node: TreeNode,
   await runDotnetForProject(project, verb, processManager);
 }
 
+async function testProject(
+  provider: DotnetTreeProvider,
+  smartBuild: SmartBuildCoordinator,
+  processManager: ProcessManager,
+  node: TreeNode
+): Promise<void> {
+  const project = projectFromNode(node);
+  if (!project) return;
+  const mode = configuredBuildBeforeRunMode();
+  if (mode === 'standard') {
+    await runDotnetForProject(project, 'test', processManager);
+    return;
+  }
+  if (mode === 'smart') {
+    if (!provider.getSolution()) await provider.refresh();
+    const solution = provider.getSolution();
+    if (!solution || !await smartBuild.buildProjects(solution, [project], processManager, `Test ${project.name}`)) return;
+  }
+  await runDotnetForProject(project, 'test', processManager, { noBuild: true });
+}
+
 async function buildFolderProjects(provider: DotnetTreeProvider, processManager: ProcessManager, node: TreeNode): Promise<void> {
   if (node.kind !== 'folder') {
     vscode.window.showInformationMessage('Select a folder in Solution Navigator before building folder projects.');
@@ -359,6 +407,67 @@ async function buildFolderProjects(provider: DotnetTreeProvider, processManager:
   await runDotnetForProjects(loadedProjects, node.resourcePath ?? solution.rootPath, processManager, node.label);
 }
 
+async function smartBuildProject(
+  provider: DotnetTreeProvider,
+  smartBuild: SmartBuildCoordinator,
+  processManager: ProcessManager,
+  node: TreeNode
+): Promise<void> {
+  const project = projectFromNode(node);
+  if (!project) return;
+  if (!provider.getSolution()) await provider.refresh();
+  const solution = provider.getSolution();
+  if (!solution) return;
+  await smartBuild.buildProjects(solution, [project], processManager, project.name);
+}
+
+async function smartBuildFolderProjects(
+  provider: DotnetTreeProvider,
+  smartBuild: SmartBuildCoordinator,
+  processManager: ProcessManager,
+  node: TreeNode
+): Promise<void> {
+  if (node.kind !== 'folder') {
+    vscode.window.showInformationMessage('Select a folder in Solution Navigator before running Smart Build.');
+    return;
+  }
+  if (!provider.getSolution()) await provider.refresh();
+  const solution = provider.getSolution();
+  if (!solution) return;
+  const logicalPath = node.id?.startsWith('folder:')
+    ? node.id.slice('folder:'.length).split('/').filter(Boolean)
+    : undefined;
+  const projects = logicalPath
+    ? projectsUnderSolutionFolder(solution, logicalPath)
+    : node.resourcePath ? projectsUnderFolder(solution, node.resourcePath) : [];
+  if (projects.length === 0) {
+    vscode.window.showInformationMessage(`No projects were found under ${node.label}.`);
+    return;
+  }
+  await smartBuild.buildProjects(solution, projects, processManager, node.label);
+}
+
+async function runSmartBuildSolution(
+  provider: DotnetTreeProvider,
+  smartBuild: SmartBuildCoordinator,
+  processManager: ProcessManager
+): Promise<void> {
+  if (!provider.getSolution()) await provider.refresh();
+  const solution = provider.getSolution();
+  if (!solution) {
+    vscode.window.showInformationMessage('Open a .NET workspace before running Smart Build.');
+    return;
+  }
+  await smartBuild.buildSolution(solution, processManager);
+}
+
+async function explainSmartBuildPlan(provider: DotnetTreeProvider, smartBuild: SmartBuildCoordinator): Promise<void> {
+  if (!provider.getSolution()) await provider.refresh();
+  const solution = provider.getSolution();
+  if (!solution) return;
+  await smartBuild.explainPlan(solution);
+}
+
 async function runSolutionCommand(
   provider: DotnetTreeProvider,
   processManager: ProcessManager,
@@ -379,6 +488,7 @@ async function runSolutionCommand(
 
 async function runOrDebugProject(
   provider: DotnetTreeProvider,
+  smartBuild: SmartBuildCoordinator,
   processManager: ProcessManager,
   node: TreeNode,
   debug: boolean
@@ -403,7 +513,12 @@ async function runOrDebugProject(
     return;
   }
 
-  await startTarget(project, profile, { debug, processManager });
+  const mode = configuredBuildBeforeRunMode();
+  if (mode === 'smart') {
+    const solution = provider.getSolution();
+    if (!solution || !await smartBuild.buildProjects(solution, [project], processManager, `${debug ? 'Debug' : 'Run'} ${project.name}`)) return;
+  }
+  await startTarget(project, profile, { debug, processManager, skipBuild: mode !== 'standard' });
 }
 
 async function stopProject(processManager: ProcessManager, node: TreeNode): Promise<void> {
@@ -503,7 +618,7 @@ async function runSelectedResourceCommand(
   await command(selected);
 }
 
-function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider: DotnetTreeProvider): void {
+function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider: DotnetTreeProvider, smartBuild: SmartBuildCoordinator): void {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*');
   let refreshTimer: NodeJS.Timeout | undefined;
   const pending = new Map<string, WorkspaceChange>();
@@ -533,6 +648,7 @@ function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider
   };
 
   const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
+    smartBuild.recordFileChange(uri.fsPath, eventKind);
     const change = classifyWorkspaceChange(uri.fsPath, eventKind);
     if (change.kind === 'ignored') {
       return;
@@ -840,6 +956,7 @@ async function runConfigNode(
   provider: DotnetTreeProvider,
   node: TreeNode,
   debug: boolean,
+  smartBuild: SmartBuildCoordinator,
   processManager: ProcessManager
 ): Promise<void> {
   await provider.ensureAllProjectMetadata();
@@ -850,8 +967,24 @@ async function runConfigNode(
 
   const config = runConfigStore.listConfigs(solution, context).find(candidate => candidate.id === node.configId);
   if (config) {
-    await runConfig(solution, config, { debug, processManager });
+    await runConfiguredConfig(solution, config, debug, smartBuild, processManager);
   }
+}
+
+async function runConfiguredConfig(
+  solution: SolutionModel,
+  config: RunConfig,
+  debug: boolean,
+  smartBuild: SmartBuildCoordinator,
+  processManager: ProcessManager
+): Promise<void> {
+  const buildMode = configuredBuildBeforeRunMode();
+  await runConfig(solution, config, {
+    debug,
+    processManager,
+    buildMode,
+    smartPrebuild: (projects, label) => smartBuild.buildProjects(solution, projects, processManager, label)
+  });
 }
 
 function relativeProjectPath(solution: SolutionModel, projectPath: string | undefined): string | undefined {

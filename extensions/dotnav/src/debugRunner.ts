@@ -7,6 +7,7 @@ import { createFolderBuildProject, normalizeMaxParallelBuilds } from './folderBu
 import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models';
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
+import { BuildBeforeRunMode, resolveBuildBeforeRunMode } from './buildMode';
 
 interface StartOptions {
   readonly debug: boolean;
@@ -63,7 +64,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     }
   }
 
-  if (shouldBuildBeforeRun() && !options.skipBuild) {
+  if (configuredBuildBeforeRunMode() === 'standard' && !options.skipBuild) {
     const built = await buildProject(project, options.processManager, runId, targetId);
     if (!built) {
       return false;
@@ -267,13 +268,29 @@ export async function buildProject(
 export async function runConfig(
   solution: SolutionModel,
   config: RunConfig,
-  options: { debug: boolean; processManager?: ProcessManager }
+  options: {
+    debug: boolean;
+    processManager?: ProcessManager;
+    buildMode?: BuildBeforeRunMode;
+    smartPrebuild?: (projects: readonly ProjectModel[], label: string) => Promise<boolean>;
+  }
 ): Promise<void> {
   const resolvedTargets = config.targets.map(target => resolveTarget(solution, target.projectPath, target.profileName));
   const missingTarget = resolvedTargets.findIndex(target => !target.project);
   if (missingTarget >= 0) {
     vscode.window.showWarningMessage(`Project not found: ${config.targets[missingTarget].projectPath}`);
     return;
+  }
+
+  const buildMode = options.buildMode ?? configuredBuildBeforeRunMode();
+  let smartPrebuilt = false;
+  if (buildMode === 'smart') {
+    if (!options.smartPrebuild) {
+      vscode.window.showErrorMessage('Smart Build before Run/Debug is unavailable. Use Standard Build or reload DotNav.');
+      return;
+    }
+    smartPrebuilt = await options.smartPrebuild(resolvedTargets.map(target => target.project!), config.label);
+    if (!smartPrebuilt) return;
   }
 
   let session: ReturnType<ProcessManager['beginRun']> | undefined;
@@ -297,8 +314,8 @@ export async function runConfig(
     }
   }
 
-  const prebuilt = shouldBuildBeforeRun() && resolvedTargets.length > 1;
-  if (prebuilt) {
+  const standardPrebuilt = buildMode === 'standard' && resolvedTargets.length > 1;
+  if (standardPrebuilt) {
     const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), options.processManager, session?.runId);
     if (!built) {
       if (session) {
@@ -314,7 +331,7 @@ export async function runConfig(
       processManager: options.processManager,
       runId: session?.runId,
       targetId: session?.targets[index].targetId,
-      skipBuild: prebuilt
+      skipBuild: smartPrebuilt || standardPrebuilt || buildMode === 'none'
     })
   ));
 
@@ -502,10 +519,20 @@ function resolveTarget(solution: SolutionModel, projectPath: string, profileName
   return { project, profile };
 }
 
-function shouldBuildBeforeRun(): boolean {
-  return vscode.workspace
-    .getConfiguration('dotnav')
-    .get<boolean>('buildBeforeRun', true);
+export function configuredBuildBeforeRunMode(): BuildBeforeRunMode {
+  const configuration = vscode.workspace.getConfiguration('dotnav');
+  const modeInspection = configuration.inspect<BuildBeforeRunMode>('buildBeforeRunMode');
+  const legacyInspection = configuration.inspect<boolean>('buildBeforeRun');
+  const modeExplicit = Boolean(modeInspection?.globalValue ?? modeInspection?.workspaceValue ?? modeInspection?.workspaceFolderValue);
+  const legacyExplicit = legacyInspection?.globalValue !== undefined
+    || legacyInspection?.workspaceValue !== undefined
+    || legacyInspection?.workspaceFolderValue !== undefined;
+  return resolveBuildBeforeRunMode(
+    configuration.get<BuildBeforeRunMode>('buildBeforeRunMode', 'standard'),
+    modeExplicit,
+    configuration.get<boolean>('buildBeforeRun', true),
+    legacyExplicit
+  );
 }
 
 function uniqueProjects(projects: readonly ProjectModel[]): ProjectModel[] {

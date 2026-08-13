@@ -40,6 +40,9 @@ export function detectEfProjects(
   solution: SolutionModel,
   extraEfProjectPaths?: ReadonlySet<string>
 ): EfProjectDetection[] {
+  const normalizedExtraEfProjectPaths = extraEfProjectPaths
+    ? new Set([...extraEfProjectPaths].map(normalizePath))
+    : undefined;
   const byPath = new Map<string, ProjectModel>();
   for (const project of solution.projects) {
     byPath.set(normalizePath(project.path), project);
@@ -81,7 +84,7 @@ export function detectEfProjects(
   for (const project of solution.projects) {
     // Package reference is the primary signal; an existing Migrations folder
     // (design §3.1) covers projects that get EF transitively.
-    if (!referencesEfCore(project) && !extraEfProjectPaths?.has(normalizePath(project.path))) {
+    if (!referencesEfCore(project) && !normalizedExtraEfProjectPaths?.has(normalizePath(project.path))) {
       continue;
     }
 
@@ -104,7 +107,7 @@ export function detectEfProjects(
     detections.push({
       project,
       hasDesignPackage: referencesEfDesign(project),
-      hasMigrationsFolder: extraEfProjectPaths?.has(projectPath) ?? false,
+      hasMigrationsFolder: normalizedExtraEfProjectPaths?.has(projectPath) ?? false,
       startupCandidates: rankStartupCandidates(project, startupCandidates)
     });
   }
