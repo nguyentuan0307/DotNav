@@ -56,7 +56,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C release-candidate origin/release
-          git merge --no-ff --no-edit origin/master
+          if ! git merge --no-ff --no-commit origin/master; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            while IFS= read -r conflict; do
+              [ -z "$conflict" ] && continue
+              case "$conflict" in
+                .release-please-manifest.json|package-lock.json|extensions/*/package.json|extensions/*/CHANGELOG.md)
+                  # These files are regenerated below. Keep the released state as
+                  # the baseline so repeated promotions do not conflict with the
+                  # previously generated version/changelog entries.
+                  git checkout --ours -- "$conflict"
+                  git add "$conflict"
+                  ;;
+                *)
+                  echo "Promotion has a source conflict that requires manual resolution: $conflict" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<EOF
+          $conflicts
+          EOF
+            if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+              echo "Promotion still contains unresolved conflicts." >&2
+              exit 1
+            fi
+          fi
+          git commit --no-edit
 
           node .github/scripts/prepare-release-candidate.mjs \
             --base origin/release \
