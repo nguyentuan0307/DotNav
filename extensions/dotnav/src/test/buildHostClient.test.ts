@@ -153,5 +153,8 @@ test('a retiring Build Host cannot reject requests owned by its replacement', { 
 });
 
 async function removeTemporaryDirectory(path: string): Promise<void> {
-  await fs.rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  // Windows can retain the Build Host's DLL or its stdout/stderr handles briefly
+  // after its child-process `close` event.  `fs.rm` retries transient EPERM/EBUSY
+  // failures, so allow that normal runner cleanup lag before failing the test.
+  await fs.rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 }
