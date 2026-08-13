@@ -51,7 +51,7 @@ export class SmartBuildExecutor {
     const copyMs = Date.now() - copyStart;
     const failedCopyProjects = new Set(synchronization.failed.map(failure => normalize(failure.copy.destination)));
     const selectedVariants = plan.projects
-      .filter(item => item.decision === 'build' || item.decision === 'fallback'
+      .filter(item => item.decision === 'build' || item.decision === 'fallback' || item.decision === 'propagate'
         || (item.decision === 'copy' && item.copies.some(copy => failedCopyProjects.has(normalize(copy.destination)))))
       .map(item => item.project);
     if (selectedVariants.length === 0) return {
@@ -75,7 +75,12 @@ export class SmartBuildExecutor {
     const fallbackPaths = new Set(plan.projects
       .filter(item => item.decision === 'fallback')
       .map(item => item.project.projectPath));
-    await fs.writeFile(traversalPath, createSmartBuildTraversal(selectedVariants, plan.requiresRestore, fallbackPaths), 'utf8');
+    const propagationPaths = new Set(plan.projects
+      .filter(item => item.decision === 'propagate')
+      .map(item => item.project.projectPath));
+    await fs.writeFile(traversalPath, createSmartBuildTraversal(
+      selectedVariants, plan.requiresRestore, fallbackPaths, propagationPaths
+    ), 'utf8');
 
     try {
       const msbuildStart = Date.now();

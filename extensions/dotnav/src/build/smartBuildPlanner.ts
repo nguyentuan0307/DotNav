@@ -17,13 +17,49 @@ export class SmartBuildPlanner {
     }
 
     promoteReferencedCopies(projects);
-    propagateDependentBuilds(projects);
     let requiresRestore = projects.some(item => item.decision !== 'up-to-date' && !state?.projects[item.project.id]);
     for (const item of projects.filter(item => item.decision !== 'up-to-date')) {
       if (item.project.assetsFile && !await fingerprints.fingerprint(item.project.assetsFile)) requiresRestore = true;
       if (item.reasons.some(reason => reason.detail && isRestoreInput(reason.detail))) requiresRestore = true;
     }
     return { createdAt: Date.now(), graphFingerprint, projects, requiresRestore };
+  }
+
+  async createDependentPlan(
+    graph: EvaluatedBuildGraph,
+    primaryPlan: SmartBuildPlan,
+    state?: StoredBuildState
+  ): Promise<SmartBuildPlan> {
+    const primary = new Set(primaryPlan.projects
+      .filter(item => item.decision === 'build' || item.decision === 'fallback')
+      .map(item => normalize(item.project.projectPath)));
+    if (primary.size === 0) return emptyFollowUp(graph, primaryPlan);
+
+    const fingerprints = new FingerprintSession();
+    const apiChanged = new Set<string>();
+    for (const item of primaryPlan.projects.filter(item => primary.has(normalize(item.project.projectPath)))) {
+      const stored = state?.projects[item.project.id];
+      const reference = item.project.referenceAssemblyPath
+        ? await fingerprints.fingerprint(item.project.referenceAssemblyPath)
+        : undefined;
+      if (item.decision === 'fallback' || !stored?.referenceAssemblySha256 || !reference
+        || reference.sha256 !== stored.referenceAssemblySha256) {
+        apiChanged.add(normalize(item.project.projectPath));
+      }
+    }
+
+    const affected = reverseClosure(primaryPlan.projects, primary);
+    const rebuild = reverseClosure(primaryPlan.projects, apiChanged);
+    const projects = primaryPlan.projects.map(item => {
+      const projectPath = normalize(item.project.projectPath);
+      if (primary.has(projectPath) || !affected.has(projectPath) || item.decision !== 'up-to-date') {
+        return plan(item.project, 'up-to-date', []);
+      }
+      return rebuild.has(projectPath)
+        ? plan(item.project, 'build', [{ code: 'public-api-changed', detail: 'A referenced project public API changed.' }])
+        : plan(item.project, 'propagate', [{ code: 'reference-output-propagation', detail: 'Referenced implementation changed without a public API change.' }]);
+    });
+    return { createdAt: Date.now(), graphFingerprint: fingerprintGraph(graph), projects, requiresRestore: false };
   }
 
   async captureSuccessfulState(
@@ -143,17 +179,8 @@ async function fingerprintPaths(paths: readonly string[], session: FingerprintSe
   return result;
 }
 
-function propagateDependentBuilds(projects: ProjectBuildPlan[]): void {
-  const byPath = new Map<string, ProjectBuildPlan[]>();
-  for (const item of projects) {
-    const key = normalize(item.project.projectPath);
-    const existing = byPath.get(key) ?? [];
-    existing.push(item);
-    byPath.set(key, existing);
-  }
-  const dirtyPaths = new Set(projects
-    .filter(item => item.decision === 'build' || item.decision === 'fallback')
-    .map(item => normalize(item.project.projectPath)));
+function reverseClosure(projects: readonly ProjectBuildPlan[], roots: ReadonlySet<string>): Set<string> {
+  const dirtyPaths = new Set(roots);
   let changed = true;
   while (changed) {
     changed = false;
@@ -165,12 +192,14 @@ function propagateDependentBuilds(projects: ProjectBuildPlan[]): void {
       }
     }
   }
-  for (let index = 0; index < projects.length; index += 1) {
-    const item = projects[index];
-    if (item.decision === 'up-to-date' && dirtyPaths.has(normalize(item.project.projectPath))) {
-      projects[index] = plan(item.project, 'build', [{ code: 'source-changed', detail: 'Referenced project requires output propagation.' }]);
-    }
-  }
+  return dirtyPaths;
+}
+
+function emptyFollowUp(graph: EvaluatedBuildGraph, primaryPlan: SmartBuildPlan): SmartBuildPlan {
+  return {
+    createdAt: Date.now(), graphFingerprint: fingerprintGraph(graph), requiresRestore: false,
+    projects: primaryPlan.projects.map(item => plan(item.project, 'up-to-date', []))
+  };
 }
 
 function promoteReferencedCopies(projects: ProjectBuildPlan[]): void {

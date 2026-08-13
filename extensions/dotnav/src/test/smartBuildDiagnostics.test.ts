@@ -15,12 +15,12 @@ test('Smart Build metrics report stage timings and cache state', () => {
 });
 
 test('Smart Build plan summary counts every decision', () => {
-  const decisions = ['build', 'copy', 'fallback', 'up-to-date'] as const;
+  const decisions = ['build', 'copy', 'propagate', 'fallback', 'up-to-date'] as const;
   const plan = {
     createdAt: 0, graphFingerprint: 'graph', requiresRestore: false,
     projects: decisions.map((decision, index) => ({
       decision, reasons: [], copies: [], project: { id: String(index) }
     }))
   } as unknown as SmartBuildPlan;
-  assert.equal(planSummary(plan), '1 build, 1 copy, 1 fallback, 1 up-to-date');
+  assert.equal(planSummary(plan), '1 build, 1 copy, 1 propagate, 1 fallback, 1 up-to-date');
 });

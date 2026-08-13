@@ -52,6 +52,15 @@ Opaque projects fall back individually. Their recursive MSBuild semantics are
 retained, but one opaque project no longer discards the up-to-date decisions for
 the rest of a solution.
 
+Supported projects execute in two phases. The primary phase builds only projects
+whose own evaluated inputs or required outputs changed. After MSBuild succeeds,
+DotNav hashes each primary project's reference assembly and compares it with the
+last successful state. A changed or missing reference assembly conservatively
+rebuilds the complete reverse-dependent closure. When reference assemblies are
+unchanged, dependents run only MSBuild's reference resolution and copy-local
+targets, propagating new implementation assemblies without invoking compilation.
+State is committed only after both phases succeed.
+
 ## Build modes
 
 - **Build**: existing standard `dotnet build` behavior.

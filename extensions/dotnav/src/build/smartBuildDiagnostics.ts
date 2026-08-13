@@ -31,12 +31,12 @@ export function metricsSummary(metrics: SmartBuildMetrics): string {
 }
 
 export function planSummary(plan: SmartBuildPlan): string {
-  const counts = { build: 0, copy: 0, fallback: 0, current: 0 };
+  const counts = { build: 0, copy: 0, propagate: 0, fallback: 0, current: 0 };
   for (const item of plan.projects) {
     if (item.decision === 'up-to-date') counts.current += 1;
     else counts[item.decision] += 1;
   }
-  return `${counts.build} build, ${counts.copy} copy, ${counts.fallback} fallback, ${counts.current} up-to-date`;
+  return `${counts.build} build, ${counts.copy} copy, ${counts.propagate} propagate, ${counts.fallback} fallback, ${counts.current} up-to-date`;
 }
 
 export function formatMs(value: number): string {

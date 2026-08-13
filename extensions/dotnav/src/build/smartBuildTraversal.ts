@@ -3,28 +3,37 @@ import { EvaluatedProjectVariant } from './types';
 export function createSmartBuildTraversal(
   projects: readonly EvaluatedProjectVariant[],
   includeRestore: boolean,
-  fallbackProjectPaths: ReadonlySet<string> = new Set()
+  fallbackProjectPaths: ReadonlySet<string> = new Set(),
+  propagationProjectPaths: ReadonlySet<string> = new Set()
 ): string {
   const unique = [...new Map(projects.map(project => [project.projectPath, project])).values()];
   const levels = createDependencyLevels(unique);
   const allProjects = unique.map(project => renderItem('SmartBuildProject', project)).join('\n');
   const normalizedFallbacks = new Set([...fallbackProjectPaths].map(normalizePath));
+  const normalizedPropagations = new Set([...propagationProjectPaths].map(normalizePath));
   const levelItems = levels.flatMap((level, index) => [
-    ...level.filter(project => !normalizedFallbacks.has(normalizePath(project.projectPath)))
+    ...level.filter(project => !normalizedFallbacks.has(normalizePath(project.projectPath))
+      && !normalizedPropagations.has(normalizePath(project.projectPath)))
       .map(project => renderItem(`SmartBuildLevel${index}`, project)),
     ...level.filter(project => normalizedFallbacks.has(normalizePath(project.projectPath)))
-      .map(project => renderItem(`SmartBuildFallbackLevel${index}`, project))
+      .map(project => renderItem(`SmartBuildFallbackLevel${index}`, project)),
+    ...level.filter(project => normalizedPropagations.has(normalizePath(project.projectPath)))
+      .map(project => renderItem(`SmartBuildPropagationLevel${index}`, project))
   ]).join('\n');
   const restore = includeRestore
     ? '    <MSBuild Projects="@(SmartBuildProject)" Targets="Restore" BuildInParallel="true" Properties="BuildProjectReferences=false" />\n'
     : '';
   const build = levels.flatMap((level, index) => {
     const tasks: string[] = [];
-    if (level.some(project => !normalizedFallbacks.has(normalizePath(project.projectPath)))) {
+    if (level.some(project => !normalizedFallbacks.has(normalizePath(project.projectPath))
+      && !normalizedPropagations.has(normalizePath(project.projectPath)))) {
       tasks.push(`    <MSBuild Projects="@(SmartBuildLevel${index})" Targets="Build" BuildInParallel="true" StopOnFirstFailure="true" Properties="BuildProjectReferences=false" />`);
     }
     if (level.some(project => normalizedFallbacks.has(normalizePath(project.projectPath)))) {
       tasks.push(`    <MSBuild Projects="@(SmartBuildFallbackLevel${index})" Targets="Build" BuildInParallel="true" StopOnFirstFailure="true" Properties="BuildProjectReferences=true" />`);
+    }
+    if (level.some(project => normalizedPropagations.has(normalizePath(project.projectPath)))) {
+      tasks.push(`    <MSBuild Projects="@(SmartBuildPropagationLevel${index})" Targets="ResolveReferences;_CopyFilesMarkedCopyLocal" BuildInParallel="true" StopOnFirstFailure="true" Properties="BuildProjectReferences=false" />`);
     }
     return tasks;
   }).join('\n');

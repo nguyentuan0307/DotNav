@@ -60,6 +60,8 @@ export type BuildReasonCode =
   | 'opaque-project'
   | 'previous-build-failed'
   | 'changed-during-build'
+  | 'public-api-changed'
+  | 'reference-output-propagation'
   | 'cache-invalid';
 
 export interface BuildReason {
@@ -67,7 +69,7 @@ export interface BuildReason {
   readonly detail?: string;
 }
 
-export type ProjectBuildDecision = 'up-to-date' | 'build' | 'copy' | 'fallback';
+export type ProjectBuildDecision = 'up-to-date' | 'build' | 'copy' | 'propagate' | 'fallback';
 
 export interface ProjectBuildPlan {
   readonly project: EvaluatedProjectVariant;

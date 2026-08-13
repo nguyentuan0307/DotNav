@@ -8,7 +8,7 @@ import { ProcessManager } from '../processManager';
 import { BuildChangeTracker } from './buildChangeTracker';
 import { BuildHostClient } from './buildHostClient';
 import { BuildStateStore, StoredBuildState } from './buildStateStore';
-import { SmartBuildExecutor } from './smartBuildExecutor';
+import { SmartBuildExecutionResult, SmartBuildExecutor } from './smartBuildExecutor';
 import { SmartBuildMetrics, metricsSummary, planSummary } from './smartBuildDiagnostics';
 import { SmartBuildPlanner } from './smartBuildPlanner';
 import { EvaluatedBuildGraph, SmartBuildPlan } from './types';
@@ -94,18 +94,38 @@ export class SmartBuildCoordinator implements vscode.Disposable {
         this.log(`Scoped fallback: ${fallbackCount} opaque project(s) will retain recursive MSBuild semantics; proven-current projects remain skipped.`);
       }
       const binaryLogPath = await this.createBinaryLogPath(solution);
-      const result = await this.executor.execute(plan, solution, processManager, {
+      const primaryResult = await this.executor.execute(plan, solution, processManager, {
         workingDirectory: buildWorkingDirectory(solution, useSolutionConfiguration),
         binaryLogPath
       });
-      if (!result.success) {
+      if (!primaryResult.success) {
         this.logMetrics({
-          evaluationMs, planningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
+          evaluationMs, planningMs, copyMs: primaryResult.copyMs, msbuildMs: primaryResult.msbuildMs,
+          stateCaptureMs: 0, totalMs: Date.now() - buildStart, builtProjects: primaryResult.builtProjects,
+          copiedFiles: primaryResult.copiedFiles, copyFailures: primaryResult.copyFailures,
+          stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath: primaryResult.binaryLogPath
+        });
+        if (!primaryResult.cancelled) vscode.window.showErrorMessage(`Smart Build failed for ${solution.name}.`);
+        return false;
+      }
+      const refinementStart = Date.now();
+      const dependentPlan = await this.planner.createDependentPlan(graph, plan, state);
+      const refinedPlanningMs = planningMs + Date.now() - refinementStart;
+      this.logPlan(solution, dependentPlan, 'dependent phase');
+      const followUpBinaryLogPath = binaryLogPath?.replace(/\.binlog$/i, '-dependents.binlog');
+      const dependentResult = await this.executor.execute(dependentPlan, solution, processManager, {
+        workingDirectory: buildWorkingDirectory(solution, useSolutionConfiguration),
+        binaryLogPath: followUpBinaryLogPath
+      });
+      const result = combineExecutionResults(primaryResult, dependentResult, binaryLogPath);
+      if (!dependentResult.success) {
+        this.logMetrics({
+          evaluationMs, planningMs: refinedPlanningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
           stateCaptureMs: 0, totalMs: Date.now() - buildStart, builtProjects: result.builtProjects,
           copiedFiles: result.copiedFiles, copyFailures: result.copyFailures,
-          stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath: result.binaryLogPath
+          stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath
         });
-        if (!result.cancelled) vscode.window.showErrorMessage(`Smart Build failed for ${solution.name}.`);
+        if (!dependentResult.cancelled) vscode.window.showErrorMessage(`Smart Build dependent phase failed for ${solution.name}.`);
         return false;
       }
       const buildEnd = Date.now();
@@ -121,12 +141,12 @@ export class SmartBuildCoordinator implements vscode.Disposable {
       await runtime.store.save(captured);
       this.changes.consumeChanges();
       this.logMetrics({
-        evaluationMs, planningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
+        evaluationMs, planningMs: refinedPlanningMs, copyMs: result.copyMs, msbuildMs: result.msbuildMs,
         stateCaptureMs, totalMs: Date.now() - buildStart, builtProjects: result.builtProjects,
         copiedFiles: result.copiedFiles, copyFailures: result.copyFailures,
         stateFound: Boolean(state), restoreRequired: plan.requiresRestore, binaryLogPath: result.binaryLogPath
       });
-      vscode.window.showInformationMessage(summaryMessage(solution, plan, buildEnd - buildStart));
+      vscode.window.showInformationMessage(summaryMessage(solution, plan, dependentPlan, buildEnd - buildStart));
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -288,9 +308,9 @@ export class SmartBuildCoordinator implements vscode.Disposable {
     return runtime;
   }
 
-  private logPlan(solution: SolutionModel, plan: SmartBuildPlan): void {
+  private logPlan(solution: SolutionModel, plan: SmartBuildPlan, phase = 'initial phase'): void {
     const counts = countDecisions(plan);
-    this.log(`Plan ${solution.name}: build=${counts.build}, copy=${counts.copy}, fallback=${counts.fallback}, up-to-date=${counts['up-to-date']}`);
+    this.log(`Plan ${solution.name} (${phase}): build=${counts.build}, copy=${counts.copy}, propagate=${counts.propagate}, fallback=${counts.fallback}, up-to-date=${counts['up-to-date']}`);
     for (const item of plan.projects.filter(item => item.decision !== 'up-to-date')) {
       this.log(`  ${item.project.projectName} [${item.project.targetFramework || 'default'}]: ${item.decision} (${item.reasons.map(reason => `${reason.code}${reason.detail ? `: ${reason.detail}` : ''}`).join('; ')})`);
     }
@@ -332,22 +352,49 @@ function isGraphFile(value: string): boolean {
   return /\.(sln|slnx|csproj|fsproj|vbproj|props|targets)$/i.test(value) || /(?:^|[/\\])(global\.json|nuget\.config)$/i.test(value);
 }
 
-function countDecisions(plan: SmartBuildPlan): Record<'build' | 'copy' | 'fallback' | 'up-to-date', number> {
-  const result = { build: 0, copy: 0, fallback: 0, 'up-to-date': 0 };
+function countDecisions(plan: SmartBuildPlan): Record<'build' | 'copy' | 'propagate' | 'fallback' | 'up-to-date', number> {
+  const result = { build: 0, copy: 0, propagate: 0, fallback: 0, 'up-to-date': 0 };
   for (const item of plan.projects) result[item.decision] += 1;
   return result;
 }
 
-function summaryMessage(solution: SolutionModel, plan: SmartBuildPlan, elapsedMs: number): string {
-  const counts = countDecisions(plan);
-  return `Smart Build succeeded for ${solution.name}: ${counts.build + counts.fallback + counts.copy} processed, ${counts['up-to-date']} up-to-date (${elapsedMs} ms).`;
+function summaryMessage(
+  solution: SolutionModel,
+  primaryPlan: SmartBuildPlan,
+  dependentPlan: SmartBuildPlan,
+  elapsedMs: number
+): string {
+  const primary = countDecisions(primaryPlan);
+  const dependent = countDecisions(dependentPlan);
+  const processed = primary.build + primary.fallback + primary.copy
+    + dependent.build + dependent.fallback + dependent.copy + dependent.propagate;
+  return `Smart Build succeeded for ${solution.name}: ${processed} processed, ${primaryPlan.projects.length - processed} up-to-date (${elapsedMs} ms).`;
 }
 
-function decisionIcon(decision: 'build' | 'copy' | 'fallback' | 'up-to-date'): string {
+function decisionIcon(decision: 'build' | 'copy' | 'propagate' | 'fallback' | 'up-to-date'): string {
   switch (decision) {
     case 'build': return '$(tools)';
     case 'copy': return '$(files)';
+    case 'propagate': return '$(references)';
     case 'fallback': return '$(warning)';
     case 'up-to-date': return '$(check)';
   }
+}
+
+function combineExecutionResults(
+  primary: SmartBuildExecutionResult,
+  dependent: SmartBuildExecutionResult,
+  binaryLogPath?: string
+): SmartBuildExecutionResult {
+  return {
+    success: primary.success && dependent.success,
+    cancelled: primary.cancelled || dependent.cancelled,
+    exitCode: dependent.exitCode ?? primary.exitCode,
+    copiedFiles: primary.copiedFiles + dependent.copiedFiles,
+    copyFailures: primary.copyFailures + dependent.copyFailures,
+    builtProjects: primary.builtProjects + dependent.builtProjects,
+    copyMs: primary.copyMs + dependent.copyMs,
+    msbuildMs: primary.msbuildMs + dependent.msbuildMs,
+    binaryLogPath
+  };
 }

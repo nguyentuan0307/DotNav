@@ -33,6 +33,13 @@ test('opaque fallback projects retain recursive MSBuild semantics', () => {
   assert.doesNotMatch(traversal, /BuildProjectReferences=false/);
 });
 
+test('implementation propagation resolves and copies references without compiling', () => {
+  const project = variant('/repo/App.csproj');
+  const traversal = createSmartBuildTraversal([project], false, new Set(), new Set([project.projectPath]));
+  assert.match(traversal, /Targets="ResolveReferences;_CopyFilesMarkedCopyLocal"/);
+  assert.doesNotMatch(traversal, /Projects="@\(SmartBuildLevel0\)" Targets="Build"/);
+});
+
 function variant(projectPath: string): EvaluatedProjectVariant {
   return {
     id: projectPath, projectPath, projectName: 'A', configuration: 'Debug', platform: 'AnyCPU',

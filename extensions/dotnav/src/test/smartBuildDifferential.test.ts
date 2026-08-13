@@ -43,7 +43,7 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
 
     await fs.writeFile(librarySource, 'public static class Value { public static string Text => "after"; }');
     const changedPlan = await planner.createPlan(graph, initialState);
-    assert.deepEqual(changedPlan.projects.map(item => item.decision), ['build', 'build']);
+    assert.deepEqual(changedPlan.projects.map(item => item.decision), ['build', 'up-to-date']);
     const traversal = path.join(root, 'smart-build.proj');
     await fs.writeFile(traversal, createSmartBuildTraversal(
       changedPlan.projects.filter(item => item.decision === 'build').map(item => item.project),
@@ -54,6 +54,21 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
       'msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo', `-binaryLogger:${binaryLog}`
     ], root);
     assert.ok((await fs.stat(binaryLog)).size > 0, 'optional Smart Build binary log must be generated');
+
+    const dependentPlan = await planner.createDependentPlan(graph, changedPlan, initialState);
+    assert.deepEqual(dependentPlan.projects.map(item => item.decision), ['up-to-date', 'propagate']);
+    const dependentTraversal = path.join(root, 'smart-build-dependents.proj');
+    const propagationPaths = new Set(dependentPlan.projects
+      .filter(item => item.decision === 'propagate').map(item => item.project.projectPath));
+    await fs.writeFile(dependentTraversal, createSmartBuildTraversal(
+      dependentPlan.projects.filter(item => item.decision !== 'up-to-date').map(item => item.project),
+      false,
+      new Set(),
+      propagationPaths
+    ));
+    await run('dotnet', [
+      'msbuild', dependentTraversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo'
+    ], root);
 
     assert.equal((await run('dotnet', [app.targetPath], root)).stdout, 'after');
     assert.notEqual(await sha256(library.targetPath), beforeImplementation);
@@ -66,6 +81,50 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
     );
     const finalState = await planner.captureSuccessfulState(graph, Date.now() - 1, Date.now());
     assert.ok((await planner.createPlan(graph, finalState)).projects.every(item => item.decision === 'up-to-date'));
+  } finally {
+    await client.dispose();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Smart Build recompiles dependents when a reference assembly changes', { timeout: 60_000 }, async () => {
+  const root = await createTemporaryDirectory('dotnav-public-api-differential-');
+  const libraryDirectory = path.join(root, 'Library');
+  const appDirectory = path.join(root, 'App');
+  await fs.mkdir(libraryDirectory, { recursive: true });
+  await fs.mkdir(appDirectory, { recursive: true });
+  const libraryProject = path.join(libraryDirectory, 'Library.csproj');
+  const appProject = path.join(appDirectory, 'App.csproj');
+  const librarySource = path.join(libraryDirectory, 'Value.cs');
+  await fs.writeFile(libraryProject, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework></PropertyGroup></Project>');
+  await fs.writeFile(librarySource, 'public static class Value { public const string Text = "before"; }');
+  await fs.writeFile(appProject, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Library/Library.csproj" /></ItemGroup></Project>');
+  await fs.writeFile(path.join(appDirectory, 'Program.cs'), 'System.Console.Write(Value.Text);');
+
+  const client = new BuildHostClient({
+    extensionPath: path.resolve(__dirname, '..', '..'), workspaceRoot: root, requestTimeoutMs: 20_000
+  });
+  try {
+    await run('dotnet', ['build', appProject, '--configuration', 'Debug', '--nologo'], root);
+    const graph = await client.evaluate([appProject], { Configuration: 'Debug', Platform: 'AnyCPU' });
+    const planner = new SmartBuildPlanner();
+    const initialState = await planner.captureSuccessfulState(graph, Date.now() - 1, Date.now());
+    const app = graph.projects.find(project => project.projectPath === appProject);
+    assert.ok(app?.targetPath);
+    const beforeApp = await sha256(app.targetPath);
+
+    await fs.writeFile(librarySource, 'public static class Value { public const string Text = "after"; }');
+    const primaryPlan = await planner.createPlan(graph, initialState);
+    assert.deepEqual(primaryPlan.projects.map(item => item.decision), ['build', 'up-to-date']);
+    await executeTraversal(root, primaryPlan, 'smart-build-primary.proj');
+
+    const dependentPlan = await planner.createDependentPlan(graph, primaryPlan, initialState);
+    assert.deepEqual(dependentPlan.projects.map(item => item.decision), ['up-to-date', 'build']);
+    assert.equal(dependentPlan.projects[1].reasons[0]?.code, 'public-api-changed');
+    await executeTraversal(root, dependentPlan, 'smart-build-dependent.proj');
+
+    assert.equal((await run('dotnet', [app.targetPath], root)).stdout, 'after');
+    assert.notEqual(await sha256(app.targetPath), beforeApp, 'public const changes must be recompiled into the dependent');
   } finally {
     await client.dispose();
     await fs.rm(root, { recursive: true, force: true });
@@ -136,6 +195,18 @@ async function executeSmartPlan(
     new Set(plan.projects.filter(item => item.decision === 'fallback').map(item => item.project.projectPath))));
   await run('dotnet', ['msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo'], root);
   return planner.captureSuccessfulState(graph, Date.now() - 1, Date.now());
+}
+
+async function executeTraversal(root: string, plan: Awaited<ReturnType<SmartBuildPlanner['createPlan']>>, fileName: string): Promise<void> {
+  const selected = plan.projects.filter(item => item.decision !== 'up-to-date').map(item => item.project);
+  const traversal = path.join(root, fileName);
+  await fs.writeFile(traversal, createSmartBuildTraversal(
+    selected,
+    plan.requiresRestore,
+    new Set(plan.projects.filter(item => item.decision === 'fallback').map(item => item.project.projectPath)),
+    new Set(plan.projects.filter(item => item.decision === 'propagate').map(item => item.project.projectPath))
+  ));
+  await run('dotnet', ['msbuild', traversal, '-p:Configuration=Debug', '-p:Platform=AnyCPU', '-nologo'], root);
 }
 
 async function sha256(filePath: string): Promise<string> {

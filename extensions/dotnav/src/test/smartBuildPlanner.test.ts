@@ -36,7 +36,7 @@ test('unchanged files reuse stored fingerprints without reading their contents',
   assert.equal(plan.projects[0].decision, 'up-to-date');
 });
 
-test('source changes rebuild the project and its reverse-dependent closure', async () => {
+test('implementation-only changes defer dependents to reference propagation', async () => {
   const fixture = await createFixture();
   const tracker = new BuildChangeTracker();
   tracker.updateGraph(fixture.graph);
@@ -45,7 +45,39 @@ test('source changes rebuild the project and its reverse-dependent closure', asy
   await fs.writeFile(fixture.sourceA, 'public class A { public int Changed => 2; }');
   tracker.recordChange(fixture.sourceA);
   const plan = await planner.createPlan(fixture.graph, state);
-  assert.deepEqual(plan.projects.map(item => item.decision), ['build', 'build']);
+  assert.deepEqual(plan.projects.map(item => item.decision), ['build', 'up-to-date']);
+  const dependentPlan = await planner.createDependentPlan(fixture.graph, plan, state);
+  assert.deepEqual(dependentPlan.projects.map(item => item.decision), ['up-to-date', 'propagate']);
+});
+
+test('public API changes rebuild the reverse-dependent closure', async () => {
+  const fixture = await createFixture();
+  const planner = new SmartBuildPlanner();
+  const state = await planner.captureSuccessfulState(fixture.graph, Date.now() - 10, Date.now());
+  await fs.writeFile(fixture.sourceA, 'public class A { public string Added => "api"; }');
+  const plan = await planner.createPlan(fixture.graph, state);
+  await fs.writeFile(fixture.graph.projects[0].referenceAssemblyPath, 'changed-reference');
+  const dependentPlan = await planner.createDependentPlan(fixture.graph, plan, state);
+  assert.deepEqual(dependentPlan.projects.map(item => item.decision), ['up-to-date', 'build']);
+});
+
+test('dependent refinement covers the full transitive closure and fails safe without a reference assembly', async () => {
+  const fixture = await createFixture();
+  const projectB = fixture.graph.projects[1];
+  const projectC = await createProject(path.dirname(path.dirname(projectB.projectPath)), 'C', [projectB.projectPath]);
+  const graph = { ...fixture.graph, projects: [...fixture.graph.projects, projectC] };
+  const planner = new SmartBuildPlanner();
+  const state = await planner.captureSuccessfulState(graph, Date.now() - 10, Date.now());
+  await fs.writeFile(fixture.sourceA, 'public class A { public int Changed => 2; }');
+  const primaryPlan = await planner.createPlan(graph, state);
+  assert.deepEqual(primaryPlan.projects.map(item => item.decision), ['build', 'up-to-date', 'up-to-date']);
+
+  const propagationPlan = await planner.createDependentPlan(graph, primaryPlan, state);
+  assert.deepEqual(propagationPlan.projects.map(item => item.decision), ['up-to-date', 'propagate', 'propagate']);
+
+  await fs.unlink(graph.projects[0].referenceAssemblyPath);
+  const conservativePlan = await planner.createDependentPlan(graph, primaryPlan, state);
+  assert.deepEqual(conservativePlan.projects.map(item => item.decision), ['up-to-date', 'build', 'build']);
 });
 
 test('missing output forces a build', async () => {

@@ -66,7 +66,7 @@ Open **Settings** and search for `DotNav`. Settings use the `dotnav.*` namespace
 
 ### Build and Smart Build
 
-**Build** keeps the normal `dotnet build`/MSBuild behavior and is always available as the safety path. **Smart Build** evaluates the real MSBuild project graph in a separate process, fingerprints evaluated inputs and outputs, and invokes MSBuild only for projects that cannot be proven current. Dependency waves run in order while independent projects run in parallel. Restore is skipped only when assets and restore inputs are proven unchanged.
+**Build** keeps the normal `dotnet build`/MSBuild behavior and is always available as the safety path. **Smart Build** evaluates the real MSBuild project graph in a separate process, fingerprints evaluated inputs and outputs, and invokes MSBuild only for projects that cannot be proven current. It first builds directly changed projects, then compares their reference assemblies: unchanged public APIs only propagate implementation outputs, while changed or unprovable APIs rebuild the reverse-dependent closure. Dependency waves run in order while independent projects run in parallel. Restore is skipped only when assets and restore inputs are proven unchanged.
 
 Smart Build is deliberately conservative. Non-SDK projects, pre/post-build events, opt-outs (`<DotNavSmartBuild>false</DotNavSmartBuild>`), and custom `.targets` fall back to a full MSBuild invocation. Planning errors automatically continue with standard Build. `Clean` and `Rebuild` invalidate Smart Build state; failed or cancelled builds never commit it.
 

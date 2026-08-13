@@ -13,6 +13,7 @@ All notable changes to DotNav are documented here.
 * add Standard, Smart, and None build-before-run modes for Run, Debug, compound configurations, and Test
 * add phase timings, execution counters, searchable plan explanations, and opt-in MSBuild binary logs
 * add differential mutation coverage for shared build properties, default-glob source additions, missing outputs, dependency implementation changes, and clean-build artifact equivalence
+* split Smart Build into reference-aware phases so implementation-only dependency edits skip dependent compilation while still propagating runtime outputs
 * add client-only file and selection Local History with filtered revision timelines and inline diffs
 * coalesce automatic snapshots and add indexed, bounded Local History retention
 * make Local History opt-in through Settings and an upgrade introduction prompt
