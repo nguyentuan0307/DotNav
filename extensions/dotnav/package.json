@@ -58,6 +58,11 @@
     "onCommand:dotnav.removeProjectReference",
     "onCommand:dotnav.searchSolutionTree",
     "onCommand:dotnav.buildSolution",
+    "onCommand:dotnav.smartBuildProject",
+    "onCommand:dotnav.smartBuildFolderProjects",
+    "onCommand:dotnav.smartBuildSolution",
+    "onCommand:dotnav.explainSmartBuildPlan",
+    "onCommand:dotnav.invalidateSmartBuildCache",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
     "onCommand:dotnav.cleanSolution",
@@ -194,9 +199,18 @@
         "title": "Build"
       },
       {
+        "command": "dotnav.smartBuildProject",
+        "title": "Smart Build (Preview)"
+      },
+      {
         "command": "dotnav.buildFolderProjects",
         "title": "Build Projects in Folder",
         "icon": "$(tools)"
+      },
+      {
+        "command": "dotnav.smartBuildFolderProjects",
+        "title": "Smart Build Projects in Folder (Preview)",
+        "icon": "$(zap)"
       },
       {
         "command": "dotnav.rebuildProject",
@@ -206,6 +220,19 @@
         "command": "dotnav.buildSolution",
         "title": "Build Solution",
         "icon": "$(tools)"
+      },
+      {
+        "command": "dotnav.smartBuildSolution",
+        "title": "Smart Build Solution (Preview)",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "dotnav.explainSmartBuildPlan",
+        "title": "Explain Smart Build Plan (Preview)"
+      },
+      {
+        "command": "dotnav.invalidateSmartBuildCache",
+        "title": "Invalidate Smart Build Cache (Preview)"
       },
       {
         "command": "dotnav.rebuildSolution",
@@ -715,14 +742,29 @@
           "group": "solution@1"
         },
         {
-          "command": "dotnav.rebuildSolution",
+          "command": "dotnav.smartBuildSolution",
           "when": "view == dotnav && viewItem == solution",
           "group": "solution@2"
         },
         {
-          "command": "dotnav.cleanSolution",
+          "command": "dotnav.rebuildSolution",
           "when": "view == dotnav && viewItem == solution",
           "group": "solution@3"
+        },
+        {
+          "command": "dotnav.cleanSolution",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solution@4"
+        },
+        {
+          "command": "dotnav.explainSmartBuildPlan",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solutionDiagnostics@1"
+        },
+        {
+          "command": "dotnav.invalidateSmartBuildCache",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "solutionDiagnostics@2"
         },
         {
           "command": "dotnav.openSolutionFile",
@@ -800,14 +842,24 @@
           "group": "2_build@1"
         },
         {
+          "command": "dotnav.smartBuildProject",
+          "when": "view == dotnav && viewItem =~ /project/",
+          "group": "2_build@2"
+        },
+        {
           "command": "dotnav.buildFolderProjects",
           "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
           "group": "2_build@1"
         },
         {
+          "command": "dotnav.smartBuildFolderProjects",
+          "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
+          "group": "2_build@2"
+        },
+        {
           "command": "dotnav.rebuildProject",
           "when": "view == dotnav && viewItem =~ /project/",
-          "group": "2_build@2"
+          "group": "2_build@3"
         },
         {
           "command": "dotnav.stopProject",
@@ -817,12 +869,12 @@
         {
           "command": "dotnav.testProject",
           "when": "view == dotnav && viewItem =~ /project/ && viewItem =~ /test/",
-          "group": "2_build@4"
+          "group": "2_build@5"
         },
         {
           "command": "dotnav.cleanProject",
           "when": "view == dotnav && viewItem =~ /project/",
-          "group": "2_build@3"
+          "group": "2_build@4"
         },
         {
           "command": "dotnav.openTerminalHere",
@@ -1173,7 +1225,23 @@
         "dotnav.buildBeforeRun": {
           "type": "boolean",
           "default": true,
-          "description": "Build the selected project before running or debugging it."
+          "deprecationMessage": "Use dotnav.buildBeforeRunMode instead.",
+          "description": "Legacy switch for building before Run/Debug. False maps to 'none' until buildBeforeRunMode is explicitly configured."
+        },
+        "dotnav.buildBeforeRunMode": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "smart",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Run the standard .NET build before Run, Debug, and Test.",
+            "Run DotNav Smart Build and continue only after verified success.",
+            "Do not build; use existing outputs."
+          ],
+          "default": "standard",
+          "description": "Build strategy used before Run, Debug, and Test."
         },
         "dotnav.buildConfiguration": {
           "type": "string",
@@ -1183,6 +1251,48 @@
           ],
           "default": "Debug",
           "description": "Build configuration used when running or debugging projects."
+        },
+        "dotnav.buildPlatform": {
+          "type": "string",
+          "default": "AnyCPU",
+          "description": "MSBuild platform used by Smart Build evaluation and execution."
+        },
+        "dotnav.smartBuild.enabled": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "Enable **Smart Build (Preview)**. When disabled, DotNav uses its standard build paths and does not track Smart Build workspace changes."
+        },
+        "dotnav.smartBuild.maxParallelBuilds": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "description": "Maximum number of MSBuild workers used by Smart Build (Preview)."
+        },
+        "dotnav.smartBuild.mode": {
+          "type": "string",
+          "enum": [
+            "execute",
+            "shadow"
+          ],
+          "enumDescriptions": [
+            "Execute the evaluated Smart Build plan.",
+            "Log the Smart Build plan, then run the standard Build path without committing Smart Build state."
+          ],
+          "default": "execute",
+          "description": "Smart Build rollout mode. The regular Build command is never affected."
+        },
+        "dotnav.smartBuild.generateBinaryLog": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate an MSBuild binary log for Smart Build executions. Binary logs may contain project paths and build properties."
+        },
+        "dotnav.smartBuild.binaryLogDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for Smart Build .binlog files. Relative paths are resolved from the workspace; empty uses VS Code workspace storage."
         },
         "dotnav.buildTimeoutSeconds": {
           "type": "number",
@@ -1316,8 +1426,9 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "compile:host": "dotnet publish build-host/DotNav.BuildHost.csproj --configuration Release --output build-host/out --nologo",
+    "compile": "npm run compile:host && tsc -p ./",
+    "test": "npm run compile && node --test --test-concurrency=1 \"out/test/*.test.js\"",
     "test:formatter-corpus": "npm run compile && node --test out/test/formatterCorpus.test.js",
     "formatter:corpus:list": "npm run compile && node out/test/formatterCorpusReport.js",
     "watch": "tsc -watch -p ./",

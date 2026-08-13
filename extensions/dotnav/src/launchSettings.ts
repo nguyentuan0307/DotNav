@@ -10,7 +10,8 @@ export async function loadLaunchProfiles(projectDir: string): Promise<LaunchProf
   const launchSettingsPath = path.join(projectDir, 'Properties', 'launchSettings.json');
 
   try {
-    const content = await fs.readFile(launchSettingsPath, 'utf8');
+    const content = (await fs.readFile(launchSettingsPath, 'utf8'))
+      .replace(/^\uFEFF/, '');
     const parsed = JSON.parse(content) as LaunchSettingsFile;
     const profiles = parsed.profiles ?? {};
 

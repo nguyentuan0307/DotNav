@@ -10,6 +10,7 @@ DotNav brings solution-first .NET development to Visual Studio Code. Navigate la
 
 - Discover `.sln`, `.slnx`, and standalone project files automatically.
 - Browse logical solution folders, projects, dependencies, NuGet packages, and nested files.
+- Use separate **Build** and **Smart Build** actions for projects, solution folders, and solutions.
 - Build, rebuild, clean, test, run, or debug directly from the solution tree.
 - Use `launchSettings.json` profiles and VS Code's .NET debugger integration.
 - Create single-project or compound run configurations without maintaining `.vscode/launch.json`.
@@ -62,6 +63,24 @@ until their target is identified and explicitly confirmed.
 ## Configuration
 
 Open **Settings** and search for `DotNav`. Settings use the `dotnav.*` namespace for solution navigation, run behavior, file nesting, icons, and C# formatting.
+
+### Build and Smart Build
+
+**Build** keeps the normal `dotnet build`/MSBuild behavior and is always available as the safety path. **Smart Build** evaluates the real MSBuild project graph in a separate process, fingerprints evaluated inputs and outputs, and invokes MSBuild only for projects that cannot be proven current. It first builds directly changed projects, then compares their reference assemblies: unchanged public APIs only propagate implementation outputs, while changed or unprovable APIs rebuild the reverse-dependent closure. Dependency waves run in order while independent projects run in parallel. Restore is skipped only when assets and restore inputs are proven unchanged.
+
+Smart Build is deliberately conservative. Non-SDK projects, pre/post-build events, opt-outs (`<DotNavSmartBuild>false</DotNavSmartBuild>`), and custom `.targets` fall back to a full MSBuild invocation. Planning errors automatically continue with standard Build. `Clean` and `Rebuild` invalidate Smart Build state; failed or cancelled builds never commit it.
+
+Use **DotNav: Explain Smart Build Plan** to inspect per-project reasons in the **DotNav Smart Build** output channel, and **DotNav: Invalidate Smart Build Cache** to force a cold plan. For staged rollout, set `dotnav.smartBuild.mode` to `shadow`: DotNav logs the plan but executes standard Build. `dotnav.smartBuild.maxParallelBuilds` caps Smart Build's MSBuild workers.
+
+Run, Debug, and Test use `dotnav.buildBeforeRunMode` to choose the safety policy before execution:
+
+- `standard` (default) performs the normal MSBuild build.
+- `smart` waits for a successful Smart Build and then starts with `--no-build` semantics. A failed, cancelled, or concurrently modified Smart Build prevents the target from starting.
+- `none` skips the build and uses existing outputs. Missing or stale outputs remain the user's responsibility.
+
+**Explain Smart Build Plan** shows evaluation and planning timings, cache state, restore status, decisions, and per-project reasons in a searchable picker. Every executed Smart Build logs evaluation, planning, copy, MSBuild, state-capture, and total timings. Set `dotnav.smartBuild.generateBinaryLog` to create an MSBuild `.binlog`; files are written to extension workspace storage by default, or to `dotnav.smartBuild.binaryLogDirectory` when configured. Binary logs are opt-in because they can be large and may contain machine paths and build properties.
+
+Smart Build solution configuration mapping is exact for `.sln`. Until `.slnx` configuration evaluation is supported by the bundled MSBuild API, Smart Build automatically uses standard Build for `.slnx` solutions. Project and folder Smart Build remain available.
 
 ### Local History
 
