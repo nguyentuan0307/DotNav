@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { BuildHostClient } from '../build/buildHostClient';
 
 test('Build Host evaluates SDK inputs and restore configuration from the workspace', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-');
   const projectPath = path.join(root, 'Library.csproj');
   const sourcePath = path.join(root, 'Library.cs');
   const contentPath = path.join(root, 'wwwroot', 'site.css');
@@ -40,7 +40,7 @@ test('Build Host evaluates SDK inputs and restore configuration from the workspa
 });
 
 test('Build Host honors projects excluded from the active solution configuration', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-');
   const included = path.join(root, 'Included.csproj');
   const excluded = path.join(root, 'Excluded.csproj');
   const solution = path.join(root, 'Configured.sln');
@@ -79,7 +79,7 @@ EndGlobal
 });
 
 test('Build Host resolves conditional project references and rejects custom build targets as opaque', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-');
   const dependency = path.join(root, 'Dependency.csproj');
   const application = path.join(root, 'Application.csproj');
   await fs.writeFile(dependency, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework></PropertyGroup></Project>');
@@ -103,7 +103,7 @@ test('Build Host resolves conditional project references and rejects custom buil
 });
 
 test('Build Host expands multi-targeted projects into independently fingerprinted variants', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-');
   const project = path.join(root, 'Multi.csproj');
   await fs.writeFile(project, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks>net6.0;netstandard2.0</TargetFrameworks></PropertyGroup></Project>');
   const client = new BuildHostClient({ extensionPath: path.resolve(__dirname, '..', '..'), workspaceRoot: root, requestTimeoutMs: 20_000 });
@@ -118,7 +118,7 @@ test('Build Host expands multi-targeted projects into independently fingerprinte
 });
 
 test('Build Host refuses to evaluate with an unavailable global.json SDK', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-');
   await fs.writeFile(path.join(root, 'global.json'), '{"sdk":{"version":"99.0.100","rollForward":"disable"}}');
   const client = new BuildHostClient({ extensionPath: path.resolve(__dirname, '..', '..'), workspaceRoot: root, requestTimeoutMs: 5_000 });
   try {
@@ -130,7 +130,7 @@ test('Build Host refuses to evaluate with an unavailable global.json SDK', { tim
 });
 
 test('a retiring Build Host cannot reject requests owned by its replacement', { timeout: 30_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-host-restart-'));
+  const root = await createTemporaryDirectory('dotnav-build-host-restart-');
   const client = new BuildHostClient({
     extensionPath: path.resolve(__dirname, '..', '..'),
     workspaceRoot: root,
@@ -157,4 +157,11 @@ async function removeTemporaryDirectory(path: string): Promise<void> {
   // after its child-process `close` event.  `fs.rm` retries transient EPERM/EBUSY
   // failures, so allow that normal runner cleanup lag before failing the test.
   await fs.rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+}
+
+async function createTemporaryDirectory(prefix: string): Promise<string> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  // Windows runners may expose TEMP through an 8.3 alias (RUNNER~1), while
+  // MSBuild returns the expanded path. Canonicalize the fixture at its source.
+  return fs.realpath(directory);
 }

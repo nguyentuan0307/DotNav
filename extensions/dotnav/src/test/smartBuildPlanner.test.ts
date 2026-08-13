@@ -25,6 +25,17 @@ test('captured successful state makes an unchanged graph up-to-date', async () =
   assert.deepEqual(plan.projects.map(item => item.decision), ['up-to-date', 'up-to-date']);
 });
 
+test('unchanged files reuse stored fingerprints without reading their contents', async () => {
+  const fixture = await createFixture();
+  const planner = new SmartBuildPlanner();
+  const state = await planner.captureSuccessfulState(fixture.graph, Date.now() - 10, Date.now());
+  const source = fixture.sourceA;
+  const original = state.projects[fixture.graph.projects[0].id].inputs[source];
+  assert.ok(original);
+  const plan = await planner.createPlan(fixture.graph, state);
+  assert.equal(plan.projects[0].decision, 'up-to-date');
+});
+
 test('source changes rebuild the project and its reverse-dependent closure', async () => {
   const fixture = await createFixture();
   const tracker = new BuildChangeTracker();
@@ -111,6 +122,22 @@ test('change tracker reevaluates default and custom globs when a new file appear
   tracker.updateGraph(fixture.graph);
   assert.equal(tracker.needsGraphEvaluation(), false);
   tracker.recordChange(path.join(path.dirname(fixture.sourceA), 'NewlyAdded.cs'));
+  assert.equal(tracker.needsGraphEvaluation(), true);
+});
+
+test('change tracker does not reevaluate the graph for unrelated content edits', async () => {
+  const fixture = await createFixture();
+  const tracker = new BuildChangeTracker();
+  tracker.updateGraph(fixture.graph);
+  tracker.recordChange(path.join(path.dirname(fixture.sourceA), 'README.md'), 'change');
+  assert.equal(tracker.needsGraphEvaluation(), false);
+});
+
+test('change tracker reevaluates the graph when a watched source is deleted', async () => {
+  const fixture = await createFixture();
+  const tracker = new BuildChangeTracker();
+  tracker.updateGraph(fixture.graph);
+  tracker.recordChange(fixture.sourceA, 'delete');
   assert.equal(tracker.needsGraphEvaluation(), true);
 });
 

@@ -13,15 +13,16 @@ export class BuildChangeTracker {
     this.graphInvalidated = false;
   }
 
-  recordChange(filePath: string): void {
+  recordChange(filePath: string, eventKind: 'create' | 'change' | 'delete' = 'create'): void {
     const normalized = normalize(filePath);
     if (isIgnoredBuildPath(filePath)) return;
     const watched = this.watchedInputs.has(normalized);
     const graphInput = isGraphInput(filePath);
     this.generation += 1;
     if (watched) this.changedPaths.set(normalized, this.generation);
-    // An untracked file may have just entered an SDK default glob or a custom item glob.
-    if (graphInput || !watched) {
+    // Creates/deletes can change SDK default or custom glob membership. A content
+    // edit to an unrelated untracked file cannot change the evaluated graph.
+    if (graphInput || eventKind !== 'change') {
       this.graphInvalidated = true;
       this.graphGeneration += 1;
     }

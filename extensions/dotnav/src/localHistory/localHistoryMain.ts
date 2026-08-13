@@ -4,7 +4,6 @@ import { showFileLocalHistory, showSelectionLocalHistory } from './historyComman
 import { LocalHistoryService } from './localHistoryService';
 
 const enabledConfiguration = 'dotnav.localHistory.enabled';
-const introductionStateKey = 'dotnav.localHistory.introduction.v1.shown';
 
 export function activateLocalHistory(context: vscode.ExtensionContext): void {
   let service: LocalHistoryService | undefined;
@@ -57,30 +56,6 @@ export function activateLocalHistory(context: vscode.ExtensionContext): void {
   );
 
   synchronizeService();
-  void showLocalHistoryIntroduction(context);
-}
-
-async function showLocalHistoryIntroduction(context: vscode.ExtensionContext): Promise<void> {
-  if (context.globalState.get<boolean>(introductionStateKey, false)) {
-    return;
-  }
-
-  // Record the announcement before displaying it so dismissing the popup does not
-  // make it reappear on every activation.
-  await context.globalState.update(introductionStateKey, true);
-  const enable = 'Enable Local History';
-  const keepDisabled = 'Keep Disabled';
-  const selected = await vscode.window.showInformationMessage(
-    'New in DotNav: Local History can keep private file revisions on this machine so you can compare or recover local changes. It is off by default and uses configurable storage limits when enabled.',
-    { modal: true },
-    enable,
-    keepDisabled
-  );
-  if (selected === enable) {
-    await updateLocalHistoryEnabled(true);
-  } else if (selected === keepDisabled) {
-    await updateLocalHistoryEnabled(false);
-  }
 }
 
 async function updateLocalHistoryEnabled(enabled: boolean): Promise<void> {

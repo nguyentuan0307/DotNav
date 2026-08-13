@@ -73,8 +73,8 @@ export class SmartBuildPlanner {
     const storedInputPaths = new Set(Object.keys(stored.inputs));
     for (const input of currentInputPaths) {
       if (!storedInputPaths.has(input)) reasons.push({ code: 'input-added', detail: input });
-      const current = await fingerprints.fingerprint(input);
       const previous = stored.inputs[input];
+      const current = await fingerprints.fingerprintAgainst(input, previous, this.changes?.hasChanged(input));
       if (!current) reasons.push({ code: 'input-missing', detail: input });
       else if (previous && !sameFingerprint(current, previous)) {
         reasons.push({ code: this.changes?.hasChanged(input) ? 'source-changed' : 'source-changed', detail: input });
@@ -86,8 +86,8 @@ export class SmartBuildPlanner {
     const copyDestinations = new Set(project.copies.map(copy => normalize(copy.destination)));
     for (const output of project.outputs) {
       if (copyDestinations.has(normalize(output))) continue;
-      const current = await fingerprints.fingerprint(output);
       const previous = stored.outputs[output];
+      const current = await fingerprints.fingerprintAgainst(output, previous);
       if (!current) reasons.push({ code: 'output-missing', detail: output });
       else if (previous && !sameFingerprint(current, previous)) reasons.push({ code: 'output-changed', detail: output });
     }
@@ -95,8 +95,12 @@ export class SmartBuildPlanner {
 
     const staleCopies = [];
     for (const copy of project.copies) {
-      const source = await fingerprints.fingerprint(copy.source);
-      const destination = await fingerprints.fingerprint(copy.destination);
+      const source = await fingerprints.fingerprintAgainst(
+        copy.source,
+        stored.inputs[copy.source],
+        this.changes?.hasChanged(copy.source)
+      );
+      const destination = await fingerprints.fingerprintAgainst(copy.destination, stored.outputs[copy.destination]);
       const preserveNewest = copy.mode.toLowerCase() === 'preservenewest';
       if (!source || !destination || !sameFingerprint(source, destination)
         || (preserveNewest && source.mtimeMs > destination.mtimeMs)) staleCopies.push(copy);
@@ -130,8 +134,10 @@ function fingerprintProject(project: EvaluatedProjectVariant): string {
 
 async function fingerprintPaths(paths: readonly string[], session: FingerprintSession) {
   const result: Record<string, Awaited<ReturnType<FingerprintSession['fingerprint']>> & {}> = {};
-  for (const filePath of paths) {
-    const fingerprint = await session.fingerprint(filePath);
+  const fingerprints = await Promise.all(paths.map(filePath => session.fingerprint(filePath)));
+  for (let index = 0; index < paths.length; index += 1) {
+    const filePath = paths[index];
+    const fingerprint = fingerprints[index];
     if (fingerprint) result[filePath] = fingerprint;
   }
   return result;

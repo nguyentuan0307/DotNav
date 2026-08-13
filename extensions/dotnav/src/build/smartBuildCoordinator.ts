@@ -12,6 +12,7 @@ import { SmartBuildExecutor } from './smartBuildExecutor';
 import { SmartBuildMetrics, metricsSummary, planSummary } from './smartBuildDiagnostics';
 import { SmartBuildPlanner } from './smartBuildPlanner';
 import { EvaluatedBuildGraph, SmartBuildPlan } from './types';
+import { isSmartBuildEnabled, requestSmartBuildEnabled } from './smartBuildFeature';
 
 interface SolutionRuntime {
   graph?: EvaluatedBuildGraph;
@@ -47,15 +48,18 @@ export class SmartBuildCoordinator implements vscode.Disposable {
     });
   }
 
-  recordFileChange(filePath: string): void {
-    this.changes.recordChange(filePath);
+  recordFileChange(filePath: string, eventKind: 'create' | 'change' | 'delete' = 'change'): void {
+    if (!isSmartBuildEnabled()) return;
+    this.changes.recordChange(filePath, eventKind);
   }
 
   async buildSolution(solution: SolutionModel, processManager: ProcessManager): Promise<boolean> {
+    if (!await requestSmartBuildEnabled()) return false;
     return this.buildScope(solution, processManager, true);
   }
 
   async buildProjects(solution: SolutionModel, projects: readonly ProjectModel[], processManager: ProcessManager, label?: string): Promise<boolean> {
+    if (!await requestSmartBuildEnabled()) return false;
     if (projects.length === 0) return true;
     return this.buildScope({ ...solution, name: label ?? projects[0].name, projects: [...projects] }, processManager, false);
   }
@@ -85,9 +89,9 @@ export class SmartBuildCoordinator implements vscode.Disposable {
         vscode.window.showInformationMessage(`Smart Build: ${solution.name} is up-to-date.`);
         return true;
       }
-      if (useSolutionConfiguration && plan.projects.some(item => item.decision === 'fallback')) {
-        this.log('The active solution contains opaque build logic; preserving exact solution semantics with standard Build.');
-        return this.runStandardScope(solution, processManager, true);
+      const fallbackCount = plan.projects.filter(item => item.decision === 'fallback').length;
+      if (fallbackCount > 0) {
+        this.log(`Scoped fallback: ${fallbackCount} opaque project(s) will retain recursive MSBuild semantics; proven-current projects remain skipped.`);
       }
       const binaryLogPath = await this.createBinaryLogPath(solution);
       const result = await this.executor.execute(plan, solution, processManager, {
@@ -135,6 +139,7 @@ export class SmartBuildCoordinator implements vscode.Disposable {
   }
 
   async explainPlan(solution: SolutionModel): Promise<void> {
+    if (!await requestSmartBuildEnabled()) return;
     try {
       const started = Date.now();
       const { plan, state, evaluationMs, planningMs } = await this.preparePlan(solution, true);

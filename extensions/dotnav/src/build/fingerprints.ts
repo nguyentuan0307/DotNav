@@ -14,6 +14,20 @@ export class FingerprintSession {
     }
     return pending;
   }
+
+  fingerprintAgainst(
+    filePath: string,
+    previous: StoredFileFingerprint | undefined,
+    knownChanged = false
+  ): Promise<StoredFileFingerprint | undefined> {
+    if (!previous || knownChanged) return this.fingerprint(filePath);
+    let pending = this.cache.get(filePath);
+    if (!pending) {
+      pending = fingerprintFileAgainst(filePath, previous);
+      this.cache.set(filePath, pending);
+    }
+    return pending;
+  }
 }
 
 export function stableFingerprint(value: unknown): string {
@@ -39,6 +53,20 @@ async function fingerprintFile(filePath: string): Promise<StoredFileFingerprint 
     }
   }
   return undefined;
+}
+
+async function fingerprintFileAgainst(
+  filePath: string,
+  previous: StoredFileFingerprint
+): Promise<StoredFileFingerprint | undefined> {
+  try {
+    const stat = await fsp.stat(filePath);
+    if (!stat.isFile()) return undefined;
+    if (stat.size === previous.size && stat.mtimeMs === previous.mtimeMs) return previous;
+  } catch {
+    return undefined;
+  }
+  return fingerprintFile(filePath);
 }
 
 function hashFile(filePath: string): Promise<string> {

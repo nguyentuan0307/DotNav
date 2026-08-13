@@ -221,7 +221,9 @@ internal sealed class MsbuildGraphEvaluator
             }
             if (IsTrue(Value(instance, "UseAppHost")))
             {
-                AddNonEmpty(outputs, Path.Combine(outputPath, targetName + Value(instance, "ExecutableExtension")));
+                var executableExtension = Value(instance, "ExecutableExtension",
+                    OperatingSystem.IsWindows() ? ".exe" : string.Empty);
+                AddNonEmpty(outputs, Path.Combine(outputPath, targetName + executableExtension));
             }
         }
         AddNonEmpty(outputs, ResolvePath(projectDirectory, Value(instance, "DocumentationFile")));

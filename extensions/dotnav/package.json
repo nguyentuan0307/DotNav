@@ -200,7 +200,7 @@
       },
       {
         "command": "dotnav.smartBuildProject",
-        "title": "Smart Build"
+        "title": "Smart Build (Preview)"
       },
       {
         "command": "dotnav.buildFolderProjects",
@@ -209,7 +209,7 @@
       },
       {
         "command": "dotnav.smartBuildFolderProjects",
-        "title": "Smart Build Projects in Folder",
+        "title": "Smart Build Projects in Folder (Preview)",
         "icon": "$(zap)"
       },
       {
@@ -223,16 +223,16 @@
       },
       {
         "command": "dotnav.smartBuildSolution",
-        "title": "Smart Build Solution",
+        "title": "Smart Build Solution (Preview)",
         "icon": "$(zap)"
       },
       {
         "command": "dotnav.explainSmartBuildPlan",
-        "title": "Explain Smart Build Plan"
+        "title": "Explain Smart Build Plan (Preview)"
       },
       {
         "command": "dotnav.invalidateSmartBuildCache",
-        "title": "Invalidate Smart Build Cache"
+        "title": "Invalidate Smart Build Cache (Preview)"
       },
       {
         "command": "dotnav.rebuildSolution",
@@ -1241,11 +1241,19 @@
           "default": "AnyCPU",
           "description": "MSBuild platform used by Smart Build evaluation and execution."
         },
+        "dotnav.smartBuild.enabled": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "Enable **Smart Build (Preview)**. When disabled, DotNav uses its standard build paths and does not track Smart Build workspace changes."
+        },
         "dotnav.smartBuild.maxParallelBuilds": {
           "type": "number",
           "default": 4,
           "minimum": 1,
-          "description": "Maximum number of MSBuild workers used by Smart Build."
+          "description": "Maximum number of MSBuild workers used by Smart Build (Preview)."
         },
         "dotnav.smartBuild.mode": {
           "type": "string",

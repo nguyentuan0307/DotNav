@@ -6,7 +6,8 @@ All notable changes to DotNav are documented here.
 
 ### Features
 
-* add separate Build and Smart Build actions for project, folder, and solution scopes
+* add separate Build and opt-in Smart Build (Preview) actions for project, folder, and solution scopes
+* introduce one version-aware What's New picker for enabling new opt-in preview features without consecutive popups
 * add an out-of-process MSBuild graph host, persistent content fingerprints, dependency-wave execution, smart restore, verified artifact copies, explain-plan diagnostics, and shadow rollout mode
 * conservatively fall back to MSBuild for custom or unsupported build logic and to standard Build on planning failures
 * add Standard, Smart, and None build-before-run modes for Run, Debug, compound configurations, and Test

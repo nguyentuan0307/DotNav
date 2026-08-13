@@ -24,6 +24,8 @@ import {
 } from './workspaceChangeClassifier';
 import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { SmartBuildCoordinator } from './build/smartBuildCoordinator';
+import { isSmartBuildEnabled, smartBuildEnabledConfiguration } from './build/smartBuildFeature';
+import { showFeatureAnnouncements } from './featureAnnouncements';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -192,6 +194,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (event.affectsConfiguration('dotnav')) {
         provider.refresh();
       }
+      if (event.affectsConfiguration(smartBuildEnabledConfiguration)) {
+        void vscode.commands.executeCommand('setContext', 'dotnav.smartBuildEnabled', isSmartBuildEnabled());
+      }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
       const follow = vscode.workspace
@@ -216,8 +221,10 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
   registerWorkspaceFileWatcher(context, provider, smartBuild);
+  void vscode.commands.executeCommand('setContext', 'dotnav.smartBuildEnabled', isSmartBuildEnabled());
   activateLocalHistory(context);
   activateEfCore(context, provider, processManager);
+  void showFeatureAnnouncements(context);
 }
 
 export async function deactivate(): Promise<void> {
@@ -641,7 +648,7 @@ function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider
   };
 
   const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
-    smartBuild.recordFileChange(uri.fsPath);
+    smartBuild.recordFileChange(uri.fsPath, eventKind);
     const change = classifyWorkspaceChange(uri.fsPath, eventKind);
     if (change.kind === 'ignored') {
       return;

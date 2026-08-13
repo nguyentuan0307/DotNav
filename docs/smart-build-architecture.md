@@ -2,7 +2,10 @@
 
 ## Status
 
-Implemented. The existing `Build`, `Rebuild`, and `Clean`
+Implemented as an opt-in preview controlled by `dotnav.smartBuild.enabled`.
+A version-aware What's New picker groups this and other new opt-in features into
+one upgrade prompt; leaving it unselected keeps the feature disabled and it can
+be enabled later in Settings. The existing `Build`, `Rebuild`, and `Clean`
 commands keep their current MSBuild semantics. Smart Build is introduced as a
 separate command and never replaces the standard path silently.
 
@@ -38,6 +41,16 @@ than per solution.
   MSBuild and returns a versioned JSON model.
 - MSBuild: performs restore, compilation, generators, analyzers, custom targets,
   and conservative fallback builds.
+
+Warm planning first validates cached file size and modification time. Content is
+hashed only for files that changed (or when no trustworthy fingerprint exists),
+while successful-state capture still hashes every input and output. File creates
+and deletes invalidate graph evaluation for SDK/custom globs; unrelated content
+edits do not.
+
+Opaque projects fall back individually. Their recursive MSBuild semantics are
+retained, but one opaque project no longer discards the up-to-date decisions for
+the rest of a solution.
 
 ## Build modes
 

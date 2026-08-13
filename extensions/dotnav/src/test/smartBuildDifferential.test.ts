@@ -10,7 +10,7 @@ import { SmartBuildPlanner } from '../build/smartBuildPlanner';
 import { createSmartBuildTraversal } from '../build/smartBuildTraversal';
 
 test('Smart Build output matches a clean MSBuild graph after a dependency edit', { timeout: 60_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-differential-'));
+  const root = await createTemporaryDirectory('dotnav-differential-');
   const libraryDirectory = path.join(root, 'Library');
   const appDirectory = path.join(root, 'App');
   await fs.mkdir(libraryDirectory, { recursive: true });
@@ -73,7 +73,7 @@ test('Smart Build output matches a clean MSBuild graph after a dependency edit',
 });
 
 test('Smart Build mutation matrix remains equivalent to a clean build', { timeout: 90_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-mutation-matrix-'));
+  const root = await createTemporaryDirectory('dotnav-mutation-matrix-');
   const project = path.join(root, 'Matrix.csproj');
   const program = path.join(root, 'Program.cs');
   const feature = path.join(root, 'Feature.cs');
@@ -140,6 +140,10 @@ async function executeSmartPlan(
 
 async function sha256(filePath: string): Promise<string> {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
+}
+
+async function createTemporaryDirectory(prefix: string): Promise<string> {
+  return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
 }
 
 async function run(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
