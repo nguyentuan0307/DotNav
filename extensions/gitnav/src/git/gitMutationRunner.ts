@@ -167,8 +167,14 @@ export class GitMutationRunner {
         ? ['branch', String(request.options?.name), ref || 'HEAD']
         : ['switch', '-c', String(request.options?.name), ref || 'HEAD'];
       case 'renameBranch': return ['branch', '-m', ref, String(request.options?.name)];
-      case 'deleteBranch': return ['branch', request.options?.force ? '-D' : '-d', ref];
-      case 'deleteRemote': return ['push', String(request.options?.remote), '--delete', ref];
+      case 'deleteBranch': {
+        const targetRefs = request.refs?.length ? request.refs : [ref];
+        return ['branch', request.options?.force ? '-D' : '-d', ...targetRefs];
+      }
+      case 'deleteRemote': {
+        const targetRefs = request.refs?.length ? request.refs : [ref];
+        return ['push', String(request.options?.remote), '--delete', ...targetRefs];
+      }
       case 'merge': return ['merge', ...(request.options?.noFf ? ['--no-ff'] : []), ...(request.options?.squash ? ['--squash'] : []), ref];
       case 'rebase': return ['rebase', ref];
       case 'worktreeAdd': return ['worktree', 'add', ...(request.options?.newBranch ? ['-b', String(request.options.newBranch)] : []), String(request.path), ref];

@@ -578,3 +578,25 @@ test('supports edit commit message and amend commit workflows', () => {
   assert.match(webview, /data-edit-message=/);
   assert.match(webview, /sendContextAction\('editCommitMessage'/);
 });
+
+test('supports multi-branch selection and batch branch deletion', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  // Provider contributes batch delete context actions
+  assert.match(provider, /if \(kind === 'branches'\)/);
+  assert.match(provider, /contextAction\('deleteBranch', 'Delete Selected Branches'\)/);
+  assert.match(provider, /contextAction\('forceDeleteBranch', 'Force Delete Selected Branches', 'danger'\)/);
+  assert.match(provider, /if \(kind === 'remotes'\)/);
+  assert.match(provider, /contextAction\('deleteRemote', 'Delete Selected Remote Branches', 'danger'\)/);
+
+  // Mutation runner handles multiple target refs
+  assert.match(mutations, /const targetRefs = request\.refs\?\.length \? request\.refs : \[ref\];/);
+
+  // Webview manages selectedBranches state and multi-selection click handlers
+  assert.match(webview, /selectedBranches:new Set\(\)/);
+  assert.match(webview, /e\.ctrlKey\|\|e\.metaKey/);
+  assert.match(webview, /state\.selectedBranches\.has\(ref\)/);
+  assert.match(webview, /kind:allRemote\?'remotes':'branches'/);
+});

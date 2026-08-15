@@ -88,7 +88,17 @@ export function actionConfirmationLabel(request: GitMutationRequest): string {
     return 'Reset and Keep Changes';
   }
   if (request.action === 'update' && request.options?.strategy === 'reset') return 'Reset to Remote Branch';
-  if (request.action === 'deleteBranch' && request.options?.force === true) return 'Force Delete Branch';
+  if (request.action === 'deleteBranch') {
+    const count = request.refs?.length ?? 1;
+    if (request.options?.force === true) {
+      return count > 1 ? `Force Delete ${count} Branches` : 'Force Delete Branch';
+    }
+    return count > 1 ? `Delete ${count} Branches` : 'Delete Branch';
+  }
+  if (request.action === 'deleteRemote') {
+    const count = request.refs?.length ?? 1;
+    return count > 1 ? `Delete ${count} Remote Branches` : 'Delete Remote Branch';
+  }
   if (request.action === 'push' && request.options?.forceLease === true) return 'Force Push with Lease';
   const operation = String(request.options?.operation ?? '').toLowerCase();
   if (request.action === 'abort' && operation) return `Abort ${operation.replace(/ing$/, 'e')}`;

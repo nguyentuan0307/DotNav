@@ -314,6 +314,22 @@ textarea,
   color: currentColor;
 }
 
+.item.multi {
+  color: var(--gn-active-fg);
+  background: var(--gn-active);
+  box-shadow: none;
+}
+
+.item.multi:hover {
+  background: var(--gn-active);
+}
+
+.item.multi .ref-icon,
+.item.multi .protected-icon,
+.item.multi .badge {
+  color: currentColor;
+}
+
 .item.folder {
   font-weight: 500;
 }

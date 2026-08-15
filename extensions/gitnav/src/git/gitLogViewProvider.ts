@@ -719,11 +719,36 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return { action, ref: message.ref };
     }
     if (action === 'deleteRemote') {
-      const parts = (message.ref ?? '').split('/');
-      return parts.length > 1 ? { action, ref: parts.slice(1).join('/'), options: { remote: parts[0] } } : undefined;
+      const refs: string[] = message.refs?.length ? message.refs : (message.ref ? [message.ref] : []);
+      if (!refs.length) return undefined;
+      const remoteMap = new Map<string, string[]>();
+      for (const r of refs) {
+        const parts = r.split('/');
+        if (parts.length > 1) {
+          const remote = parts[0];
+          const branch = parts.slice(1).join('/');
+          if (!remoteMap.has(remote)) remoteMap.set(remote, []);
+          remoteMap.get(remote)!.push(branch);
+        }
+      }
+      if (!remoteMap.size) return undefined;
+      const [remote, branches] = [...remoteMap.entries()][0];
+      return { action, ref: branches[0], refs: branches, options: { remote } };
     }
-    if (action === 'deleteBranch') return { action, ref: message.ref, options: { force: false } };
-    if (action === 'forceDeleteBranch') return { action: 'deleteBranch', ref: message.ref, options: { force: true } };
+    if (action === 'deleteBranch' || action === 'forceDeleteBranch') {
+      const force = action === 'forceDeleteBranch';
+      const refs: string[] = message.refs?.length ? message.refs : (message.ref ? [message.ref] : []);
+      const head = (await this.service.git(this.root!, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+      const filtered = refs.filter((r: string) => r !== head);
+      if (!filtered.length) {
+        vscode.window.showWarningMessage('Cannot delete the currently checked-out branch.');
+        return undefined;
+      }
+      if (filtered.length !== refs.length) {
+        vscode.window.showWarningMessage(`The currently checked-out branch (${head}) will be excluded from deletion.`);
+      }
+      return { action: 'deleteBranch', ref: filtered[0], refs: filtered, options: { force } };
+    }
     if (action === 'pullInto') {
       const [remote, ...branchParts] = (message.ref ?? '').split('/');
       const strategy = await vscode.window.showQuickPick([{ label: 'Merge', rebase: false }, { label: 'Rebase', rebase: true }], { title: `Pull ${message.ref} into Current` });
@@ -995,6 +1020,13 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
   if (kind === 'uncommitted') return [
     contextAction('amendCommit', 'Amend to HEAD Commit…'),
     contextAction('stash', 'Stash Changes…')
+  ];
+  if (kind === 'branches') return [
+    contextAction('deleteBranch', 'Delete Selected Branches'),
+    contextAction('forceDeleteBranch', 'Force Delete Selected Branches', 'danger')
+  ];
+  if (kind === 'remotes') return [
+    contextAction('deleteRemote', 'Delete Selected Remote Branches', 'danger')
   ];
   if (kind === 'commits') return [contextAction('compare', 'Compare Versions'), contextAction('cherryPick', 'Cherry-pick in Selected Order'), contextAction('revert', 'Revert in Selected Order'), contextAction('interactiveRebase', 'Interactive Rebase…', 'danger')];
   if (kind === 'commitFile') return [

@@ -13,6 +13,9 @@ test('uses consistent user-facing labels', () => {
 test('uses consequence-specific confirmation labels', () => {
   assert.equal(actionConfirmationLabel({ action: 'reset', options: { mode: 'hard' } }), 'Reset and Discard Changes');
   assert.equal(actionConfirmationLabel({ action: 'deleteBranch', options: { force: true } }), 'Force Delete Branch');
+  assert.equal(actionConfirmationLabel({ action: 'deleteBranch', refs: ['feature/1', 'feature/2', 'feature/3'], options: { force: false } }), 'Delete 3 Branches');
+  assert.equal(actionConfirmationLabel({ action: 'deleteBranch', refs: ['feature/1', 'feature/2', 'feature/3'], options: { force: true } }), 'Force Delete 3 Branches');
+  assert.equal(actionConfirmationLabel({ action: 'deleteRemote', refs: ['origin/feature/1', 'origin/feature/2'] }), 'Delete 2 Remote Branches');
   assert.equal(actionConfirmationLabel({ action: 'push', options: { forceLease: true } }), 'Force Push with Lease');
 });
 
