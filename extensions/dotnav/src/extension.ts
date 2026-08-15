@@ -24,7 +24,7 @@ import {
 } from './workspaceChangeClassifier';
 import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { SmartBuildCoordinator } from './build/smartBuildCoordinator';
-import { isSmartBuildEnabled, smartBuildEnabledConfiguration } from './build/smartBuildFeature';
+import { isSmartBuildEnabled, smartBuildEnabledConfiguration, updateSmartBuildEnabled } from './build/smartBuildFeature';
 import { showFeatureAnnouncements } from './featureAnnouncements';
 
 let activeProcessManager: ProcessManager | undefined;
@@ -59,7 +59,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusItems = createStatusBar();
   const refreshStatusBar = () => {
     updateStatusBar(provider, context, processManager);
+    smartBuild.getStatusBar().refresh();
     const solution = provider.getSolution();
+    if (solution) void smartBuild.prewarm(solution);
     const activeConfig = solution ? runConfigStore.getActive(solution, context) : undefined;
     vscode.commands.executeCommand(
       'setContext',
@@ -118,6 +120,38 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('dotnav.explainSmartBuildPlan', () => explainSmartBuildPlan(provider, smartBuild)),
     vscode.commands.registerCommand('dotnav.invalidateSmartBuildCache', () => smartBuild.invalidate(provider.getSolution())),
+    vscode.commands.registerCommand('dotnav.showSmartBuildStatusMenu', async () => {
+      const solution = provider.getSolution();
+      const items: (vscode.QuickPickItem & { action?: () => Promise<void> | void })[] = [
+        {
+          label: '$(pulse) Explain Smart Build Plan',
+          description: 'Inspect why projects are marked to build or up-to-date',
+          action: () => explainSmartBuildPlan(provider, smartBuild)
+        },
+        {
+          label: '$(sync) Pre-warm Project Graph',
+          description: 'Re-evaluate MSBuild dependency graph in background',
+          action: () => {
+            if (solution) void smartBuild.prewarm(solution);
+          }
+        },
+        {
+          label: '$(trash) Invalidate Smart Build Cache',
+          description: 'Clear stored fingerprints and forces fresh analysis',
+          action: () => smartBuild.invalidate(solution)
+        },
+        {
+          label: '$(gear) Toggle Smart Build',
+          description: `Current: ${isSmartBuildEnabled() ? 'Enabled' : 'Disabled'}`,
+          action: () => updateSmartBuildEnabled(!isSmartBuildEnabled())
+        }
+      ];
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'DotNav Smart Build Menu',
+        placeHolder: 'Select a Smart Build action'
+      });
+      if (picked?.action) await picked.action();
+    }),
     vscode.commands.registerCommand('dotnav.openWorkspaceFolder', () => vscode.commands.executeCommand('workbench.action.files.openFolder')),
     vscode.commands.registerCommand('dotnav.runProject', (node: TreeNode) => runOrDebugProject(provider, smartBuild, processManager, node, false)),
     vscode.commands.registerCommand('dotnav.debugProject', (node: TreeNode) => runOrDebugProject(provider, smartBuild, processManager, node, true)),
@@ -196,6 +230,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (event.affectsConfiguration(smartBuildEnabledConfiguration)) {
         void vscode.commands.executeCommand('setContext', 'dotnav.smartBuildEnabled', isSmartBuildEnabled());
+        smartBuild.getStatusBar().refresh();
       }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {

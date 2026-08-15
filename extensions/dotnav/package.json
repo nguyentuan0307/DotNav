@@ -63,6 +63,7 @@
     "onCommand:dotnav.smartBuildSolution",
     "onCommand:dotnav.explainSmartBuildPlan",
     "onCommand:dotnav.invalidateSmartBuildCache",
+    "onCommand:dotnav.showSmartBuildStatusMenu",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
     "onCommand:dotnav.cleanSolution",
@@ -233,6 +234,10 @@
       {
         "command": "dotnav.invalidateSmartBuildCache",
         "title": "Invalidate Smart Build Cache (Preview)"
+      },
+      {
+        "command": "dotnav.showSmartBuildStatusMenu",
+        "title": "Smart Build Menu (Preview)"
       },
       {
         "command": "dotnav.rebuildSolution",

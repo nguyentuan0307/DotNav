@@ -97,7 +97,8 @@ export class SmartBuildExecutor {
           '.NET Navigator',
           new vscode.ProcessExecution('dotnet', [
             'msbuild', traversalPath, `-maxCpuCount:${maxParallelBuilds}`,
-            `-p:Configuration=${configuration}`, `-p:Platform=${platform}`, '-nologo',
+            `-p:Configuration=${configuration}`, `-p:Platform=${platform}`,
+            '-p:UseSharedCompilation=true', '-nologo',
             ...(options.binaryLogPath ? [`-binaryLogger:${options.binaryLogPath}`] : [])
           ], { cwd: workingDirectory }),
           ['$msCompile']

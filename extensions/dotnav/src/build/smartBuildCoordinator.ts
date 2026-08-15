@@ -11,8 +11,10 @@ import { BuildStateStore, StoredBuildState } from './buildStateStore';
 import { SmartBuildExecutionResult, SmartBuildExecutor } from './smartBuildExecutor';
 import { SmartBuildMetrics, metricsSummary, planSummary } from './smartBuildDiagnostics';
 import { SmartBuildPlanner } from './smartBuildPlanner';
+import { scopeTransitiveUpstream } from './smartBuildTraversal';
 import { EvaluatedBuildGraph, SmartBuildPlan } from './types';
 import { isSmartBuildEnabled, requestSmartBuildEnabled } from './smartBuildFeature';
+import { SmartBuildStatusBar } from './smartBuildStatusBar';
 
 interface SolutionRuntime {
   graph?: EvaluatedBuildGraph;
@@ -38,6 +40,9 @@ export class SmartBuildCoordinator implements vscode.Disposable {
   private readonly executor = new SmartBuildExecutor();
   private readonly runtimes = new Map<string, SolutionRuntime>();
   private readonly activeProjectPaths = new Set<string>();
+  private readonly statusBar = new SmartBuildStatusBar();
+  private prewarmTimer?: NodeJS.Timeout;
+  private lastSolution?: SolutionModel;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.host = new BuildHostClient({
@@ -46,22 +51,59 @@ export class SmartBuildCoordinator implements vscode.Disposable {
       requestTimeoutMs: 60_000,
       onDiagnostic: message => this.log(`[host] ${message}`)
     });
+    this.statusBar.show();
+  }
+
+  getStatusBar(): SmartBuildStatusBar {
+    return this.statusBar;
   }
 
   recordFileChange(filePath: string, eventKind: 'create' | 'change' | 'delete' = 'change'): void {
     if (!isSmartBuildEnabled()) return;
     this.changes.recordChange(filePath, eventKind);
+    this.updateStatusBar();
+    if (this.changes.isGraphInvalidated() && this.lastSolution) {
+      clearTimeout(this.prewarmTimer);
+      this.prewarmTimer = setTimeout(() => {
+        if (this.lastSolution) void this.prewarm(this.lastSolution);
+      }, 500);
+    }
+  }
+
+  async prewarm(solution: SolutionModel, useSolutionConfiguration = true): Promise<void> {
+    if (!isSmartBuildEnabled()) return;
+    this.lastSolution = solution;
+    const runtime = this.runtimeFor(solution, useSolutionConfiguration);
+    if (runtime.graph && runtime.graphRevision === this.changes.graphRevision()) {
+      this.updateStatusBar();
+      return;
+    }
+    try {
+      this.statusBar.setState('evaluating');
+      if (runtime.graph) await this.host.restart();
+      const started = Date.now();
+      runtime.graph = await this.evaluate(solution, useSolutionConfiguration);
+      runtime.graphRevision = this.changes.graphRevision();
+      this.log(`Pre-warmed Project Graph for ${solution.name} in ${Date.now() - started} ms (${runtime.graph.projects.length} project variants).`);
+    } catch (error) {
+      this.log(`Pre-warm diagnostic: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.updateStatusBar();
+    }
   }
 
   async buildSolution(solution: SolutionModel, processManager: ProcessManager): Promise<boolean> {
     if (!await requestSmartBuildEnabled()) return false;
+    this.lastSolution = solution;
     return this.buildScope(solution, processManager, true);
   }
 
   async buildProjects(solution: SolutionModel, projects: readonly ProjectModel[], processManager: ProcessManager, label?: string): Promise<boolean> {
     if (!await requestSmartBuildEnabled()) return false;
     if (projects.length === 0) return true;
-    return this.buildScope({ ...solution, name: label ?? projects[0].name, projects: [...projects] }, processManager, false);
+    this.lastSolution = solution;
+    const scopedProjects = scopeTransitiveUpstream(solution, projects);
+    return this.buildScope({ ...solution, name: label ?? projects[0].name, projects: scopedProjects }, processManager, false);
   }
 
   private async buildScope(solution: SolutionModel, processManager: ProcessManager, useSolutionConfiguration: boolean): Promise<boolean> {
@@ -71,6 +113,7 @@ export class SmartBuildCoordinator implements vscode.Disposable {
       return false;
     }
     for (const projectPath of projectPaths) this.activeProjectPaths.add(projectPath);
+    this.statusBar.setState('building');
     const buildStart = Date.now();
     const generation = this.changes.snapshot();
     try {
@@ -155,7 +198,13 @@ export class SmartBuildCoordinator implements vscode.Disposable {
       return this.runStandardScope(solution, processManager, useSolutionConfiguration);
     } finally {
       for (const projectPath of projectPaths) this.activeProjectPaths.delete(projectPath);
+      this.updateStatusBar();
     }
+  }
+
+  updateStatusBar(): void {
+    const count = this.changes.getPendingChangeCount();
+    this.statusBar.setState(count > 0 ? 'idle-changed' : 'idle-uptodate', count);
   }
 
   async explainPlan(solution: SolutionModel): Promise<void> {
@@ -205,10 +254,13 @@ export class SmartBuildCoordinator implements vscode.Disposable {
       for (const runtime of this.runtimes.values()) runtime.graph = undefined;
     }
     this.changes.invalidateGraph();
+    this.updateStatusBar();
     if (notify) vscode.window.showInformationMessage('DotNav Smart Build cache was invalidated.');
   }
 
   dispose(): void {
+    if (this.prewarmTimer) clearTimeout(this.prewarmTimer);
+    this.statusBar.dispose();
     this.output.dispose();
     void this.host.dispose();
   }
@@ -398,3 +450,4 @@ function combineExecutionResults(
     binaryLogPath
   };
 }
+
