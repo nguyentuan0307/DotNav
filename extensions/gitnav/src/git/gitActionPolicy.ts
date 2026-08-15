@@ -66,7 +66,9 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   continue: new GitActionPresentation('Continue Operation', 'Continue', 'normal', 'status'),
   skip: new GitActionPresentation('Skip Commit', 'Skip Commit', 'normal', 'status'),
   abort: new GitActionPresentation('Abort Operation', 'Abort Operation', 'danger', 'toast'),
-  commitEmptyContinue: new GitActionPresentation('Commit Empty and Continue', 'Commit and Continue', 'normal', 'status')
+  commitEmptyContinue: new GitActionPresentation('Commit Empty and Continue', 'Commit and Continue', 'normal', 'status'),
+  editCommitMessage: new GitActionPresentation('Edit Commit Message', 'Edit Message', 'normal', 'status'),
+  amendCommit: new GitActionPresentation('Amend Commit', 'Amend Commit', 'normal', 'status')
 };
 
 export function actionPresentation(action: string): GitActionPresentation {
@@ -86,7 +88,17 @@ export function actionConfirmationLabel(request: GitMutationRequest): string {
     return 'Reset and Keep Changes';
   }
   if (request.action === 'update' && request.options?.strategy === 'reset') return 'Reset to Remote Branch';
-  if (request.action === 'deleteBranch' && request.options?.force === true) return 'Force Delete Branch';
+  if (request.action === 'deleteBranch') {
+    const count = request.refs?.length ?? 1;
+    if (request.options?.force === true) {
+      return count > 1 ? `Force Delete ${count} Branches` : 'Force Delete Branch';
+    }
+    return count > 1 ? `Delete ${count} Branches` : 'Delete Branch';
+  }
+  if (request.action === 'deleteRemote') {
+    const count = request.refs?.length ?? 1;
+    return count > 1 ? `Delete ${count} Remote Branches` : 'Delete Remote Branch';
+  }
   if (request.action === 'push' && request.options?.forceLease === true) return 'Force Push with Lease';
   const operation = String(request.options?.operation ?? '').toLowerCase();
   if (request.action === 'abort' && operation) return `Abort ${operation.replace(/ing$/, 'e')}`;
@@ -103,7 +115,7 @@ export function isDangerousAction(action: string): boolean {
 
 const longRunningActions = new Set([
   'fetch', 'pull', 'update', 'push', 'pushBranch', 'merge', 'rebase', 'interactiveRebase',
-  'cherryPick', 'revert', 'checkoutUpdate', 'checkoutRebase'
+  'cherryPick', 'revert', 'checkoutUpdate', 'checkoutRebase', 'editCommitMessage', 'amendCommit'
 ]);
 
 export function actionProgress(action: string): GitActionProgress {

@@ -73,3 +73,12 @@ test('requires confirmation for an unconfirmed remote reset only', () => {
   assert.equal(requiresDestructiveConfirmation({ action: 'checkoutRemoteReset', options: { confirmed: false } }), true);
   assert.equal(requiresDestructiveConfirmation({ action: 'checkoutRemoteReset', options: { confirmed: true } }), false);
 });
+
+test('formats destructive warnings and checks protections for multiple branches', () => {
+  const request = { action: 'deleteBranch', refs: ['feature/one', 'feature/two'], options: { force: true } };
+  assert.match(destructiveWarning(request, 'main'), /2 local branches \(feature\/one, feature\/two\)/);
+
+  const remoteRequest = { action: 'deleteRemote', refs: ['feature/a', 'release/1.0'] };
+  assert.match(destructiveWarning(remoteRequest, 'main'), /2 remote branches \(feature\/a, release\/1.0\)/);
+  assert.equal(protectedRemoteMutationPattern('main', remoteRequest, ['release/*']), 'release/*');
+});
