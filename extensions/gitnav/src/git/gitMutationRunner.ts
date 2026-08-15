@@ -167,8 +167,14 @@ export class GitMutationRunner {
         ? ['branch', String(request.options?.name), ref || 'HEAD']
         : ['switch', '-c', String(request.options?.name), ref || 'HEAD'];
       case 'renameBranch': return ['branch', '-m', ref, String(request.options?.name)];
-      case 'deleteBranch': return ['branch', request.options?.force ? '-D' : '-d', ref];
-      case 'deleteRemote': return ['push', String(request.options?.remote), '--delete', ref];
+      case 'deleteBranch': {
+        const targetRefs = request.refs?.length ? request.refs : [ref];
+        return ['branch', request.options?.force ? '-D' : '-d', ...targetRefs];
+      }
+      case 'deleteRemote': {
+        const targetRefs = request.refs?.length ? request.refs : [ref];
+        return ['push', String(request.options?.remote), '--delete', ...targetRefs];
+      }
       case 'merge': return ['merge', ...(request.options?.noFf ? ['--no-ff'] : []), ...(request.options?.squash ? ['--squash'] : []), ref];
       case 'rebase': return ['rebase', ref];
       case 'worktreeAdd': return ['worktree', 'add', ...(request.options?.newBranch ? ['-b', String(request.options.newBranch)] : []), String(request.path), ref];
@@ -220,6 +226,40 @@ export class GitMutationRunner {
           throw new Error(continued.stderr.trim() || 'Unable to continue cherry-pick after creating the empty commit.');
         }
         return ['status', '--short'];
+      }
+      case 'editCommitMessage': {
+        const head = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
+        const targetHash = ref || request.hash || head;
+        const message = String(request.options?.message ?? '');
+        if (!message.trim()) throw new Error('Commit message cannot be empty.');
+        if (targetHash === head) {
+          return ['commit', '--amend', '-m', message];
+        }
+        const commits = await this.service.commitsInRange(root, `${targetHash}^..HEAD`, 500);
+        if (!commits.length) throw new Error('Could not find commit range for rebase.');
+        const ordered = [...commits].reverse();
+        const plan: GitRebasePlanItem[] = ordered.map(item => {
+          if (item.hash === targetHash) {
+            return { action: 'reword', hash: item.hash, subject: item.subject, message };
+          }
+          return { action: 'pick', hash: item.hash, subject: item.subject };
+        });
+        const targetDetail = await this.service.commitDetail(root, targetHash);
+        const base = targetDetail.parents[0];
+        if (!base) throw new Error('The root commit cannot be interactively rebased.');
+        await runInteractiveRebase(root, base, plan);
+        return ['status', '--short'];
+      }
+      case 'amendCommit': {
+        if (request.options?.stageAll === true) {
+          await this.service.git(root, ['add', '-A']);
+        }
+        const message = request.options?.message !== undefined ? String(request.options.message) : undefined;
+        if (message !== undefined) {
+          if (!message.trim()) throw new Error('Commit message cannot be empty.');
+          return ['commit', '--amend', '-m', message];
+        }
+        return ['commit', '--amend', '--no-edit'];
       }
       default: throw new Error(`Unsupported Git action: ${request.action}`);
     }

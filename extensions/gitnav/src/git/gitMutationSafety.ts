@@ -10,7 +10,12 @@ export function protectedRemoteMutationPattern(
     return matchingProtectedBranchPattern(currentBranch, patterns);
   }
   if (request.action === 'deleteRemote') {
-    return matchingProtectedBranchPattern(request.ref ?? '', patterns);
+    const refs = request.refs?.length ? request.refs : (request.ref ? [request.ref] : []);
+    for (const r of refs) {
+      const match = matchingProtectedBranchPattern(r, patterns);
+      if (match) return match;
+    }
+    return undefined;
   }
   return undefined;
 }
@@ -47,14 +52,20 @@ export function destructiveWarning(request: GitMutationRequest, branch: string, 
   if (request.action === 'update' && request.options?.strategy === 'reset') {
     return `Reset ${branch} to ${request.options?.destination ?? upstream ?? 'its same-named origin branch'} (hard)? Local commits and all tracked working tree changes will be permanently discarded.`;
   }
+  const branchCount = request.refs?.length ?? 1;
+  const branchList = request.refs?.length ? ` (${request.refs.join(', ')})` : '';
   const detail: Record<string, string> = {
-    deleteRemote: `Remote branch ${request.ref} will be deleted for every collaborator.`,
+    deleteRemote: branchCount > 1
+      ? `${branchCount} remote branches${branchList} will be deleted for every collaborator.`
+      : `Remote branch ${request.ref} will be deleted for every collaborator.`,
     stashDrop: `${request.ref} will be permanently removed.`,
     rollbackFile: `All uncommitted changes in ${request.path} will be permanently discarded.`,
     getFile: `${request.path} in the working tree will be overwritten.`,
     undoCommit: `Undo the HEAD commit on ${branch}? Its changes will remain staged.`,
     dropCommit: `Remove commit ${request.ref} from ${branch}? This rewrites local history; a force push may be required if it was published.`,
-    deleteBranch: `Local branch ${request.ref} will be deleted${request.options?.force ? ' even if it is not merged' : ''}.`,
+    deleteBranch: branchCount > 1
+      ? `${branchCount} local branches${branchList} will be deleted${request.options?.force ? ' even if they are not merged' : ''}.`
+      : `Local branch ${request.ref} will be deleted${request.options?.force ? ' even if it is not merged' : ''}.`,
     deleteTag: `Tag ${request.ref} will be deleted${request.options?.remote ? ` locally and from ${request.options.remote}` : ' locally'}.`,
     abort: `The current ${String(request.options?.operation ?? 'Git operation').toLowerCase()} will be aborted and its in-progress changes discarded.`,
     worktreeRemove: `Remove worktree ${request.path}?${request.options?.force ? ` Its ${request.options.changedCount ?? ''} uncommitted file(s) will be permanently discarded.` : ''}`,

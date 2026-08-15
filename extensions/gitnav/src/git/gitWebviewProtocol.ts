@@ -33,6 +33,7 @@ export interface GitWebviewMessage {
   readonly hashes?: string[];
   readonly path?: string;
   readonly ref?: string;
+  readonly refs?: string[];
   readonly query?: string;
   readonly action?: string;
   readonly kind?: string;

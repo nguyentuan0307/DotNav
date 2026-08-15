@@ -554,3 +554,49 @@ test('recovers from invalid persisted Git Log webview state', () => {
   assert.match(source, /localStorage\.removeItem\(key\)/);
   assert.doesNotMatch(source, /new Set\(JSON\.parse\(localStorage\.getItem/);
 });
+
+test('supports edit commit message and amend commit workflows', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  // Provider contributes context actions
+  assert.match(provider, /contextAction\('editCommitMessage', 'Edit Commit Message…'\)/);
+  assert.match(provider, /contextAction\('amendCommit', 'Amend Changes to HEAD…'\)/);
+  assert.match(provider, /if \(action === 'editCommitMessage'\)/);
+  assert.match(provider, /if \(action === 'amendCommit'\)/);
+
+  // Mutation runner handles both HEAD amend and older commit rebase
+  assert.match(mutations, /case 'editCommitMessage':/);
+  assert.match(mutations, /runInteractiveRebase\(root, base, plan\)/);
+  assert.match(mutations, /case 'amendCommit':/);
+  assert.match(mutations, /\['commit', '--amend', '--no-edit'\]/);
+
+  // Webview contains UI triggers and action labels
+  assert.match(webview, /editCommitMessage:'Edit Commit Message…'/);
+  assert.match(webview, /amendCommit:'Amend Changes to HEAD…'/);
+  assert.match(webview, /data-edit-message=/);
+  assert.match(webview, /sendContextAction\('editCommitMessage'/);
+});
+
+test('supports multi-branch selection and batch branch deletion', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  // Provider contributes batch delete context actions
+  assert.match(provider, /if \(kind === 'branches'\)/);
+  assert.match(provider, /contextAction\('deleteBranch', 'Delete Selected Branches'\)/);
+  assert.match(provider, /contextAction\('forceDeleteBranch', 'Force Delete Selected Branches', 'danger'\)/);
+  assert.match(provider, /if \(kind === 'remotes'\)/);
+  assert.match(provider, /contextAction\('deleteRemote', 'Delete Selected Remote Branches', 'danger'\)/);
+
+  // Mutation runner handles multiple target refs
+  assert.match(mutations, /const targetRefs = request\.refs\?\.length \? request\.refs : \[ref\];/);
+
+  // Webview manages selectedBranches state and multi-selection click handlers
+  assert.match(webview, /selectedBranches:new Set\(\)/);
+  assert.match(webview, /e\.ctrlKey\|\|e\.metaKey/);
+  assert.match(webview, /state\.selectedBranches\.has\(ref\)/);
+  assert.match(webview, /kind:allRemote\?'remotes':'branches'/);
+});
