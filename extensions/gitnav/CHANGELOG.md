@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.1...gitnav-v0.13.0) (2026-08-15)
+
+
+### Features
+
+* **gitnav:** add edit commit message and amend commit workflows ([95b3935](https://github.com/nguyentuan0307/DotNav/commit/95b39350fa156d8d25cf5138f321cf05c2cfb1e6))
+* **gitnav:** support multi-branch selection and batch deletion ([45579b5](https://github.com/nguyentuan0307/DotNav/commit/45579b52f1c2367bd4259927c152df2e9b6a6744))
+
+
 ## [0.12.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.0...gitnav-v0.12.1) (2026-08-03)
 
 
