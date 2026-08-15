@@ -66,7 +66,9 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   continue: new GitActionPresentation('Continue Operation', 'Continue', 'normal', 'status'),
   skip: new GitActionPresentation('Skip Commit', 'Skip Commit', 'normal', 'status'),
   abort: new GitActionPresentation('Abort Operation', 'Abort Operation', 'danger', 'toast'),
-  commitEmptyContinue: new GitActionPresentation('Commit Empty and Continue', 'Commit and Continue', 'normal', 'status')
+  commitEmptyContinue: new GitActionPresentation('Commit Empty and Continue', 'Commit and Continue', 'normal', 'status'),
+  editCommitMessage: new GitActionPresentation('Edit Commit Message', 'Edit Message', 'normal', 'status'),
+  amendCommit: new GitActionPresentation('Amend Commit', 'Amend Commit', 'normal', 'status')
 };
 
 export function actionPresentation(action: string): GitActionPresentation {
@@ -103,7 +105,7 @@ export function isDangerousAction(action: string): boolean {
 
 const longRunningActions = new Set([
   'fetch', 'pull', 'update', 'push', 'pushBranch', 'merge', 'rebase', 'interactiveRebase',
-  'cherryPick', 'revert', 'checkoutUpdate', 'checkoutRebase'
+  'cherryPick', 'revert', 'checkoutUpdate', 'checkoutRebase', 'editCommitMessage', 'amendCommit'
 ]);
 
 export function actionProgress(action: string): GitActionProgress {

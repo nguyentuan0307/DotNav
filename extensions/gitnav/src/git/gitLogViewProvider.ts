@@ -768,6 +768,75 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (head !== message.hash) throw new Error('Undo Commit is available only for the current HEAD commit.');
       return { action, hash: message.hash };
     }
+    if (action === 'editCommitMessage') {
+      const hash = message.hash ?? message.ref;
+      if (!hash) return undefined;
+      const detail = await this.service.commitDetail(this.root!, hash);
+      const newMessage = await vscode.window.showInputBox({
+        title: `Edit Commit Message · ${hash.slice(0, 8)}`,
+        prompt: 'New commit message',
+        value: detail.message || detail.subject,
+        ignoreFocusOut: true
+      });
+      if (newMessage === undefined) return undefined;
+      if (!newMessage.trim()) {
+        vscode.window.showErrorMessage('Commit message cannot be empty.');
+        return undefined;
+      }
+      const head = (await this.service.git(this.root!, ['rev-parse', 'HEAD'])).stdout.trim();
+      if (hash !== head) {
+        const snapshot = await this.service.snapshot(this.root!);
+        if (snapshot.changedCount) {
+          throw new Error('Commit or stash working tree changes before editing past commit messages.');
+        }
+        const published = await this.service.publishedCommits(this.root!, [hash]);
+        const patterns = vscode.workspace.getConfiguration('gitnav').get<string[]>('protectedBranches', []);
+        const protectedPattern = matchingProtectedBranchPattern(snapshot.head, patterns);
+        if (published.length || protectedPattern) {
+          const note = published.length ? ' This commit exists upstream; completing this change may require a force-with-lease push.' : '';
+          const protNote = protectedPattern ? ` Current branch matches protected pattern "${protectedPattern}".` : '';
+          const choice = await vscode.window.showWarningMessage(
+            `Edit past commit ${hash.slice(0, 8)} on ${snapshot.head}?${note}${protNote} GitNav will not force-push automatically.`,
+            { modal: true }, 'Edit Message', 'Create Backup & Edit'
+          );
+          if (!choice) return undefined;
+          if (choice === 'Create Backup & Edit') {
+            const name = `backup/${snapshot.head}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+            await this.service.git(this.root!, ['branch', name, 'HEAD']);
+          }
+        }
+      }
+      return { action, hash, options: { message: newMessage } };
+    }
+    if (action === 'amendCommit') {
+      const snapshot = await this.service.snapshot(this.root!);
+      if (snapshot.changedCount === 0) {
+        vscode.window.showInformationMessage('No uncommitted changes in the working tree to amend.');
+        return undefined;
+      }
+      const head = (await this.service.git(this.root!, ['rev-parse', 'HEAD'])).stdout.trim();
+      const headDetail = await this.service.commitDetail(this.root!, head);
+      const choice = await vscode.window.showQuickPick([
+        { label: 'Amend Changes (Keep Message)', value: 'keep', description: `Amend ${snapshot.changedCount} file(s) into HEAD and keep "${headDetail.subject}"` },
+        { label: 'Amend Changes & Edit Message…', value: 'edit', description: 'Amend files into HEAD and modify the commit message' }
+      ], { title: `Amend Changes to HEAD (${head.slice(0, 8)})` });
+      if (!choice) return undefined;
+      let newMessage: string | undefined;
+      if (choice.value === 'edit') {
+        newMessage = await vscode.window.showInputBox({
+          title: `Amend Commit Message · ${head.slice(0, 8)}`,
+          prompt: 'Commit message',
+          value: headDetail.message || headDetail.subject,
+          ignoreFocusOut: true
+        });
+        if (newMessage === undefined) return undefined;
+        if (!newMessage.trim()) {
+          vscode.window.showErrorMessage('Commit message cannot be empty.');
+          return undefined;
+        }
+      }
+      return { action, hash: head, options: { stageAll: true, ...(newMessage ? { message: newMessage } : {}) } };
+    }
     if (action === 'abort') {
       const files = await this.service.workingTreeFiles(this.root!);
       const hasResolvedChanges = files.some(file => !file.conflict);
@@ -918,9 +987,14 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
   if (kind === 'stash') return [contextAction('stashApply', 'Apply Stash'), contextAction('stashPop', 'Pop Stash'), contextAction('stashDiff', 'Show Diff'), contextAction('stashBranch', 'Create Branch from Stash', 'more'), contextAction('stashDrop', 'Drop Stash', 'danger')];
   if (kind === 'commit') return [
     contextAction('workingDiff', 'Compare with Working Tree'), contextAction('cherryPick', 'Cherry-pick'), contextAction('revert', 'Revert Commit'), contextAction('createBranch', 'Create Branch Here…'),
+    contextAction('editCommitMessage', 'Edit Commit Message…'), contextAction('amendCommit', 'Amend Changes to HEAD…'),
     contextAction('checkout', 'Checkout Revision', 'more'), contextAction('tag', 'Create Tag Here…', 'more'), contextAction('showRepository', 'Browse Repository at Revision', 'more'),
     contextAction('openWeb', 'Open on GitHub/GitLab', 'more'), contextAction('copy', 'Copy Commit Hash', 'more'), contextAction('copyShort', 'Copy Short Hash', 'more'), contextAction('copyMessage', 'Copy Commit Message', 'more'),
     contextAction('undoCommit', 'Undo HEAD Commit', 'more'), contextAction('reset', 'Reset Current Branch Here…', 'danger'), contextAction('dropCommit', 'Drop Commit', 'danger')
+  ];
+  if (kind === 'uncommitted') return [
+    contextAction('amendCommit', 'Amend to HEAD Commit…'),
+    contextAction('stash', 'Stash Changes…')
   ];
   if (kind === 'commits') return [contextAction('compare', 'Compare Versions'), contextAction('cherryPick', 'Cherry-pick in Selected Order'), contextAction('revert', 'Revert in Selected Order'), contextAction('interactiveRebase', 'Interactive Rebase…', 'danger')];
   if (kind === 'commitFile') return [

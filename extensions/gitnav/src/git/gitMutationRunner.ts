@@ -221,6 +221,40 @@ export class GitMutationRunner {
         }
         return ['status', '--short'];
       }
+      case 'editCommitMessage': {
+        const head = (await this.service.git(root, ['rev-parse', 'HEAD'])).stdout.trim();
+        const targetHash = ref || request.hash || head;
+        const message = String(request.options?.message ?? '');
+        if (!message.trim()) throw new Error('Commit message cannot be empty.');
+        if (targetHash === head) {
+          return ['commit', '--amend', '-m', message];
+        }
+        const commits = await this.service.commitsInRange(root, `${targetHash}^..HEAD`, 500);
+        if (!commits.length) throw new Error('Could not find commit range for rebase.');
+        const ordered = [...commits].reverse();
+        const plan: GitRebasePlanItem[] = ordered.map(item => {
+          if (item.hash === targetHash) {
+            return { action: 'reword', hash: item.hash, subject: item.subject, message };
+          }
+          return { action: 'pick', hash: item.hash, subject: item.subject };
+        });
+        const targetDetail = await this.service.commitDetail(root, targetHash);
+        const base = targetDetail.parents[0];
+        if (!base) throw new Error('The root commit cannot be interactively rebased.');
+        await runInteractiveRebase(root, base, plan);
+        return ['status', '--short'];
+      }
+      case 'amendCommit': {
+        if (request.options?.stageAll === true) {
+          await this.service.git(root, ['add', '-A']);
+        }
+        const message = request.options?.message !== undefined ? String(request.options.message) : undefined;
+        if (message !== undefined) {
+          if (!message.trim()) throw new Error('Commit message cannot be empty.');
+          return ['commit', '--amend', '-m', message];
+        }
+        return ['commit', '--amend', '--no-edit'];
+      }
       default: throw new Error(`Unsupported Git action: ${request.action}`);
     }
   }
