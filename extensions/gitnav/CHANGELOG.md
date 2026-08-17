@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.13.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.0...gitnav-v0.13.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **gitnav:** fix commit filter dropdown and calendar picker interaction ([25cd1c9](https://github.com/nguyentuan0307/DotNav/commit/25cd1c94f62bba1b333f7fa1b8c1f36b184653d0))
+
+
 ## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.1...gitnav-v0.13.0) (2026-08-15)
 
 
