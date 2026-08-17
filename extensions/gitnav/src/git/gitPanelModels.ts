@@ -129,5 +129,5 @@ export interface GitMutationRequest {
   readonly hash?: string;
   readonly hashes?: string[];
   readonly path?: string;
-  readonly options?: Record<string, boolean | string>;
+  readonly options?: Record<string, boolean | string | string[] | undefined>;
 }
