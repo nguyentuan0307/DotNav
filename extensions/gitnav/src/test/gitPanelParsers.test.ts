@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
+import { formatFullCommitInfo, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
 
 test('parses delimiter-safe decorated log records and merge parents', () => {
   const output = '\x1eabc\x1fabc1234\x1fp1 p2\x1fsubject\x1fJane\x1fjane@example.com\x1f1700000000\x1fHEAD -> refs/heads/main, tag: refs/tags/v1\n';
@@ -52,3 +52,29 @@ test('parses porcelain v2 ordinary, rename, conflict, and untracked entries', ()
     { status: 'M', path: 'src/line\nbreak.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: false }
   ]);
 });
+
+test('formats comprehensive full commit info text for clipboard', () => {
+  const info = formatFullCommitInfo({
+    hash: '3a4f4b269eedac470f910ccf5c4ac0d53294c596',
+    shortHash: '3a4f4b2',
+    author: 'Nguyen Tuan',
+    authorEmail: 'tuan@example.com',
+    authorTimestamp: 1700000000,
+    parents: ['5c2fff0123456789'],
+    subject: 'fix(gitnav): fix header button alignment',
+    message: 'fix(gitnav): fix header button alignment\n\n- Fix button width collision\n- Use compact icon',
+    files: [
+      { path: 'media/webview/git-log.css', status: 'M', additions: 10, deletions: 2 },
+      { path: 'src/git/gitLogWebviewHtml.ts', status: 'M', additions: 1, deletions: 1 }
+    ]
+  }, 'https://github.com/nguyentuan0307/DotNav/commit/3a4f4b2');
+
+  assert.ok(info.includes('Commit:  3a4f4b269eedac470f910ccf5c4ac0d53294c596 (3a4f4b2)'));
+  assert.ok(info.includes('Author:  Nguyen Tuan <tuan@example.com>'));
+  assert.ok(info.includes('Parents: 5c2fff01'));
+  assert.ok(info.includes('URL:     https://github.com/nguyentuan0307/DotNav/commit/3a4f4b2'));
+  assert.ok(info.includes('- Fix button width collision'));
+  assert.ok(info.includes('Changed Files (2):'));
+  assert.ok(info.includes('M media/webview/git-log.css (+10, -2)'));
+});
+

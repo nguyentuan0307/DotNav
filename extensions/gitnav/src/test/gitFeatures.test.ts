@@ -606,13 +606,12 @@ test('supports quick copy formatted commit info workflow', () => {
   const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
 
   // Provider contributes copyFormatted action
-  assert.match(provider, /contextAction\('copyFormatted', 'Copy Formatted Info…', 'more'\)/);
+  assert.match(provider, /contextAction\('copyFormatted', 'Copy Full Commit Info', 'more'\)/);
   assert.match(provider, /if \(action === 'copyFormatted' && message\.hash\)/);
-  assert.match(provider, /Short Hash \+ Subject/);
-  assert.match(provider, /Markdown Link/);
+  assert.match(provider, /formatFullCommitInfo\(detail, remoteUrl\)/);
 
   // Webview contains label
-  assert.match(webview, /copyFormatted:'Copy Formatted Info…'/);
+  assert.match(webview, /copyFormatted:'Copy Full Commit Info'/);
 });
 
 test('supports quick stash single file workflow', () => {
