@@ -14,73 +14,104 @@ export interface GitBlameEntry {
   readonly isUncommitted: boolean;
 }
 
-export function parseGitBlamePorcelain(rawOutput: string): GitBlameEntry | undefined {
+export function parseMultiLineGitBlamePorcelain(rawOutput: string): GitBlameEntry[] {
   if (!rawOutput || rawOutput.trim().length === 0) {
-    return undefined;
+    return [];
   }
 
   const lines = rawOutput.split(/\r?\n/);
-  if (lines.length === 0) {
-    return undefined;
-  }
+  const results: GitBlameEntry[] = [];
+  const commitMetadata = new Map<
+    string,
+    { author: string; authorEmail: string; authorTimeSeconds: number; summary: string }
+  >();
 
-  const headerMatch = lines[0].match(/^([0-9a-fA-F]{40})\s+(\d+)\s+(\d+)/);
-  if (!headerMatch) {
-    return undefined;
-  }
+  let currentHash: string | undefined;
+  let currentFinalLine: number = 0;
+  let tempAuthor = 'Unknown';
+  let tempAuthorMail = '';
+  let tempAuthorTimeSeconds = 0;
+  let tempSummary = '';
 
-  const hash = headerMatch[1];
-  const isUncommitted = /^0+$/.test(hash);
-  const line = parseInt(headerMatch[3], 10);
-
-  let author = 'Unknown';
-  let authorMail = '';
-  let authorTimeSeconds = 0;
-  let summary = '';
-
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const lineContent = lines[i];
+
     if (lineContent.startsWith('\t')) {
-      // Reached source code line
-      break;
+      if (currentHash) {
+        const isUncommitted = /^0+$/.test(currentHash);
+        const meta = commitMetadata.get(currentHash) ?? {
+          author: tempAuthor,
+          authorEmail: tempAuthorMail,
+          authorTimeSeconds: tempAuthorTimeSeconds,
+          summary: tempSummary
+        };
+
+        if (isUncommitted || meta.author === 'Not Committed Yet') {
+          results.push({
+            hash: '0000000000000000000000000000000000000000',
+            shortHash: '0000000',
+            author: 'Not Committed Yet',
+            authorEmail: '',
+            authorDate: new Date(),
+            authorTimeSeconds: Math.floor(Date.now() / 1000),
+            summary: 'Uncommitted changes',
+            line: currentFinalLine,
+            isUncommitted: true
+          });
+        } else {
+          results.push({
+            hash: currentHash,
+            shortHash: currentHash.substring(0, 7),
+            author: meta.author,
+            authorEmail: meta.authorEmail,
+            authorDate: new Date(meta.authorTimeSeconds * 1000),
+            authorTimeSeconds: meta.authorTimeSeconds,
+            summary: meta.summary,
+            line: currentFinalLine,
+            isUncommitted: false
+          });
+        }
+      }
+      currentHash = undefined;
+      continue;
     }
 
-    if (lineContent.startsWith('author ')) {
-      author = lineContent.substring(7).trim();
-    } else if (lineContent.startsWith('author-mail ')) {
-      authorMail = lineContent.substring(12).trim().replace(/^<|>$/g, '');
-    } else if (lineContent.startsWith('author-time ')) {
-      authorTimeSeconds = parseInt(lineContent.substring(12).trim(), 10) || 0;
-    } else if (lineContent.startsWith('summary ')) {
-      summary = lineContent.substring(8).trim();
+    const headerMatch = lineContent.match(/^([0-9a-fA-F]{40})\s+(\d+)\s+(\d+)/);
+    if (headerMatch) {
+      currentHash = headerMatch[1];
+      currentFinalLine = parseInt(headerMatch[3], 10);
+      tempAuthor = 'Unknown';
+      tempAuthorMail = '';
+      tempAuthorTimeSeconds = 0;
+      tempSummary = '';
+      continue;
+    }
+
+    if (currentHash) {
+      if (lineContent.startsWith('author ')) {
+        tempAuthor = lineContent.substring(7).trim();
+      } else if (lineContent.startsWith('author-mail ')) {
+        tempAuthorMail = lineContent.substring(12).trim().replace(/^<|>$/g, '');
+      } else if (lineContent.startsWith('author-time ')) {
+        tempAuthorTimeSeconds = parseInt(lineContent.substring(12).trim(), 10) || 0;
+      } else if (lineContent.startsWith('summary ')) {
+        tempSummary = lineContent.substring(8).trim();
+        commitMetadata.set(currentHash, {
+          author: tempAuthor,
+          authorEmail: tempAuthorMail,
+          authorTimeSeconds: tempAuthorTimeSeconds,
+          summary: tempSummary
+        });
+      }
     }
   }
 
-  if (isUncommitted || author === 'Not Committed Yet') {
-    return {
-      hash: '0000000000000000000000000000000000000000',
-      shortHash: '0000000',
-      author: 'Not Committed Yet',
-      authorEmail: '',
-      authorDate: new Date(),
-      authorTimeSeconds: Math.floor(Date.now() / 1000),
-      summary: 'Uncommitted changes',
-      line,
-      isUncommitted: true
-    };
-  }
+  return results;
+}
 
-  return {
-    hash,
-    shortHash: hash.substring(0, 7),
-    author,
-    authorEmail: authorMail,
-    authorDate: new Date(authorTimeSeconds * 1000),
-    authorTimeSeconds,
-    summary,
-    line,
-    isUncommitted: false
-  };
+export function parseGitBlamePorcelain(rawOutput: string): GitBlameEntry | undefined {
+  const entries = parseMultiLineGitBlamePorcelain(rawOutput);
+  return entries.length > 0 ? entries[0] : undefined;
 }
 
 export function formatTimeAgo(timestampSeconds: number, nowSeconds: number = Math.floor(Date.now() / 1000)): string {
@@ -195,3 +226,34 @@ export async function fetchLineBlame(
   }
   return entry;
 }
+
+export async function fetchViewportBlame(
+  repoRoot: string,
+  relPath: string,
+  startLine: number,
+  endLine: number,
+  cache: BoundedCache<GitBlameEntry>,
+  token?: vscode.CancellationToken
+): Promise<GitBlameEntry[]> {
+  if (startLine > endLine) {
+    return [];
+  }
+
+  const result = await runGit(
+    repoRoot,
+    ['blame', '--porcelain', '-L', `${startLine},${endLine}`, '--', relPath],
+    token
+  );
+
+  if (result.exitCode !== 0 || token?.isCancellationRequested) {
+    return [];
+  }
+
+  const entries = parseMultiLineGitBlamePorcelain(result.stdout);
+  for (const entry of entries) {
+    const key = `${relPath}:${entry.line}`;
+    cache.set(key, entry);
+  }
+  return entries;
+}
+

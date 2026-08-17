@@ -6,8 +6,59 @@ import {
   formatTimeAgo,
   GitBlameEntry,
   parseGitBlamePorcelain,
+  parseMultiLineGitBlamePorcelain,
   resolveBlameAutoDefault
 } from '../git/inlineBlame';
+
+test('parseMultiLineGitBlamePorcelain parses batch multi-line stream and reuses commit metadata', () => {
+  const raw = [
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 1 2',
+    'author Alice Smith',
+    'author-mail <alice@example.com>',
+    'author-time 1700000000',
+    'author-tz +0700',
+    'committer Alice Smith',
+    'committer-mail <alice@example.com>',
+    'committer-time 1700000000',
+    'committer-tz +0700',
+    'summary First commit',
+    'filename src/index.ts',
+    '\tline 1',
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 2 2',
+    'filename src/index.ts',
+    '\tline 2',
+    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 10 3 1',
+    'author Bob Jones',
+    'author-mail <bob@example.com>',
+    'author-time 1710000000',
+    'author-tz +0700',
+    'committer Bob Jones',
+    'committer-mail <bob@example.com>',
+    'committer-time 1710000000',
+    'committer-tz +0700',
+    'summary Second commit',
+    'filename src/index.ts',
+    '\tline 3'
+  ].join('\n');
+
+  const entries = parseMultiLineGitBlamePorcelain(raw);
+  assert.equal(entries.length, 3);
+
+  // Line 1
+  assert.equal(entries[0].line, 1);
+  assert.equal(entries[0].author, 'Alice Smith');
+  assert.equal(entries[0].summary, 'First commit');
+
+  // Line 2 - reuses Alice Smith metadata even though headers were omitted
+  assert.equal(entries[1].line, 2);
+  assert.equal(entries[1].author, 'Alice Smith');
+  assert.equal(entries[1].summary, 'First commit');
+
+  // Line 3 - Bob Jones
+  assert.equal(entries[2].line, 3);
+  assert.equal(entries[2].author, 'Bob Jones');
+  assert.equal(entries[2].summary, 'Second commit');
+});
 
 test('parseGitBlamePorcelain parses standard committed porcelain output', () => {
   const raw = [
