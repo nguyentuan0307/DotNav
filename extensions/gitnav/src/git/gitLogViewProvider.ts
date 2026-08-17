@@ -570,10 +570,9 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     if (action === 'copyFormatted' && message.hash) {
       const detail = await this.service.commitDetail(root, message.hash);
-      const remoteUrl = await this.service.remoteWebUrl(root, message.hash).catch(() => undefined);
-      const fullText = formatFullCommitInfo(detail, remoteUrl);
+      const fullText = formatFullCommitInfo(detail);
       await vscode.env.clipboard.writeText(fullText);
-      vscode.window.setStatusBarMessage('$(check) Copied full commit info to clipboard', 3000);
+      vscode.window.setStatusBarMessage('$(check) Copied commit info to clipboard', 3000);
       return;
     }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action });

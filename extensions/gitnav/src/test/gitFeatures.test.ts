@@ -608,7 +608,7 @@ test('supports quick copy formatted commit info workflow', () => {
   // Provider contributes copyFormatted action
   assert.match(provider, /contextAction\('copyFormatted', 'Copy Full Commit Info', 'more'\)/);
   assert.match(provider, /if \(action === 'copyFormatted' && message\.hash\)/);
-  assert.match(provider, /formatFullCommitInfo\(detail, remoteUrl\)/);
+  assert.match(provider, /formatFullCommitInfo\(detail\)/);
 
   // Webview contains label
   assert.match(webview, /copyFormatted:'Copy Full Commit Info'/);

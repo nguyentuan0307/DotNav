@@ -55,26 +55,16 @@ test('parses porcelain v2 ordinary, rename, conflict, and untracked entries', ()
 
 test('formats comprehensive full commit info text for clipboard', () => {
   const info = formatFullCommitInfo({
-    hash: '3a4f4b269eedac470f910ccf5c4ac0d53294c596',
-    shortHash: '3a4f4b2',
-    author: 'Nguyen Tuan',
-    authorEmail: 'tuan@example.com',
-    authorTimestamp: 1700000000,
-    parents: ['5c2fff0123456789'],
-    subject: 'fix(gitnav): fix header button alignment',
-    message: 'fix(gitnav): fix header button alignment\n\n- Fix button width collision\n- Use compact icon',
-    files: [
-      { path: 'media/webview/git-log.css', status: 'M', additions: 10, deletions: 2 },
-      { path: 'src/git/gitLogWebviewHtml.ts', status: 'M', additions: 1, deletions: 1 }
-    ]
-  }, 'https://github.com/nguyentuan0307/DotNav/commit/3a4f4b2');
+    hash: '3f243793de59324b7b7f6c35e7f1e247e66939c4',
+    shortHash: '3f24379',
+    subject: 'test(gitnav): add regression tests for real git diff on merge commits and additions',
+    message: 'test(gitnav): add regression tests for real git diff on merge commits and additions'
+  });
 
-  assert.ok(info.includes('Commit:  3a4f4b269eedac470f910ccf5c4ac0d53294c596 (3a4f4b2)'));
-  assert.ok(info.includes('Author:  Nguyen Tuan <tuan@example.com>'));
-  assert.ok(info.includes('Parents: 5c2fff01'));
-  assert.ok(info.includes('URL:     https://github.com/nguyentuan0307/DotNav/commit/3a4f4b2'));
-  assert.ok(info.includes('- Fix button width collision'));
-  assert.ok(info.includes('Changed Files (2):'));
-  assert.ok(info.includes('M media/webview/git-log.css (+10, -2)'));
+  assert.equal(
+    info,
+    'Commit:  3f243793de59324b7b7f6c35e7f1e247e66939c4 (3f24379)\ntest(gitnav): add regression tests for real git diff on merge commits and additions'
+  );
 });
+
 

@@ -99,52 +99,11 @@ export function parseWorkingTreeStatusV2(output: string): GitFileChange[] {
 export function formatFullCommitInfo(detail: {
   hash: string;
   shortHash?: string;
-  author: string;
-  authorEmail?: string;
-  authorTimestamp: number;
-  committer?: string;
-  committerEmail?: string;
-  committerTimestamp?: number;
   subject: string;
   message?: string;
-  parents?: string[];
-  files?: Array<{ path: string; status: string; additions?: number; deletions?: number }>;
-}, remoteUrl?: string): string {
-  const short = detail.shortHash || detail.hash.slice(0, 8);
-  const dateStr = new Date(detail.authorTimestamp * 1000).toLocaleString();
-  const lines: string[] = [
-    `Commit:  ${detail.hash} (${short})`,
-    `Author:  ${detail.author}${detail.authorEmail ? ` <${detail.authorEmail}>` : ''}`,
-    `Date:    ${dateStr}`
-  ];
-
-  if (detail.committer && (detail.committer !== detail.author || detail.committerEmail !== detail.authorEmail)) {
-    lines.push(`Committer: ${detail.committer}${detail.committerEmail ? ` <${detail.committerEmail}>` : ''}`);
-  }
-
-  if (detail.parents && detail.parents.length > 0) {
-    lines.push(`Parents: ${detail.parents.map(p => p.slice(0, 8)).join(', ')}`);
-  }
-
-  if (remoteUrl) {
-    lines.push(`URL:     ${remoteUrl}`);
-  }
-
-  lines.push('');
-  const fullMessage = detail.message || detail.subject;
-  lines.push(fullMessage.trim());
-
-  if (detail.files && detail.files.length > 0) {
-    lines.push('');
-    lines.push(`Changed Files (${detail.files.length}):`);
-    for (const f of detail.files) {
-      const stats = (f.additions !== undefined || f.deletions !== undefined)
-        ? ` (+${f.additions || 0}, -${f.deletions || 0})`
-        : '';
-      lines.push(`  ${f.status} ${f.path}${stats}`);
-    }
-  }
-
-  return lines.join('\n');
+}): string {
+  const short = detail.shortHash || detail.hash.slice(0, 7);
+  const fullMessage = (detail.message || detail.subject || '').trim();
+  return `Commit:  ${detail.hash} (${short})\n${fullMessage}`;
 }
 
