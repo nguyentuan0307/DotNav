@@ -8,6 +8,7 @@ import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models'
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 import { BuildBeforeRunMode, resolveBuildBeforeRunMode } from './buildMode';
+import { buildOptimizationFlags } from './dotnetCli';
 
 interface StartOptions {
   readonly debug: boolean;
@@ -205,7 +206,7 @@ export async function buildProject(
     vscode.TaskScope.Workspace,
     `build ${project.name}`,
     '.NET Navigator',
-    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration}`, { cwd: project.directory }),
+    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration} ${buildOptimizationFlags()}`, { cwd: project.directory }),
     ['$msCompile']
   );
 
@@ -272,7 +273,6 @@ export async function runConfig(
     debug: boolean;
     processManager?: ProcessManager;
     buildMode?: BuildBeforeRunMode;
-    smartPrebuild?: (projects: readonly ProjectModel[], label: string) => Promise<boolean>;
   }
 ): Promise<void> {
   const resolvedTargets = config.targets.map(target => resolveTarget(solution, target.projectPath, target.profileName));
@@ -283,15 +283,6 @@ export async function runConfig(
   }
 
   const buildMode = options.buildMode ?? configuredBuildBeforeRunMode();
-  let smartPrebuilt = false;
-  if (buildMode === 'smart') {
-    if (!options.smartPrebuild) {
-      vscode.window.showErrorMessage('Smart Build before Run/Debug is unavailable. Use Standard Build or reload DotNav.');
-      return;
-    }
-    smartPrebuilt = await options.smartPrebuild(resolvedTargets.map(target => target.project!), config.label);
-    if (!smartPrebuilt) return;
-  }
 
   let session: ReturnType<ProcessManager['beginRun']> | undefined;
   if (options.processManager) {
@@ -314,8 +305,8 @@ export async function runConfig(
     }
   }
 
-  const standardPrebuilt = buildMode === 'standard' && resolvedTargets.length > 1;
-  if (standardPrebuilt) {
+  const prebuildGroup = buildMode === 'standard' && resolvedTargets.length > 1;
+  if (prebuildGroup) {
     const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), options.processManager, session?.runId);
     if (!built) {
       if (session) {
@@ -331,7 +322,7 @@ export async function runConfig(
       processManager: options.processManager,
       runId: session?.runId,
       targetId: session?.targets[index].targetId,
-      skipBuild: smartPrebuilt || standardPrebuilt || buildMode === 'none'
+      skipBuild: prebuildGroup || buildMode === 'none'
     })
   ));
 
@@ -382,7 +373,8 @@ async function buildProjectGroup(
         `build ${label} (${unique.length} projects)`,
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
-          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`
+          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true'
         ], { cwd: commonProjectDirectory(unique) }),
         ['$msCompile']
       );

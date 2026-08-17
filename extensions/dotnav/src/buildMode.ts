@@ -1,12 +1,12 @@
-export type BuildBeforeRunMode = 'standard' | 'smart' | 'none';
+export type BuildBeforeRunMode = 'standard' | 'none';
 
 export function resolveBuildBeforeRunMode(
-  mode: BuildBeforeRunMode | undefined,
+  mode: string | undefined,
   modeExplicit: boolean,
   legacyEnabled: boolean | undefined,
   legacyExplicit: boolean
 ): BuildBeforeRunMode {
-  if (modeExplicit && mode) return mode;
+  if (modeExplicit && mode) return mode === 'none' ? 'none' : 'standard';
   if (legacyExplicit && legacyEnabled === false) return 'none';
-  return mode ?? 'standard';
+  return 'standard';
 }

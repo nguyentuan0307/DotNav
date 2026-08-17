@@ -38,53 +38,13 @@ moduleWithLoader._load = function (request: string, parent: unknown, isMain: boo
 
 const { runConfig } = require('../debugRunner') as typeof import('../debugRunner');
 
-test('compound Smart Build completes before any target starts', async () => {
-  const fixture = await createFixture();
-  try {
-    events.length = 0;
-    await runConfig(fixture.solution, fixture.config, {
-      debug: false,
-      buildMode: 'smart',
-      smartPrebuild: async () => {
-        events.push('smart-build');
-        return true;
-      }
-    });
-    assert.deepEqual(events, ['smart-build', 'start', 'start']);
-  } finally {
-    await fs.rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('failed Smart Build prevents every run target from starting', async () => {
-  const fixture = await createFixture();
-  try {
-    events.length = 0;
-    await runConfig(fixture.solution, fixture.config, {
-      debug: true,
-      buildMode: 'smart',
-      smartPrebuild: async () => {
-        events.push('smart-build-failed');
-        return false;
-      }
-    });
-    assert.deepEqual(events, ['smart-build-failed']);
-  } finally {
-    await fs.rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
 test('none mode starts existing outputs without invoking a prebuild', async () => {
   const fixture = await createFixture();
   try {
     events.length = 0;
     await runConfig(fixture.solution, fixture.config, {
       debug: false,
-      buildMode: 'none',
-      smartPrebuild: async () => {
-        events.push('unexpected-build');
-        return true;
-      }
+      buildMode: 'none'
     });
     assert.deepEqual(events, ['start', 'start']);
   } finally {
