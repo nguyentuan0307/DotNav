@@ -139,12 +139,9 @@ export function findMatchingProject(commandLine: string, projects: readonly Proj
 }
 
 export function extractProcessName(commandLine: string, executablePath?: string): string {
-  if (executablePath) {
-    return path.basename(executablePath);
-  }
-  const match = commandLine.match(/([^\s"']+\.(?:dll|exe))/i);
-  if (match) {
-    return path.basename(match[1]);
+  const target = executablePath || (commandLine.match(/([^\s"']+\.(?:dll|exe))/i)?.[1]);
+  if (target) {
+    return target.split(/[\\/]/).pop() ?? target;
   }
   return commandLine.slice(0, 40);
 }

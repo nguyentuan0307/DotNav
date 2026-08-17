@@ -58,7 +58,7 @@ test('BuildChangeTracker tracks pending changes and graph invalidation accuratel
   tracker.recordChange('/repo/App.cs', 'change');
   assert.equal(tracker.hasPendingChanges(), true);
   assert.equal(tracker.getPendingChangeCount(), 1);
-  assert.ok(tracker.getChangedPaths().has(path.resolve('/repo/App.cs').toLowerCase()));
+  assert.ok(tracker.hasChanged('/repo/App.cs'));
   assert.equal(tracker.isGraphInvalidated(), false); // C# content change does not invalidate project graph
 
   // Graph structural change
