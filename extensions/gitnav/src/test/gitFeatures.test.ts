@@ -632,3 +632,18 @@ test('supports quick stash single file workflow', () => {
   // Webview contains label
   assert.match(webview, /stashFile:'Stash File Changes…'/);
 });
+
+test('contributes inline blame commands and configuration', () => {
+  const commandIds = new Set(gitnavManifest.contributes.commands.map((c: { command: string }) => c.command));
+  assert.ok(commandIds.has('gitnav.toggleInlineBlame'), 'missing gitnav.toggleInlineBlame command');
+  assert.ok(commandIds.has('gitnav.showBlameDetails'), 'missing gitnav.showBlameDetails command');
+
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.toggleInlineBlame'));
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.showBlameDetails'));
+
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.enabled']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.showOnStatusBar']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.delay']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.format']);
+});
+
