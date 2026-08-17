@@ -289,15 +289,30 @@ export class GitRepositoryService {
           return res.stdout;
         }
         const stagedRes = await runGit(root, ['diff', '--cached', '-U3', '--', filePath], token);
-        return stagedRes.exitCode === 0 ? stagedRes.stdout : '';
+        if (stagedRes.exitCode === 0 && stagedRes.stdout.trim()) {
+          return stagedRes.stdout;
+        }
+        const untrackedRes = await runGit(root, ['diff', '--no-index', '--', '/dev/null', filePath], token);
+        return untrackedRes.exitCode === 0 || untrackedRes.exitCode === 1 ? untrackedRes.stdout : '';
       }
 
       if (hash) {
-        const parentArg = parent && parent > 1 ? `${hash}^${parent}..${hash}` : `${hash}^!`;
-        const res = await runGit(root, ['diff', '-U3', parentArg, '--', filePath], token);
-        if (res.exitCode === 0 && res.stdout.trim()) {
-          return res.stdout;
+        if (parent === 0) {
+          const combinedRes = await runGit(root, ['show', '--format=', '--cc', '-U3', hash, '--', filePath], token);
+          return combinedRes.exitCode === 0 ? combinedRes.stdout : '';
         }
+
+        const parentNum = parent && parent >= 1 ? parent : 1;
+        const diffRes = await runGit(root, ['diff', '-U3', `${hash}^${parentNum}`, hash, '--', filePath], token);
+        if (diffRes.exitCode === 0 && diffRes.stdout.trim()) {
+          return diffRes.stdout;
+        }
+
+        const rootRes = await runGit(root, ['diff-tree', '-p', '--root', '-U3', hash, '--', filePath], token);
+        if (rootRes.exitCode === 0 && rootRes.stdout.trim()) {
+          return rootRes.stdout;
+        }
+
         const showRes = await runGit(root, ['show', '--format=', '-U3', hash, '--', filePath], token);
         return showRes.exitCode === 0 ? showRes.stdout : '';
       }
