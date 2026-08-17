@@ -8,7 +8,7 @@ import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models'
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 import { BuildBeforeRunMode, resolveBuildBeforeRunMode } from './buildMode';
-import { buildOptimizationFlags } from './dotnetCli';
+import { buildOptimizationFlags, shouldUseNoRestore } from './buildOptimizations';
 
 interface StartOptions {
   readonly debug: boolean;
@@ -201,12 +201,13 @@ export async function buildProject(
   targetId?: string
 ): Promise<boolean> {
   const configuration = buildConfiguration();
+  const noRestoreFlag = shouldUseNoRestore(project.path, 'build') ? ' --no-restore' : '';
   const task = new vscode.Task(
     { type: 'dotnet', task: 'build', project: project.path },
     vscode.TaskScope.Workspace,
     `build ${project.name}`,
     '.NET Navigator',
-    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration} ${buildOptimizationFlags()}`, { cwd: project.directory }),
+    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration}${noRestoreFlag} ${buildOptimizationFlags()}`, { cwd: project.directory }),
     ['$msCompile']
   );
 
@@ -374,7 +375,8 @@ async function buildProjectGroup(
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
           'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
-          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true'
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true', '-p:AccelerateBuildsInVisualStudio=true',
+          '-clp:NoSummary;Verbosity=minimal'
         ], { cwd: commonProjectDirectory(unique) }),
         ['$msCompile']
       );

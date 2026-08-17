@@ -133,8 +133,8 @@ function toTerminalText(value: string): string {
   return value.replace(/\r?\n/g, '\r\n');
 }
 
-import { buildOptimizationArgs, buildOptimizationFlags } from './buildOptimizations';
-export { buildOptimizationArgs, buildOptimizationFlags };
+import { buildOptimizationArgs, buildOptimizationFlags, shouldUseNoRestore } from './buildOptimizations';
+export { buildOptimizationArgs, buildOptimizationFlags, shouldUseNoRestore };
 
 export async function runDotnetForProject(
   project: ProjectModel,
@@ -144,9 +144,10 @@ export async function runDotnetForProject(
 ): Promise<boolean> {
   const configuration = vscode.workspace.getConfiguration('dotnav').get<string>('buildConfiguration', 'Debug');
   const optFlags = (verb === 'build' || verb === 'rebuild') ? ` ${buildOptimizationFlags()}` : '';
+  const noRestoreFlag = (verb === 'build' && !options.noBuild && shouldUseNoRestore(project.path, verb)) ? ' --no-restore' : '';
   const command = verb === 'rebuild'
     ? `dotnet build "${project.path}" --configuration ${configuration} --no-incremental${optFlags}`
-    : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : ''}${optFlags}`;
+    : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : noRestoreFlag}${optFlags}`;
   const task = new vscode.Task(
     { type: 'dotnet', task: verb, project: project.path },
     vscode.TaskScope.Workspace,
@@ -331,7 +332,9 @@ export async function runDotnetForProjects(
         `build ${folderName} (${projects.length} projects)`,
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
-          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`
+          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true', '-p:AccelerateBuildsInVisualStudio=true',
+          '-clp:NoSummary;Verbosity=minimal'
         ], { cwd: folderPath }),
         ['$msCompile']
       );
