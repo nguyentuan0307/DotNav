@@ -26,6 +26,7 @@ import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { SmartBuildCoordinator } from './build/smartBuildCoordinator';
 import { isSmartBuildEnabled, smartBuildEnabledConfiguration, updateSmartBuildEnabled } from './build/smartBuildFeature';
 import { showFeatureAnnouncements } from './featureAnnouncements';
+import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -193,6 +194,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnav.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
     vscode.commands.registerCommand('dotnav.selectRunConfig', () => selectRunConfig(context, provider)),
+    vscode.commands.registerCommand('dotnav.attachProcess', () => attachProcessCommand(provider)),
     vscode.commands.registerCommand('dotnav.newCompound', () => newCompound(context, provider)),
     vscode.commands.registerCommand('dotnav.deleteCompound', () => deleteCompound(context, provider)),
     vscode.commands.registerCommand('dotnav.setActiveConfig', (node: TreeNode) => setActiveConfig(context, provider, node)),
@@ -749,25 +751,110 @@ async function selectRunConfig(context: vscode.ExtensionContext, provider: Dotne
   }
 
   const active = runConfigStore.getActive(solution, context);
-  const items = runConfigStore.listConfigs(solution, context).map(config => ({
-    label: `${config.id === active?.id ? '$(check) ' : ''}${config.label}`,
-    description: config.kind,
-    id: config.id
-  }));
+  const savedConfigs = runConfigStore.listConfigs(solution, context);
+  const allSingles = runConfigStore.listSingles(solution);
 
-  if (items.length === 0) {
-    vscode.window.showInformationMessage('No run configurations. Use + to add one.');
-    return;
+  interface ConfigPickItem extends vscode.QuickPickItem {
+    id?: string;
+    action?: 'add' | 'compound' | 'attach';
   }
 
-  const picked = await vscode.window.showQuickPick(items, { title: 'Select Run Configuration' });
+  const items: ConfigPickItem[] = [];
+
+  if (savedConfigs.length > 0) {
+    for (const config of savedConfigs) {
+      items.push({
+        label: `${config.id === active?.id ? '$(check) ' : ''}${config.label}`,
+        description: config.kind === 'compound' ? 'Compound Configuration' : 'Run Configuration',
+        id: config.id
+      });
+    }
+    items.push({ label: 'Available Projects & Profiles', kind: vscode.QuickPickItemKind.Separator });
+  }
+
+  const savedIds = new Set(savedConfigs.map(c => c.id));
+  for (const single of allSingles) {
+    if (!savedIds.has(single.id)) {
+      items.push({
+        label: `${single.id === active?.id ? '$(check) ' : ''}${single.label}`,
+        description: 'Single Project',
+        id: single.id
+      });
+    }
+  }
+
+  items.push({ label: 'Actions', kind: vscode.QuickPickItemKind.Separator });
+  items.push({
+    label: '$(debug-disconnect) Attach Debugger to .NET Process...',
+    description: 'Attach to a running process in this workspace',
+    action: 'attach'
+  });
+  items.push({
+    label: '$(add) Add Compound Configuration...',
+    description: 'Run multiple projects together',
+    action: 'compound'
+  });
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Select Active Run Configuration or Profile',
+    placeHolder: `Current: ${active?.label ?? 'None'}`
+  });
 
   if (!picked) {
     return;
   }
 
-  await runConfigStore.setActive(context, picked.id);
-  await provider.refresh();
+  if (picked.action === 'attach') {
+    await attachProcessCommand(provider);
+    return;
+  }
+  if (picked.action === 'compound') {
+    await newCompound(context, provider);
+    return;
+  }
+
+  if (picked.id) {
+    await runConfigStore.setActive(context, picked.id);
+    await provider.refresh();
+  }
+}
+
+async function attachProcessCommand(provider: DotnetTreeProvider): Promise<void> {
+  const solution = provider.getSolution();
+  const processes = await listDotnetProcesses(solution);
+
+  if (processes.length === 0) {
+    vscode.window.showInformationMessage('No running .NET processes found.');
+    return;
+  }
+
+  interface ProcessPickItem extends vscode.QuickPickItem {
+    pid: number;
+    procLabel: string;
+  }
+
+  const items: ProcessPickItem[] = processes.map(p => ({
+    label: p.label,
+    description: p.description,
+    detail: p.detail,
+    pid: p.pid,
+    procLabel: p.matchingProject?.name ?? p.label
+  }));
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Attach Debugger to .NET Process',
+    placeHolder: 'Select a running .NET process to debug'
+  });
+
+  if (!picked) {
+    return;
+  }
+
+  const config = createAttachConfiguration(picked.pid, picked.procLabel);
+  const attached = await vscode.debug.startDebugging(vscode.workspace.workspaceFolders?.[0], config);
+  if (!attached) {
+    vscode.window.showErrorMessage(`Could not attach debugger to process ${picked.pid}.`);
+  }
 }
 
 async function addRunConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider): Promise<void> {

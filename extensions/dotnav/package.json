@@ -381,6 +381,11 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "dotnav.attachProcess",
+        "title": "Attach Debugger to .NET Process...",
+        "icon": "$(debug-disconnect)"
+      },
+      {
         "command": "dotnav.addRunConfig",
         "title": "Add Run Configuration",
         "icon": "$(add)"
@@ -638,6 +643,11 @@
           "command": "dotnav.selectRunConfig",
           "when": "view == dotnav.runConfigurations",
           "group": "1_config@1"
+        },
+        {
+          "command": "dotnav.attachProcess",
+          "when": "view == dotnav.runConfigurations",
+          "group": "1_config@1.5"
         },
         {
           "command": "dotnav.buildActiveConfig",

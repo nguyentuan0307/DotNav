@@ -52,7 +52,11 @@ export function listConfigs(solution: SolutionModel, context: vscode.ExtensionCo
 export function getActive(solution: SolutionModel, context: vscode.ExtensionContext): RunConfig | undefined {
   const activeId = context.workspaceState.get<string>(activeKey);
   const configs = listConfigs(solution, context);
-  return configs.find(config => config.id === activeId) ?? configs[0];
+  if (configs.length > 0) {
+    return configs.find(config => config.id === activeId) ?? configs[0];
+  }
+  const allSingles = listSingles(solution);
+  return allSingles.find(config => config.id === activeId) ?? allSingles[0];
 }
 
 export async function setActive(context: vscode.ExtensionContext, id: string): Promise<void> {
