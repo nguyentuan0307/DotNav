@@ -1761,10 +1761,14 @@ mark.search-match {
   flex-shrink: 0;
 }
 
-.preview-toggle-btn .ui-icon {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
+.preview-toggle-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .preview-toggle-btn:hover {
