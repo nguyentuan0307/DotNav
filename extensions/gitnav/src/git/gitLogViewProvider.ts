@@ -553,6 +553,32 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const detail = await this.service.commitDetail(root, message.hash);
       return await vscode.env.clipboard.writeText(detail.message);
     }
+    if (action === 'copyFormatted' && message.hash) {
+      const detail = await this.service.commitDetail(root, message.hash);
+      const remoteUrl = await this.service.remoteWebUrl(root, message.hash).catch(() => undefined);
+      const short = detail.shortHash || message.hash.slice(0, 8);
+      const dateStr = new Date(detail.authorTimestamp * 1000).toLocaleDateString();
+      const choices = [
+        { label: `${short} ${detail.subject}`, description: 'Short Hash + Subject', value: `${short} ${detail.subject}` },
+        {
+          label: remoteUrl ? `[${short}](${remoteUrl}) ${detail.subject}` : `[${short}](${detail.hash}) ${detail.subject}`,
+          description: 'Markdown Link',
+          value: remoteUrl ? `[${short}](${remoteUrl}) ${detail.subject}` : `[${short}](${detail.hash}) ${detail.subject}`
+        },
+        { label: `${detail.hash} ${detail.subject}`, description: 'Full Hash + Subject', value: `${detail.hash} ${detail.subject}` },
+        { label: `${detail.subject}`, description: 'Subject Only', value: `${detail.subject}` },
+        { label: `${short} (${detail.author}, ${dateStr}) - ${detail.subject}`, description: 'Author + Date + Subject', value: `${short} (${detail.author}, ${dateStr}) - ${detail.subject}` }
+      ];
+      const selected = await vscode.window.showQuickPick(choices, {
+        title: `Copy Formatted Info · ${short}`,
+        placeHolder: 'Select a format to copy'
+      });
+      if (selected) {
+        await vscode.env.clipboard.writeText(selected.value);
+        vscode.window.setStatusBarMessage('$(check) Copied commit info to clipboard', 3000);
+      }
+      return;
+    }
     const request = await this.prepareMutation({ ...message, type: 'mutate', action });
     if (request) await this.runMutation(request, message.root);
   }
@@ -1014,7 +1040,7 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
     contextAction('workingDiff', 'Compare with Working Tree'), contextAction('cherryPick', 'Cherry-pick'), contextAction('revert', 'Revert Commit'), contextAction('createBranch', 'Create Branch Here…'),
     contextAction('editCommitMessage', 'Edit Commit Message…'), contextAction('amendCommit', 'Amend Changes to HEAD…'),
     contextAction('checkout', 'Checkout Revision', 'more'), contextAction('tag', 'Create Tag Here…', 'more'), contextAction('showRepository', 'Browse Repository at Revision', 'more'),
-    contextAction('openWeb', 'Open on GitHub/GitLab', 'more'), contextAction('copy', 'Copy Commit Hash', 'more'), contextAction('copyShort', 'Copy Short Hash', 'more'), contextAction('copyMessage', 'Copy Commit Message', 'more'),
+    contextAction('openWeb', 'Open on GitHub/GitLab', 'more'), contextAction('copy', 'Copy Commit Hash', 'more'), contextAction('copyShort', 'Copy Short Hash', 'more'), contextAction('copyMessage', 'Copy Commit Message', 'more'), contextAction('copyFormatted', 'Copy Formatted Info…', 'more'),
     contextAction('undoCommit', 'Undo HEAD Commit', 'more'), contextAction('reset', 'Reset Current Branch Here…', 'danger'), contextAction('dropCommit', 'Drop Commit', 'danger')
   ];
   if (kind === 'uncommitted') return [

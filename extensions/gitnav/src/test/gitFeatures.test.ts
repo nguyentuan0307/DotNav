@@ -600,3 +600,17 @@ test('supports multi-branch selection and batch branch deletion', () => {
   assert.match(webview, /state\.selectedBranches\.has\(ref\)/);
   assert.match(webview, /kind:allRemote\?'remotes':'branches'/);
 });
+
+test('supports quick copy formatted commit info workflow', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  // Provider contributes copyFormatted action
+  assert.match(provider, /contextAction\('copyFormatted', 'Copy Formatted Info…', 'more'\)/);
+  assert.match(provider, /if \(action === 'copyFormatted' && message\.hash\)/);
+  assert.match(provider, /Short Hash \+ Subject/);
+  assert.match(provider, /Markdown Link/);
+
+  // Webview contains label
+  assert.match(webview, /copyFormatted:'Copy Formatted Info…'/);
+});
