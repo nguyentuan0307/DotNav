@@ -6,11 +6,16 @@ import { StoredFileFingerprint } from './buildStateStore';
 export class FingerprintSession {
   private readonly cache = new Map<string, Promise<StoredFileFingerprint | undefined>>();
 
+  private key(filePath: string): string {
+    return process.platform === 'win32' ? filePath.toLowerCase() : filePath;
+  }
+
   fingerprint(filePath: string): Promise<StoredFileFingerprint | undefined> {
-    let pending = this.cache.get(filePath);
+    const k = this.key(filePath);
+    let pending = this.cache.get(k);
     if (!pending) {
       pending = fingerprintFile(filePath);
-      this.cache.set(filePath, pending);
+      this.cache.set(k, pending);
     }
     return pending;
   }
@@ -21,10 +26,11 @@ export class FingerprintSession {
     knownChanged = false
   ): Promise<StoredFileFingerprint | undefined> {
     if (!previous || knownChanged) return this.fingerprint(filePath);
-    let pending = this.cache.get(filePath);
+    const k = this.key(filePath);
+    let pending = this.cache.get(k);
     if (!pending) {
       pending = fingerprintFileAgainst(filePath, previous);
-      this.cache.set(filePath, pending);
+      this.cache.set(k, pending);
     }
     return pending;
   }
@@ -36,6 +42,24 @@ export function stableFingerprint(value: unknown): string {
 
 export function sameFingerprint(left: StoredFileFingerprint, right: StoredFileFingerprint): boolean {
   return left.size === right.size && left.sha256 === right.sha256;
+}
+
+export async function mapConcurrent<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await fn(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function fingerprintFile(filePath: string): Promise<StoredFileFingerprint | undefined> {

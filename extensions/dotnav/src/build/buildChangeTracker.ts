@@ -40,11 +40,27 @@ export class BuildChangeTracker {
     return this.changedPaths.has(normalize(filePath));
   }
 
+  hasPendingChanges(): boolean {
+    return this.changedPaths.size > 0 || this.graphInvalidated;
+  }
+
+  getPendingChangeCount(): number {
+    return this.changedPaths.size;
+  }
+
+  getChangedPaths(): Set<string> {
+    return new Set(this.changedPaths.keys());
+  }
+
   consumeChanges(): void {
     this.changedPaths.clear();
   }
 
   needsGraphEvaluation(): boolean {
+    return this.graphInvalidated;
+  }
+
+  isGraphInvalidated(): boolean {
     return this.graphInvalidated;
   }
 

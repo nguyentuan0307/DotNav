@@ -1,3 +1,5 @@
+import * as path from 'path';
+import { ProjectModel, SolutionModel } from '../models';
 import { EvaluatedProjectVariant } from './types';
 
 export function createSmartBuildTraversal(
@@ -50,6 +52,33 @@ ${restore}${build}
 `;
 }
 
+export function scopeTransitiveUpstream(
+  solution: SolutionModel,
+  targets: readonly ProjectModel[]
+): ProjectModel[] {
+  const projectByPath = new Map<string, ProjectModel>();
+  for (const project of solution.projects) {
+    projectByPath.set(normalizePath(project.path), project);
+  }
+  const included = new Set<string>();
+  const queue = targets.map(p => normalizePath(p.path));
+  for (const path of queue) included.add(path);
+
+  while (queue.length > 0) {
+    const currentPath = queue.shift()!;
+    const project = projectByPath.get(currentPath);
+    if (!project) continue;
+    for (const ref of project.projectReferences || []) {
+      const normRef = normalizePath(ref.path);
+      if (!included.has(normRef)) {
+        included.add(normRef);
+        queue.push(normRef);
+      }
+    }
+  }
+  return solution.projects.filter(p => included.has(normalizePath(p.path)));
+}
+
 function createDependencyLevels(projects: readonly EvaluatedProjectVariant[]): EvaluatedProjectVariant[][] {
   const key = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value;
   const remaining = new Map(projects.map(project => [key(project.projectPath), project]));
@@ -81,5 +110,6 @@ function escapeProperty(value: string): string {
 }
 
 function normalizePath(value: string): string {
-  return process.platform === 'win32' ? value.toLowerCase() : value;
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }

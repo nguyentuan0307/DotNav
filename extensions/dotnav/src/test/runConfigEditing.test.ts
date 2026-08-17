@@ -28,3 +28,16 @@ test('project editing preserves the compound identity and requires a target', ()
     /saveCompound\(context,\s*\{\s*\.\.\.config,\s*targets: picked\.flatMap\(item => item\.config\.targets\)\s*\}\)/s
   );
 });
+
+test('contributes attachProcess command in runConfigurations menu', () => {
+  assert.ok(manifest.contributes.commands.some(
+    (item: { command: string }) => item.command === 'dotnav.attachProcess'
+  ));
+
+  const menuItem = manifest.contributes.menus['view/title'].find(
+    (item: { command?: string }) => item.command === 'dotnav.attachProcess'
+  );
+  assert.ok(menuItem);
+  assert.equal(menuItem.when, 'view == dotnav.runConfigurations');
+});
+

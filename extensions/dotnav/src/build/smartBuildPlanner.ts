@@ -1,13 +1,50 @@
 import * as path from 'path';
 import { BuildChangeTracker } from './buildChangeTracker';
 import { StoredBuildState, StoredProjectState } from './buildStateStore';
-import { FingerprintSession, sameFingerprint, stableFingerprint } from './fingerprints';
+import { FingerprintSession, mapConcurrent, sameFingerprint, stableFingerprint } from './fingerprints';
 import { BuildReason, EvaluatedBuildGraph, EvaluatedProjectVariant, ProjectBuildPlan, SmartBuildPlan } from './types';
 
 export class SmartBuildPlanner {
   constructor(private readonly changes?: BuildChangeTracker) {}
 
+  async tryFastPathPlan(
+    graph: EvaluatedBuildGraph,
+    state: StoredBuildState | undefined
+  ): Promise<SmartBuildPlan | undefined> {
+    if (!state || !this.changes || this.changes.hasPendingChanges()) return undefined;
+    const graphFingerprint = fingerprintGraph(graph);
+    if (state.graphFingerprint !== graphFingerprint) return undefined;
+    if (graph.projects.some(project => project.isOpaque)) return undefined;
+
+    const fingerprints = new FingerprintSession();
+    const projects: ProjectBuildPlan[] = [];
+
+    for (const project of graph.projects) {
+      const stored = state.projects[project.id];
+      if (!stored || stored.projectFingerprint !== fingerprintProject(project)) return undefined;
+      const targetPath = project.targetPath;
+      if (targetPath) {
+        const prevOutput = stored.outputs[targetPath];
+        if (!prevOutput) return undefined;
+        const current = await fingerprints.fingerprintAgainst(targetPath, prevOutput);
+        if (!current || !sameFingerprint(current, prevOutput)) return undefined;
+      }
+      if (project.assetsFile) {
+        const prevAssets = stored.inputs[project.assetsFile];
+        if (!prevAssets) return undefined;
+        const current = await fingerprints.fingerprintAgainst(project.assetsFile, prevAssets);
+        if (!current || !sameFingerprint(current, prevAssets)) return undefined;
+      }
+      projects.push(plan(project, 'up-to-date', []));
+    }
+
+    return { createdAt: Date.now(), graphFingerprint, projects, requiresRestore: false };
+  }
+
   async createPlan(graph: EvaluatedBuildGraph, state?: StoredBuildState): Promise<SmartBuildPlan> {
+    const fastPlan = await this.tryFastPathPlan(graph, state);
+    if (fastPlan) return fastPlan;
+
     const graphFingerprint = fingerprintGraph(graph);
     const fingerprints = new FingerprintSession();
     const projects: ProjectBuildPlan[] = [];
@@ -170,7 +207,7 @@ function fingerprintProject(project: EvaluatedProjectVariant): string {
 
 async function fingerprintPaths(paths: readonly string[], session: FingerprintSession) {
   const result: Record<string, Awaited<ReturnType<FingerprintSession['fingerprint']>> & {}> = {};
-  const fingerprints = await Promise.all(paths.map(filePath => session.fingerprint(filePath)));
+  const fingerprints = await mapConcurrent(paths, 32, filePath => session.fingerprint(filePath));
   for (let index = 0; index < paths.length; index += 1) {
     const filePath = paths[index];
     const fingerprint = fingerprints[index];

@@ -95,3 +95,15 @@ export function parseWorkingTreeStatusV2(output: string): GitFileChange[] {
   }
   return files;
 }
+
+export function formatFullCommitInfo(detail: {
+  hash: string;
+  shortHash?: string;
+  subject: string;
+  message?: string;
+}): string {
+  const short = detail.shortHash || detail.hash.slice(0, 7);
+  const fullMessage = (detail.message || detail.subject || '').trim();
+  return `Commit:  ${detail.hash} (${short})\n${fullMessage}`;
+}
+

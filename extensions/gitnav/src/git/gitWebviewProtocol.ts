@@ -19,6 +19,7 @@ export const gitWebviewMessageTypes = [
   'copy',
   'openConflict',
   'compare',
+  'fileDiff',
   'mutate',
   'context',
   'contextAction'
@@ -32,6 +33,8 @@ export interface GitWebviewMessage {
   readonly hash?: string;
   readonly hashes?: string[];
   readonly path?: string;
+  readonly oldPath?: string;
+  readonly working?: boolean;
   readonly ref?: string;
   readonly refs?: string[];
   readonly query?: string;

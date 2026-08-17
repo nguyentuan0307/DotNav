@@ -69,7 +69,7 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   commitEmptyContinue: new GitActionPresentation('Commit Empty and Continue', 'Commit and Continue', 'normal', 'status'),
   editCommitMessage: new GitActionPresentation('Edit Commit Message', 'Edit Message', 'normal', 'status'),
   amendCommit: new GitActionPresentation('Amend Commit', 'Amend Commit', 'normal', 'status'),
-  copyFormatted: new GitActionPresentation('Copy Formatted Info', 'Copy Info', 'normal', 'silent'),
+  copyFormatted: new GitActionPresentation('Copy Full Commit Info', 'Copy Full Info', 'normal', 'silent'),
   stashFile: new GitActionPresentation('Stash File Changes', 'Stash File', 'normal', 'status')
 };
 
