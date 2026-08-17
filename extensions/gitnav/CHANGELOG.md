@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.1...gitnav-v0.14.0) (2026-08-17)
+
+
+### Features
+
+* **gitnav:** add quick copy formatted commit info workflow ([654c831](https://github.com/nguyentuan0307/DotNav/commit/654c8315d174ce6799cc152fac8ad7e10fa63ec2))
+* **gitnav:** add quick stash single file workflow ([437899e](https://github.com/nguyentuan0307/DotNav/commit/437899e56cb38fe5ec598d29f3aa314f94c91989))
+
+
 ## [0.13.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.0...gitnav-v0.13.1) (2026-08-17)
 
 
