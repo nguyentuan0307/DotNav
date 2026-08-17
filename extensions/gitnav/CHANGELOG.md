@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.14.0...gitnav-v0.15.0) (2026-08-17)
+
+
+### Features
+
+* **gitnav:** add inline git blame ghost text and status bar integration ([47ec08b](https://github.com/nguyentuan0307/DotNav/commit/47ec08b727648d137b180ba238c93358a1c537c2))
+* **gitnav:** optimize Git Log with quick diff preview, branch tracing, and instant search ([5c2fff0](https://github.com/nguyentuan0307/DotNav/commit/5c2fff07ee2524c3e9c7536276a9ccb467cae661))
+* **gitnav:** copy full commit information directly without quickpick selection ([b8797a6](https://github.com/nguyentuan0307/DotNav/commit/b8797a61e6894844c45b1b30bd291be78036837a))
+* **gitnav:** format copy commit info with exact sha and commit message format ([d122d07](https://github.com/nguyentuan0307/DotNav/commit/d122d07021bb80c9f78734b65896d983dd9ee85b))
+
+### Bug Fixes
+
+* **gitnav:** fix header button alignment and compact icon preview toggle in changed files ([3a4f4b2](https://github.com/nguyentuan0307/DotNav/commit/3a4f4b269eedac470f910ccf5c4ac0d53294c596))
+* **gitnav:** fix diff patch retrieval for merge commits and parent selections ([2f29b5c](https://github.com/nguyentuan0307/DotNav/commit/2f29b5c0512279076ac84be9e198d5338391c7d3))
+
+### Performance Improvements
+
+* **gitnav:** add viewport blame pre-warming and instant 0ms cached blame rendering ([323c6f2](https://github.com/nguyentuan0307/DotNav/commit/323c6f265fb81f5afb2d909a515df6a64054e9cd))
+
+### Changes
+
+* style(gitnav): synchronize diff preview eye icon with column visibility icon ([80807a5](https://github.com/nguyentuan0307/DotNav/commit/80807a51581f5afa82c9a4a25ff2858967e44908))
+* test(gitnav): add regression tests for real git diff on merge commits and additions ([3f24379](https://github.com/nguyentuan0307/DotNav/commit/3f243793de59324b7b7f6c35e7f1e247e66939c4))
+
+
 ## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.1...gitnav-v0.14.0) (2026-08-17)
 
 

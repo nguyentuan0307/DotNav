@@ -4,6 +4,24 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.13.0...dotnav-v0.14.0) (2026-08-17)
+
+
+### Features
+
+* **dotnav:** optimize build and debug with zero-config startup, 1-click process attach, and build diagnostics ([4837e78](https://github.com/nguyentuan0307/DotNav/commit/4837e78e8d94de43e872d68f7837ff32cc14b5b2))
+
+### Bug Fixes
+
+* **ci:** fix cross-platform path handling in processDiscovery and test suite on Linux/macOS ([f45f054](https://github.com/nguyentuan0307/DotNav/commit/f45f054a94ea617e629580e08ece7d380b9e81ec))
+
+### Performance Improvements
+
+* **dotnav:** optimize smart build with pre-warming, fast-path check, and targeted scoping ([29f5513](https://github.com/nguyentuan0307/DotNav/commit/29f5513cd016f6963698af7257fc6468c3d14e47))
+* **dotnav:** optimize standard MSBuild with parallel multi-core flags and streamline build commands ([86e734d](https://github.com/nguyentuan0307/DotNav/commit/86e734d1de5ba637bcf86833736e8c851d2e6d8b))
+* **dotnav:** add smart --no-restore auto-fallback and MSBuild acceleration flags with full .NET 6.0+ backward compatibility ([c6ee106](https://github.com/nguyentuan0307/DotNav/commit/c6ee106317cb831d9027ccf2635e1475a5636756))
+
+
 ## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.12.0...dotnav-v0.13.0) (2026-08-13)
 
 
