@@ -17,6 +17,23 @@ HostEnvironment instance;
 try
 {
     instance = ResolveDotnetSdk();
+    AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+    {
+        var assemblyName = new AssemblyName(args.Name);
+        var loaded = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName.Name, StringComparison.OrdinalIgnoreCase));
+        if (loaded != null) return loaded;
+
+        if (instance != null && !string.IsNullOrEmpty(instance.MSBuildPath))
+        {
+            var candidate = Path.Combine(instance.MSBuildPath, (assemblyName.Name ?? string.Empty) + ".dll");
+            if (File.Exists(candidate))
+            {
+                try { return Assembly.LoadFrom(candidate); } catch { }
+            }
+        }
+        return null;
+    };
     MSBuildLocator.RegisterMSBuildPath(instance.MSBuildPath);
 }
 catch (Exception error)
@@ -84,9 +101,15 @@ static HostEnvironment ResolveDotnetSdk()
         .Select(ParseSdk)
         .Where(item => item is not null)
         .Select(item => item!)
-        .Where(item => item.Version.Major == runtimeMajor)
         .OrderByDescending(item => item.Version)
         .ToArray();
+
+    var matchingCandidates = candidates.Where(item => item.Version.Major == runtimeMajor).ToArray();
+    if (matchingCandidates.Length > 0)
+    {
+        var selected = matchingCandidates[0];
+        return new HostEnvironment(selected.Path, selected.Version.ToString());
+    }
 
     if (candidates.Length > 0)
     {
@@ -95,7 +118,7 @@ static HostEnvironment ResolveDotnetSdk()
     }
 
     throw new InvalidOperationException(
-        $"No installed .NET SDK is compatible with the Build Host runtime major version {runtimeMajor}. " +
+        $"No installed .NET SDK was found. " +
         $"dotnet selected SDK {selectedVersion}.");
 }
 

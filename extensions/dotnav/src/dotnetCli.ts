@@ -133,6 +133,9 @@ function toTerminalText(value: string): string {
   return value.replace(/\r?\n/g, '\r\n');
 }
 
+import { buildOptimizationArgs, buildOptimizationFlags, shouldUseNoRestore } from './buildOptimizations';
+export { buildOptimizationArgs, buildOptimizationFlags, shouldUseNoRestore };
+
 export async function runDotnetForProject(
   project: ProjectModel,
   verb: 'build' | 'rebuild' | 'test' | 'clean',
@@ -140,9 +143,11 @@ export async function runDotnetForProject(
   options: { readonly noBuild?: boolean } = {}
 ): Promise<boolean> {
   const configuration = vscode.workspace.getConfiguration('dotnav').get<string>('buildConfiguration', 'Debug');
+  const optFlags = (verb === 'build' || verb === 'rebuild') ? ` ${buildOptimizationFlags()}` : '';
+  const noRestoreFlag = (verb === 'build' && !options.noBuild && shouldUseNoRestore(project.path, verb)) ? ' --no-restore' : '';
   const command = verb === 'rebuild'
-    ? `dotnet build "${project.path}" --configuration ${configuration} --no-incremental`
-    : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : ''}`;
+    ? `dotnet build "${project.path}" --configuration ${configuration} --no-incremental${optFlags}`
+    : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : noRestoreFlag}${optFlags}`;
   const task = new vscode.Task(
     { type: 'dotnet', task: verb, project: project.path },
     vscode.TaskScope.Workspace,
@@ -223,9 +228,10 @@ export async function runDotnetForSolution(
   const configuration = vscode.workspace
     .getConfiguration('dotnav')
     .get<string>('buildConfiguration', 'Debug');
+  const optArgs = operation !== 'clean' ? buildOptimizationArgs() : [];
   const args = operation === 'rebuild'
-    ? ['build', solutionPath, '--configuration', configuration, '--no-incremental']
-    : [operation, solutionPath, '--configuration', configuration];
+    ? ['build', solutionPath, '--configuration', configuration, '--no-incremental', ...optArgs]
+    : [operation, solutionPath, '--configuration', configuration, ...optArgs];
   const target = solutionTaskTarget(solution);
   const task = new vscode.Task(
     { type: 'dotnet', task: operation, solution: solutionPath },
@@ -326,7 +332,9 @@ export async function runDotnetForProjects(
         `build ${folderName} (${projects.length} projects)`,
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
-          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`
+          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true', '-p:AccelerateBuildsInVisualStudio=true',
+          '-clp:NoSummary;Verbosity=minimal'
         ], { cwd: folderPath }),
         ['$msCompile']
       );

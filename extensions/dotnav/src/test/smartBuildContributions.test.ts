@@ -5,45 +5,30 @@ import { test } from 'node:test';
 
 const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
 
-test('manifest exposes separate Build and Smart Build commands at every supported scope', () => {
+test('manifest exposes standard Build, Rebuild, and Clean commands at every supported scope', () => {
   const commands = new Set(manifest.contributes.commands.map((item: { command: string }) => item.command));
   for (const command of [
-    'dotnav.buildProject', 'dotnav.smartBuildProject',
-    'dotnav.buildFolderProjects', 'dotnav.smartBuildFolderProjects',
-    'dotnav.buildSolution', 'dotnav.smartBuildSolution',
-    'dotnav.explainSmartBuildPlan', 'dotnav.invalidateSmartBuildCache'
-  ]) assert.ok(commands.has(command), `${command} must be declared`);
-  assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.maxParallelBuilds'].minimum, 1);
-  assert.deepEqual(manifest.contributes.configuration.properties['dotnav.smartBuild.mode'].enum, ['execute', 'shadow']);
-  assert.deepEqual(manifest.contributes.configuration.properties['dotnav.buildBeforeRunMode'].enum, ['standard', 'smart', 'none']);
-  assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.generateBinaryLog'].default, false);
-});
-
-test('Smart Build is an opt-in preview', () => {
-  const manifest = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8'));
-  const enabled = manifest.contributes.configuration.properties['dotnav.smartBuild.enabled'];
-  assert.equal(enabled.default, false);
-  assert.ok(enabled.tags.includes('experimental'));
-  for (const command of manifest.contributes.commands.filter((item: { command: string }) => item.command.includes('smartBuild') || item.command.includes('SmartBuild'))) {
-    assert.match(command.title, /Preview/);
+    'dotnav.buildProject', 'dotnav.rebuildProject', 'dotnav.cleanProject',
+    'dotnav.buildFolderProjects',
+    'dotnav.buildSolution', 'dotnav.rebuildSolution', 'dotnav.cleanSolution'
+  ]) {
+    assert.ok(commands.has(command), `${command} must be declared`);
   }
+  assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.enabled'], undefined);
+  assert.equal(manifest.contributes.configuration.properties['dotnav.smartBuild.mode'], undefined);
 });
 
-test('new opt-in features share one version-aware announcement picker', () => {
-  const extensionSource = readFileSync(path.resolve(__dirname, '..', 'extension.js'), 'utf8');
-  const announcementSource = readFileSync(path.resolve(__dirname, '..', 'featureAnnouncements.js'), 'utf8');
-  const localHistorySource = readFileSync(path.resolve(__dirname, '..', 'localHistory', 'localHistoryMain.js'), 'utf8');
-  assert.match(extensionSource, /showFeatureAnnouncements/);
-  assert.match(announcementSource, /canPickMany:\s*true/);
-  assert.match(announcementSource, /Smart Build \(Preview\)/);
-  assert.match(announcementSource, /Local History \(Preview\)/);
-  assert.doesNotMatch(localHistorySource, /New in DotNav/);
-});
-
-test('all Smart Build commands activate the extension explicitly', () => {
-  const activations = new Set(manifest.activationEvents);
-  for (const command of [
-    'dotnav.smartBuildProject', 'dotnav.smartBuildFolderProjects', 'dotnav.smartBuildSolution',
-    'dotnav.explainSmartBuildPlan', 'dotnav.invalidateSmartBuildCache'
-  ]) assert.ok(activations.has(`onCommand:${command}`), command);
+test('build optimization helper flags are defined', () => {
+  const { buildOptimizationFlags, buildOptimizationArgs } = require('../buildOptimizations') as typeof import('../buildOptimizations');
+  assert.match(buildOptimizationFlags(), /-maxcpucount/);
+  assert.match(buildOptimizationFlags(), /BuildInParallel=true/);
+  assert.match(buildOptimizationFlags(), /UseSharedCompilation=true/);
+  assert.match(buildOptimizationFlags(), /AccelerateBuildsInVisualStudio=true/);
+  assert.deepEqual(buildOptimizationArgs(), [
+    '-maxcpucount',
+    '-p:BuildInParallel=true',
+    '-p:UseSharedCompilation=true',
+    '-p:AccelerateBuildsInVisualStudio=true',
+    '-clp:NoSummary;Verbosity=minimal'
+  ]);
 });

@@ -606,13 +606,12 @@ test('supports quick copy formatted commit info workflow', () => {
   const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
 
   // Provider contributes copyFormatted action
-  assert.match(provider, /contextAction\('copyFormatted', 'Copy Formatted Info…', 'more'\)/);
+  assert.match(provider, /contextAction\('copyFormatted', 'Copy Full Commit Info', 'more'\)/);
   assert.match(provider, /if \(action === 'copyFormatted' && message\.hash\)/);
-  assert.match(provider, /Short Hash \+ Subject/);
-  assert.match(provider, /Markdown Link/);
+  assert.match(provider, /formatFullCommitInfo\(detail\)/);
 
   // Webview contains label
-  assert.match(webview, /copyFormatted:'Copy Formatted Info…'/);
+  assert.match(webview, /copyFormatted:'Copy Full Commit Info'/);
 });
 
 test('supports quick stash single file workflow', () => {
@@ -632,3 +631,18 @@ test('supports quick stash single file workflow', () => {
   // Webview contains label
   assert.match(webview, /stashFile:'Stash File Changes…'/);
 });
+
+test('contributes inline blame commands and configuration', () => {
+  const commandIds = new Set(gitnavManifest.contributes.commands.map((c: { command: string }) => c.command));
+  assert.ok(commandIds.has('gitnav.toggleInlineBlame'), 'missing gitnav.toggleInlineBlame command');
+  assert.ok(commandIds.has('gitnav.showBlameDetails'), 'missing gitnav.showBlameDetails command');
+
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.toggleInlineBlame'));
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.showBlameDetails'));
+
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.enabled']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.showOnStatusBar']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.delay']);
+  assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.format']);
+});
+

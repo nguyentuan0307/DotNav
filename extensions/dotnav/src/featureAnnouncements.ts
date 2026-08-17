@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { isSmartBuildEnabled, updateSmartBuildEnabled } from './build/smartBuildFeature';
 
 const lastAnnouncementVersionKey = 'dotnav.featureAnnouncements.lastVersion';
 
@@ -10,14 +9,6 @@ interface PreviewFeature extends vscode.QuickPickItem {
 }
 
 const previewFeatures: PreviewFeature[] = [
-  {
-    label: '$(zap) Smart Build (Preview)',
-    description: 'Detect affected projects and skip outputs proven current',
-    detail: 'Off by default. Standard Build remains available and unchanged.',
-    introducedIn: '0.12.0',
-    enabled: isSmartBuildEnabled,
-    update: updateSmartBuildEnabled
-  },
   {
     label: '$(history) Local History (Preview)',
     description: 'Keep private local revisions for compare and recovery',

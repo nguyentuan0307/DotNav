@@ -50,6 +50,8 @@
     "onCommand:gitnav.compareFileWithCommit",
     "onCommand:gitnav.compareSelectionWithBranch",
     "onCommand:gitnav.revealLastChangeInGitLog",
+    "onCommand:gitnav.toggleInlineBlame",
+    "onCommand:gitnav.showBlameDetails",
     "onCommand:gitnav.openFileAtRevision",
     "onCommand:gitnav.openSettings"
   ],
@@ -108,6 +110,16 @@
         "command": "gitnav.revealLastChangeInGitLog",
         "title": "Reveal Last Change in Git Log",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitnav.toggleInlineBlame",
+        "title": "Toggle Inline Blame",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitnav.showBlameDetails",
+        "title": "Show Blame Details",
+        "icon": "$(info)"
       },
       {
         "command": "gitnav.openFileAtRevision",
@@ -181,6 +193,27 @@
     "configuration": {
       "title": "GitNav",
       "properties": {
+        "gitnav.inlineBlame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display inline Git blame annotations at the end of the active editor line. Automatically defaults to false if an external Git blame extension (such as Git Blame or GitLens) is installed."
+        },
+        "gitnav.inlineBlame.showOnStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display line blame information in the status bar. Automatically defaults to false if an external Git blame extension is installed."
+        },
+        "gitnav.inlineBlame.delay": {
+          "type": "number",
+          "default": 150,
+          "minimum": 0,
+          "description": "Debounce delay in milliseconds before updating inline blame."
+        },
+        "gitnav.inlineBlame.format": {
+          "type": "string",
+          "default": "${author}, ${timeAgo} • ${summary}",
+          "description": "Format template for inline blame annotations. Placeholders: ${author}, ${timeAgo}, ${date}, ${summary}, ${hash}, ${shortHash}."
+        },
         "gitnav.history.maxCommits": {
           "type": "number",
           "default": 50,

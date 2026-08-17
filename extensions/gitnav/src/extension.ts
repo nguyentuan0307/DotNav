@@ -8,12 +8,16 @@ import { GitLogViewProvider } from './git/gitLogViewProvider';
 import { GitRepositoryService } from './git/gitRepositoryService';
 import { GitRevisionProvider, gitRevisionScheme } from './git/gitRevisionProvider';
 import { subscribeToBuiltInGitChanges } from './git/gitLocalSync';
+import { InlineBlameController } from './git/inlineBlameController';
 import { openFileAtRevision } from './git/revisionCommands';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const branchCompareProvider = new BranchCompareDocumentProvider();
   const repositoryService = new GitRepositoryService();
   const gitLogProvider = new GitLogViewProvider(repositoryService, context.extensionUri, context.workspaceState);
+  const inlineBlameController = new InlineBlameController((repoRoot, hash) =>
+    gitLogProvider.revealCommit(repoRoot, hash)
+  );
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('gitnav-compare', branchCompareProvider),
@@ -22,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       webviewOptions: { retainContextWhenHidden: true }
     }),
     gitLogProvider,
+    inlineBlameController,
     vscode.commands.registerCommand('gitnav.showFileHistory', () => showFileHistory(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', () => showHistoryForCurrentLine(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForSelection', () => showHistoryForSelection(context)),
@@ -29,6 +34,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('gitnav.compareFileWithCommit', () => compareFileWithCommit(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.revealLastChangeInGitLog', () => revealLastChangeInGitLog(gitLogProvider)),
+    vscode.commands.registerCommand('gitnav.toggleInlineBlame', async () => {
+      const enabled = await inlineBlameController.toggle();
+      vscode.window.showInformationMessage(`GitNav: Inline Blame ${enabled ? 'enabled' : 'disabled'}`);
+    }),
+    vscode.commands.registerCommand('gitnav.showBlameDetails', () => inlineBlameController.showBlameDetails()),
+    vscode.commands.registerCommand('gitnav.revealCommitFromBlame', async (repoRoot: string, hash: string) => {
+      await gitLogProvider.revealCommit(repoRoot, hash);
+    }),
+    vscode.commands.registerCommand('gitnav.copyCommitSha', async (hash: string) => {
+      await vscode.env.clipboard.writeText(hash);
+      vscode.window.showInformationMessage(`Copied commit SHA: ${hash.substring(0, 7)}`);
+    }),
     vscode.commands.registerCommand('gitnav.openFileAtRevision', openFileAtRevision),
     vscode.commands.registerCommand('gitnav.openSettings', () =>
       vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tuna-ex.gitnav-workflows')),

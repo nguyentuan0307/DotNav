@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
+import { formatFullCommitInfo, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
 
 test('parses delimiter-safe decorated log records and merge parents', () => {
   const output = '\x1eabc\x1fabc1234\x1fp1 p2\x1fsubject\x1fJane\x1fjane@example.com\x1f1700000000\x1fHEAD -> refs/heads/main, tag: refs/tags/v1\n';
@@ -52,3 +52,19 @@ test('parses porcelain v2 ordinary, rename, conflict, and untracked entries', ()
     { status: 'M', path: 'src/line\nbreak.cs', oldPath: undefined, additions: 0, deletions: 0, conflict: false }
   ]);
 });
+
+test('formats comprehensive full commit info text for clipboard', () => {
+  const info = formatFullCommitInfo({
+    hash: '3f243793de59324b7b7f6c35e7f1e247e66939c4',
+    shortHash: '3f24379',
+    subject: 'test(gitnav): add regression tests for real git diff on merge commits and additions',
+    message: 'test(gitnav): add regression tests for real git diff on merge commits and additions'
+  });
+
+  assert.equal(
+    info,
+    'Commit:  3f243793de59324b7b7f6c35e7f1e247e66939c4 (3f24379)\ntest(gitnav): add regression tests for real git diff on merge commits and additions'
+  );
+});
+
+
