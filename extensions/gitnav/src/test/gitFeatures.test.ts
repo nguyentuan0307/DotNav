@@ -614,3 +614,21 @@ test('supports quick copy formatted commit info workflow', () => {
   // Webview contains label
   assert.match(webview, /copyFormatted:'Copy Formatted Info…'/);
 });
+
+test('supports quick stash single file workflow', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const webview = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  // Provider contributes stashFile action for workingFile
+  assert.match(provider, /if \(kind === 'workingFile'\)/);
+  assert.match(provider, /contextAction\('stashFile', 'Stash File Changes…', 'more'\)/);
+  assert.match(provider, /if \(action === 'stashFile'\)/);
+
+  // Mutation runner scopes stash push to paths
+  assert.match(mutations, /const paths = Array\.isArray\(request\.options\?\.paths\)/);
+  assert.match(mutations, /\.\.\.\(paths\.length \? \['--', \.\.\.paths\] : \[\]\)/);
+
+  // Webview contains label
+  assert.match(webview, /stashFile:'Stash File Changes…'/);
+});

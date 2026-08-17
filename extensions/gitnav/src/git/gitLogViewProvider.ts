@@ -613,6 +613,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const value = await vscode.window.showInputBox({ title: 'Stash Changes', prompt: 'Stash message', value: `WIP on ${new Date().toLocaleString()}` });
       return value === undefined ? undefined : { action, options: { message: value, includeUntracked: true } };
     }
+    if (action === 'stashFile') {
+      const fileName = message.path ? path.basename(message.path) : 'file';
+      const value = await vscode.window.showInputBox({
+        title: `Stash File Changes · ${fileName}`,
+        prompt: 'Stash message',
+        value: `WIP on ${message.path ?? fileName}`
+      });
+      if (value === undefined) return undefined;
+      return { action: 'stash', path: message.path, options: { message: value, includeUntracked: true, paths: message.path ? [message.path] : [] } };
+    }
     if (action === 'createBranch') {
       const name = await vscode.window.showInputBox({ title: 'New Branch', prompt: 'Branch name', validateInput: validateRefName });
       if (!name) return undefined;
@@ -1060,7 +1070,7 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
     contextAction('copy', 'Copy Path', 'more'), contextAction('copyRelative', 'Copy Relative Path', 'more'), contextAction('revertFile', 'Revert This Commit’s File Changes', 'more'),
     contextAction('getFile', 'Restore File from Revision', 'danger')
   ];
-  if (kind === 'workingFile') return [contextAction('workingFileDiff', 'Show Diff'), contextAction('openFile', 'Open in Editor'), contextAction('rollbackFile', 'Discard File Changes', 'danger')];
+  if (kind === 'workingFile') return [contextAction('workingFileDiff', 'Show Diff'), contextAction('openFile', 'Open in Editor'), contextAction('stashFile', 'Stash File Changes…', 'more'), contextAction('rollbackFile', 'Discard File Changes', 'danger')];
   if (kind === 'worktree') return [contextAction('openWorktree', 'Open in New Window'), contextAction('worktreeTerminal', 'Open Terminal'), contextAction('worktreePrune', 'Prune Worktrees', 'more'), contextAction('worktreeRemove', 'Remove Worktree', 'danger')];
   if (kind === 'worktreeCurrent') return [contextAction('worktreeTerminal', 'Open Terminal'), contextAction('worktreePrune', 'Prune Worktrees', 'more')];
   return [];

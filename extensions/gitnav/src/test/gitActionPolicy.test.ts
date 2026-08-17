@@ -8,6 +8,7 @@ test('uses consistent user-facing labels', () => {
   assert.equal(actionLabel('editCommitMessage'), 'Edit Commit Message');
   assert.equal(actionLabel('amendCommit'), 'Amend Commit');
   assert.equal(actionLabel('copyFormatted'), 'Copy Formatted Info');
+  assert.equal(actionLabel('stashFile'), 'Stash File Changes');
   assert.equal(actionLabel('unknownAction'), 'Git Operation');
 });
 
@@ -27,6 +28,7 @@ test('keeps low-value feedback quiet', () => {
   assert.equal(actionFeedback('pushAfterUpdate'), 'status');
   assert.equal(actionFeedback('editCommitMessage'), 'status');
   assert.equal(actionFeedback('amendCommit'), 'status');
+  assert.equal(actionFeedback('stashFile'), 'status');
   assert.equal(actionFeedback('reset'), 'toast');
 });
 
@@ -38,6 +40,7 @@ test('marks only potentially destructive action families as dangerous', () => {
   assert.equal(isDangerousAction('editCommitMessage'), false);
   assert.equal(isDangerousAction('amendCommit'), false);
   assert.equal(isDangerousAction('copyFormatted'), false);
+  assert.equal(isDangerousAction('stashFile'), false);
 });
 
 test('reserves cancellable notification progress for potentially long operations', () => {

@@ -190,7 +190,18 @@ export class GitMutationRunner {
       case 'revert': return ['revert', ...(request.hashes ?? [ref])];
       case 'undoCommit': return ['reset', '--soft', 'HEAD^'];
       case 'reset': return ['reset', `--${String(request.options?.mode ?? 'mixed')}`, ref];
-      case 'stash': return ['stash', 'push', ...(request.options?.includeUntracked ? ['--include-untracked'] : []), ...(request.options?.keepIndex ? ['--keep-index'] : []), '-m', String(request.options?.message ?? '')];
+      case 'stash': {
+        const paths = Array.isArray(request.options?.paths)
+          ? (request.options.paths as string[])
+          : (request.path ? [request.path] : []);
+        return [
+          'stash', 'push',
+          ...(request.options?.includeUntracked ? ['--include-untracked'] : []),
+          ...(request.options?.keepIndex ? ['--keep-index'] : []),
+          '-m', String(request.options?.message ?? ''),
+          ...(paths.length ? ['--', ...paths] : [])
+        ];
+      }
       case 'stashApply': return ['stash', 'apply', ref];
       case 'stashPop': return ['stash', 'pop', ref];
       case 'stashDrop': return ['stash', 'drop', ref];
