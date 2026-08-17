@@ -10,6 +10,12 @@ test('accepts known Git webview messages', () => {
     type: 'detail',
     hash: 'abc123'
   });
+  assert.deepEqual(parseGitWebviewMessage({ type: 'fileDiff', path: 'src/main.ts', hash: 'abc123', parent: 1 }), {
+    type: 'fileDiff',
+    path: 'src/main.ts',
+    hash: 'abc123',
+    parent: 1
+  });
 });
 
 test('rejects malformed and unknown Git webview messages', () => {

@@ -316,6 +316,20 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
       if (message.type === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent);
       if (message.type === 'workingDiff' && message.path) return await vscode.commands.executeCommand('git.openChange', vscode.Uri.file(path.join(this.root, message.path)));
+      if (message.type === 'fileDiff' && message.path) {
+        const root = this.root;
+        const channel = `diff:${message.path}`;
+        const read = this.beginRead(channel, root, message.generation);
+        try {
+          const patch = await this.service.filePatch(root, message.path, message.hash, message.parent, message.working, read.source.token);
+          if (this.requests.isCurrent(channel, read.identity, this.root)) {
+            this.post({ type: 'fileDiffResult', path: message.path, patch, hash: message.hash, working: message.working, identity: read.identity });
+          }
+        } finally {
+          this.finishRead(channel, read.source);
+        }
+        return;
+      }
       if (message.type === 'openFile' && message.path) {
         await this.openWorkingTreeFile(this.root, message.path, message.hash);
         return;

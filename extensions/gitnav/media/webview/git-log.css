@@ -1698,6 +1698,100 @@ mark.search-match {
   min-width: 0;
 }
 
+.preview-toggle-btn {
+  height: 26px;
+  padding: 0 7px;
+  font-size: 11px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.preview-toggle-btn:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.preview-toggle-btn.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.diff-preview-pane {
+  display: flex;
+  flex-direction: column;
+  height: 42%;
+  min-height: 120px;
+  max-height: 60%;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+}
+
+.diff-preview-pane[hidden] {
+  display: none !important;
+}
+
+.diff-preview-header {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  gap: 6px;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 11px;
+}
+
+.diff-preview-path {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-foreground);
+}
+
+.diff-preview-body {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0;
+  font: 12px/1.45 var(--vscode-editor-font-family, monospace);
+  user-select: text;
+}
+
+.diff-line {
+  padding: 0 8px;
+  white-space: pre;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.diff-line.diff-add {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+  background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 12%, transparent);
+}
+
+.diff-line.diff-del {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+  background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground) 12%, transparent);
+}
+
+.diff-line.diff-hunk {
+  color: var(--vscode-charts-purple, #b180d7);
+  background: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) 10%, transparent);
+  font-weight: 600;
+  margin: 4px 0 2px;
+}
+
+.diff-line.diff-meta {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.75;
+}
+
+.diff-line.diff-ctx {
+  color: var(--vscode-foreground);
+}
+
 .diff-preview {
   overflow: auto;
   white-space: pre;

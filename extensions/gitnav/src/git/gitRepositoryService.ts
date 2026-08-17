@@ -274,6 +274,39 @@ export class GitRepositoryService {
     if (result.exitCode !== 0) throw new GitCommandError(['apply', '--reverse'], result.stderr, result.exitCode);
   }
 
+  async filePatch(
+    root: string,
+    filePath: string,
+    hash?: string,
+    parent?: number,
+    working?: boolean,
+    token?: vscode.CancellationToken
+  ): Promise<string> {
+    try {
+      if (working) {
+        const res = await runGit(root, ['diff', '-U3', '--', filePath], token);
+        if (res.exitCode === 0 && res.stdout.trim()) {
+          return res.stdout;
+        }
+        const stagedRes = await runGit(root, ['diff', '--cached', '-U3', '--', filePath], token);
+        return stagedRes.exitCode === 0 ? stagedRes.stdout : '';
+      }
+
+      if (hash) {
+        const parentArg = parent && parent > 1 ? `${hash}^${parent}..${hash}` : `${hash}^!`;
+        const res = await runGit(root, ['diff', '-U3', parentArg, '--', filePath], token);
+        if (res.exitCode === 0 && res.stdout.trim()) {
+          return res.stdout;
+        }
+        const showRes = await runGit(root, ['show', '--format=', '-U3', hash, '--', filePath], token);
+        return showRes.exitCode === 0 ? showRes.stdout : '';
+      }
+    } catch {
+      // Ignored for graceful fallback
+    }
+    return '';
+  }
+
   async workingTreeFiles(root: string, token?: vscode.CancellationToken): Promise<GitFileChange[]> {
     const result = await this.git(root, ['status', '--porcelain=v1', '-z'], token);
     return parseWorkingTreeStatus(result.stdout);
