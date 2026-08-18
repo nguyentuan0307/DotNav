@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.14.0...dotnav-v0.15.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add empty migration generator, visual timeline & connection ping to EF Core Center ([d2bd05f](https://github.com/nguyentuan0307/DotNav/commit/d2bd05f19dedf181cb80f2b55f9fed8fcdad1dd0))
+
+
 ## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.13.0...dotnav-v0.14.0) (2026-08-17)
 
 
