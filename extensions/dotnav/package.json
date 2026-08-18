@@ -415,6 +415,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "dotnav.ef.createEmptyMigration",
+        "title": "Create Empty Migration...",
+        "category": "EF Core",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "dotnav.ef.removeLastMigration",
         "title": "Remove Last Migration",
         "category": "EF Core"
@@ -949,12 +955,16 @@
           "group": "1_migrations@1"
         },
         {
-          "command": "dotnav.ef.removeLastMigration",
+          "command": "dotnav.ef.createEmptyMigration",
           "group": "1_migrations@2"
         },
         {
-          "command": "dotnav.ef.listMigrations",
+          "command": "dotnav.ef.removeLastMigration",
           "group": "1_migrations@3"
+        },
+        {
+          "command": "dotnav.ef.listMigrations",
+          "group": "1_migrations@4"
         },
         {
           "command": "dotnav.ef.updateDatabase",

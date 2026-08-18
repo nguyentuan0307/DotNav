@@ -5,6 +5,7 @@ export type EfActionIcon =
 
 export type EfActionId =
   | 'dotnav.ef.addMigration'
+  | 'dotnav.ef.createEmptyMigration'
   | 'dotnav.ef.removeLastMigration'
   | 'dotnav.ef.listMigrations'
   | 'dotnav.ef.updateDatabase'
@@ -37,6 +38,13 @@ export const efActionDefinitions: readonly EfActionDefinition[] = [
     label: 'Add Migration',
     icon: 'add',
     description: 'Capture the current model changes in a new migration.'
+  },
+  {
+    id: 'dotnav.ef.createEmptyMigration',
+    group: 'Migrations',
+    label: 'Create Empty Migration',
+    icon: 'code',
+    description: 'Create an empty migration boilerplate instantly without running dotnet ef.'
   },
   {
     id: 'dotnav.ef.removeLastMigration',

@@ -53,9 +53,9 @@ test('the destructive action sits in its own trailing group', () => {
   assert.ok(others.every(item => !/^9_/.test(item.group ?? '')));
 });
 
-test('the project submenu contains nine contextual actions and keeps maintenance in the Center toolbar', () => {
+test('the project submenu contains ten contextual actions and keeps maintenance in the Center toolbar', () => {
   const entries = manifest.contributes.menus['dotnav.efCore'];
-  assert.equal(entries.length, 9);
+  assert.equal(entries.length, 10);
   for (const maintenance of [
     'dotnav.ef.refresh',
     'dotnav.ef.showOutput',
