@@ -2,7 +2,7 @@
   "name": "gitnav-workflows",
   "displayName": "GitNav: Visual Git History & Workflows",
   "description": "Explore visual Git history, compare branches and code, and run guarded Git workflows directly in Visual Studio Code.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -196,12 +196,12 @@
         "gitnav.inlineBlame.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Display inline Git blame annotations at the end of the active editor line. Automatically defaults to false if an external Git blame extension (such as Git Blame or GitLens) is installed."
+          "description": "Display inline Git blame annotations at the end of the active editor line."
         },
         "gitnav.inlineBlame.showOnStatusBar": {
           "type": "boolean",
           "default": true,
-          "description": "Display line blame information in the status bar. Automatically defaults to false if an external Git blame extension is installed."
+          "description": "Display line blame information in the status bar."
         },
         "gitnav.inlineBlame.delay": {
           "type": "number",

@@ -1,8 +1,11 @@
 import { detectEol } from '../textLines';
+import { formatBinaryExpressions } from './binaryExpression';
 import { normalizeBlankLines } from './blankLines';
 import { formatFluentChains } from './fluentChain';
 import { formatLeadingCommas } from './leadingComma';
 import { normalizeIndentWhitespace } from './normalizeIndentWhitespace';
+import { formatSwitchExpressions } from './switchExpression';
+import { formatTernaryExpressions } from './ternaryExpression';
 import { FormatPassSettings, PassContext } from './types';
 
 export function runFormatPasses(text: string, settings: FormatPassSettings, partialContext: Partial<PassContext> = {}): string {
@@ -28,6 +31,15 @@ export function runFormatPasses(text: string, settings: FormatPassSettings, part
   }
   if (settings.enableFluentChainWrap) {
     result = formatFluentChains(result, ctx);
+  }
+  if (settings.enableBinaryExpressionWrap !== false) {
+    result = formatBinaryExpressions(result, ctx);
+  }
+  if (settings.enableTernaryAlignment !== false) {
+    result = formatTernaryExpressions(result, ctx);
+  }
+  if (settings.enableSwitchExpressionAlignment !== false) {
+    result = formatSwitchExpressions(result, ctx);
   }
   if (settings.enableBlankLineRules) {
     result = normalizeBlankLines(result);
