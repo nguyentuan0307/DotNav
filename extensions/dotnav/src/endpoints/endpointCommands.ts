@@ -68,6 +68,18 @@ export async function searchEndpointsInteractive(
   const updateItems = (query: string) => {
     const results = searchEndpoints(allEndpoints, query, 150);
 
+    if (results.length === 0 && query.trim().length > 0) {
+      quickPick.items = [
+        {
+          label: `$(info) No API endpoints found matching "${query}"`,
+          description: 'Try searching with wildcards (e.g. fields//validation), acronyms (iv/ff), or HTTP verbs (GET fields)',
+          alwaysShow: true,
+          isAction: true
+        }
+      ];
+      return;
+    }
+
     quickPick.items = results.map(res => {
       const ep = res.endpoint;
       const methodBadge = `[${ep.httpMethod}]`;
@@ -79,6 +91,7 @@ export async function searchEndpointsInteractive(
         label: `${methodBadge} ${route}`,
         description: desc,
         detail,
+        alwaysShow: true,
         endpoint: ep,
         searchResult: res,
         buttons: [
@@ -134,7 +147,7 @@ export async function searchEndpointsInteractive(
   quickPick.onDidAccept(async () => {
     const selected = quickPick.selectedItems[0];
     quickPick.hide();
-    if (!selected || !selected.endpoint) return;
+    if (!selected || !selected.endpoint || selected.isAction) return;
 
     const ep = selected.endpoint;
     try {
