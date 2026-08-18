@@ -84,6 +84,10 @@ test('git diff correctly retrieves patches for additions, merge commits, and roo
     writeFileSync(path.join(root, 'root.txt'), 'modified locally\n');
     const workingPatch = git('diff', '-U3', '--', 'root.txt');
     assert.ok(workingPatch.includes('+modified locally'));
+
+    // Test branch compare between main and feature-branch
+    const branchDiffPatch = git('diff', '-U3', 'feature-branch...main', '--', 'main-update.txt');
+    assert.ok(branchDiffPatch.includes('+main line'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
