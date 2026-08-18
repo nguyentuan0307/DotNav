@@ -199,3 +199,35 @@ export function searchEndpoints(
 
   return results.slice(0, limit);
 }
+
+export function formatEndpointAsHttp(endpoint: ApiEndpoint): string {
+  const host = 'https://localhost:5001';
+  const cleanRoute = endpoint.routeTemplate.replace(/^\/+/, '');
+  const method = endpoint.httpMethod === 'ANY' ? 'GET' : endpoint.httpMethod;
+
+  const lines = [
+    `### ${endpoint.actionName || endpoint.controllerName || 'API Request'}`,
+    `${method} ${host}/${cleanRoute}`,
+    'Accept: application/json'
+  ];
+
+  if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    lines.push('Content-Type: application/json');
+    lines.push('');
+    lines.push('{\n  \n}');
+  }
+
+  return lines.join('\n');
+}
+
+export function formatEndpointAsCurl(endpoint: ApiEndpoint): string {
+  const host = 'https://localhost:5001';
+  const cleanRoute = endpoint.routeTemplate.replace(/^\/+/, '');
+  const method = endpoint.httpMethod === 'ANY' ? 'GET' : endpoint.httpMethod;
+
+  if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    return `curl -X ${method} "${host}/${cleanRoute}" -H "Accept: application/json" -H "Content-Type: application/json" -d '{}'`;
+  }
+  return `curl -X ${method} "${host}/${cleanRoute}" -H "Accept: application/json"`;
+}
+

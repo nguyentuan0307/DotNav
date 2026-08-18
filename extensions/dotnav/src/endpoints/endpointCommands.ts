@@ -3,32 +3,16 @@ import * as vscode from 'vscode';
 import { DotnetTreeProvider } from '../treeProvider';
 import { ApiEndpoint, EndpointSearchResult } from './endpointModel';
 import { EndpointIndex } from './endpointScanner';
-import { searchEndpoints } from './endpointSearch';
+import {
+  formatEndpointAsCurl,
+  formatEndpointAsHttp,
+  searchEndpoints
+} from './endpointSearch';
 
 export interface EndpointQuickPickItem extends vscode.QuickPickItem {
   readonly endpoint?: ApiEndpoint;
   readonly searchResult?: EndpointSearchResult;
   readonly isAction?: boolean;
-}
-
-export function formatEndpointAsHttp(endpoint: ApiEndpoint): string {
-  const host = 'https://localhost:5001';
-  const cleanRoute = endpoint.routeTemplate.replace(/^\/+/, '');
-  const method = endpoint.httpMethod === 'ANY' ? 'GET' : endpoint.httpMethod;
-
-  const lines = [
-    `### ${endpoint.actionName || endpoint.controllerName || 'API Request'}`,
-    `${method} ${host}/${cleanRoute}`,
-    'Accept: application/json'
-  ];
-
-  if (['POST', 'PUT', 'PATCH'].includes(method)) {
-    lines.push('Content-Type: application/json');
-    lines.push('');
-    lines.push('{\n  \n}');
-  }
-
-  return lines.join('\n');
 }
 
 export async function populateEndpointIndexFromSolution(
@@ -102,6 +86,10 @@ export async function searchEndpointsInteractive(
           {
             iconPath: new vscode.ThemeIcon('code'),
             tooltip: 'Copy as .http Request'
+          },
+          {
+            iconPath: new vscode.ThemeIcon('terminal'),
+            tooltip: 'Copy as cURL Command'
           }
         ]
       };
@@ -125,6 +113,10 @@ export async function searchEndpointsInteractive(
       const httpPayload = formatEndpointAsHttp(ep);
       await vscode.env.clipboard.writeText(httpPayload);
       vscode.window.showInformationMessage(`Copied .http request for [${ep.httpMethod}] ${ep.routeTemplate}`);
+    } else if (event.button.tooltip === 'Copy as cURL Command') {
+      const curlPayload = formatEndpointAsCurl(ep);
+      await vscode.env.clipboard.writeText(curlPayload);
+      vscode.window.showInformationMessage(`Copied cURL command for [${ep.httpMethod}] ${ep.routeTemplate}`);
     }
   });
 

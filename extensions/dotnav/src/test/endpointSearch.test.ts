@@ -1,7 +1,12 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiEndpoint } from '../endpoints/endpointModel';
-import { parseSearchQuery, searchEndpoints } from '../endpoints/endpointSearch';
+import {
+  formatEndpointAsCurl,
+  formatEndpointAsHttp,
+  parseSearchQuery,
+  searchEndpoints
+} from '../endpoints/endpointSearch';
 
 const mockEndpoints: ApiEndpoint[] = [
   {
@@ -112,4 +117,20 @@ test('searchEndpoints matches by controller and action names', () => {
   const results2 = searchEndpoints(mockEndpoints, 'UsersController');
   assert.ok(results2.length >= 2);
   assert.equal(results2[0].endpoint.controllerName, 'UsersController');
+});
+
+test('formatEndpointAsHttp formats valid HTTP request', () => {
+  const http = formatEndpointAsHttp(mockEndpoints[0]);
+  assert.match(http, /^### GetFilterFields/);
+  assert.match(http, /GET https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields/);
+  assert.match(http, /Accept: application\/json/);
+});
+
+test('formatEndpointAsCurl formats valid cURL command', () => {
+  const curlGet = formatEndpointAsCurl(mockEndpoints[0]);
+  assert.match(curlGet, /^curl -X GET "https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields"/);
+
+  const curlPost = formatEndpointAsCurl(mockEndpoints[1]);
+  assert.match(curlPost, /^curl -X POST "https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields"/);
+  assert.match(curlPost, /-H "Content-Type: application\/json"/);
 });
