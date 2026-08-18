@@ -25,12 +25,14 @@ import {
 import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
+import { EndpointIndex, refreshEndpointsInteractive, searchEndpointsInteractive } from './endpoints';
 
 let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
+  const endpointIndex = new EndpointIndex();
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
     configId => {
@@ -91,6 +93,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
+    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEndpointsInteractive(provider, endpointIndex)),
+    vscode.commands.registerCommand('dotnav.refreshApiEndpoints', () => refreshEndpointsInteractive(provider, endpointIndex)),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnav.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnav.openSolutionFile', () => openSolutionFile(provider)),
@@ -198,7 +202,7 @@ export function activate(context: vscode.ExtensionContext): void {
   provider.refresh();
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
-  registerWorkspaceFileWatcher(context, provider);
+  registerWorkspaceFileWatcher(context, provider, endpointIndex);
   activateLocalHistory(context);
   activateEfCore(context, provider, processManager);
   void showFeatureAnnouncements(context);
@@ -518,7 +522,11 @@ async function runSelectedResourceCommand(
   await command(selected);
 }
 
-function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider: DotnetTreeProvider): void {
+function registerWorkspaceFileWatcher(
+  context: vscode.ExtensionContext,
+  provider: DotnetTreeProvider,
+  endpointIndex: EndpointIndex
+): void {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*');
   let refreshTimer: NodeJS.Timeout | undefined;
   const pending = new Map<string, WorkspaceChange>();
@@ -528,6 +536,7 @@ function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider
     pending.clear();
     refreshTimer = undefined;
     if (changes.some(item => item.kind === 'solution')) {
+      endpointIndex.clear();
       await provider.refresh();
       return;
     }
@@ -548,6 +557,10 @@ function registerWorkspaceFileWatcher(context: vscode.ExtensionContext, provider
   };
 
   const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
+    if (uri.fsPath.endsWith('.cs')) {
+      endpointIndex.invalidateFile(uri.fsPath);
+    }
+
     const change = classifyWorkspaceChange(uri.fsPath, eventKind);
     if (change.kind === 'ignored') {
       return;

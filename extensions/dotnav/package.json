@@ -65,7 +65,9 @@
     "onCommand:dotnav.formatSelection",
     "onCommand:dotnav.formatDocument",
     "onCommand:dotnav.localHistory.show",
-    "onCommand:dotnav.localHistory.showSelection"
+    "onCommand:dotnav.localHistory.showSelection",
+    "onCommand:dotnav.searchApiEndpoints",
+    "onCommand:dotnav.refreshApiEndpoints"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -171,6 +173,16 @@
         "command": "dotnav.localHistory.showSelection",
         "title": "Show Local History for Selection",
         "icon": "$(history)"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "title": "DotNav: Search ASP.NET Core Endpoints (API Search)",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "dotnav.refreshApiEndpoints",
+        "title": "DotNav: Refresh ASP.NET Core Endpoints",
+        "icon": "$(sync)"
       },
       {
         "command": "dotnav.openItem",
