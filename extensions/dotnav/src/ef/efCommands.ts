@@ -32,9 +32,12 @@ import {
   parseMigrationsList,
   validateMigrationName
 } from './efJsonParser';
-import { DiscoveredMigration, ProjectEfModel, loadEfModel, migrationsForContext } from './efModel';
+import { DiscoveredMigration, ProjectEfModel, invalidateEfModel, loadEfModel, migrationsForContext } from './efModel';
 import type { EfFeature } from './efMain';
 import { EfActionHandlers, bindEfActions } from './efActionRegistry';
+import { createEmptyMigration } from './efEmptyMigration';
+import { inspectMigrationFile } from './efSchemaInspector';
+import { discoverConnectionStrings, pingDatabaseConnection } from './efConnectionDetector';
 
 interface EfTarget {
   readonly detection: EfProjectDetection;
@@ -81,6 +84,7 @@ export function registerEfCommands(context: vscode.ExtensionContext, feature: Ef
   register('dotnav.ef.openCenter', (node?: EfCommandSource) => addMigration(feature, node));
   const handlers: EfActionHandlers<EfCommandSource> = {
     'dotnav.ef.addMigration': node => addMigration(feature, node),
+    'dotnav.ef.createEmptyMigration': node => createEmptyMigrationCommand(feature, node),
     'dotnav.ef.removeLastMigration': node => removeLastMigration(feature, node),
     'dotnav.ef.listMigrations': node => listMigrations(feature, node),
     'dotnav.ef.updateDatabase': node => updateDatabase(feature, node),
@@ -267,7 +271,8 @@ function commonFields(
         value: '',
         placeholder: 'Leave empty to use the startup project configuration',
         description: 'Overrides the connection resolved from appsettings. ' +
-          'Accepts Name=ConnectionStrings:Something too.'
+          'Accepts Name=ConnectionStrings:Something too.',
+        action: { id: 'pingConnection', label: 'Test Connection' }
       }]
       : []),
     {
@@ -721,6 +726,140 @@ async function addMigration(feature: EfFeature, node?: EfCommandSource): Promise
   );
 }
 
+async function createEmptyMigrationCommand(feature: EfFeature, node?: EfCommandSource): Promise<void> {
+  const target = await resolveTarget(feature, node);
+  if (!target) {
+    return;
+  }
+
+  const detections = await feature.getDetections();
+  let existingNames = target.model.migrations.map(migration => migration.name);
+  let lastScannedProject = target.project.path;
+  const cascade = new EfTargetCascade(feature, detections, target);
+
+  await showEfDialog(
+    {
+      ...centerIdentity(target, 'dotnav.ef.createEmptyMigration'),
+      title: 'Create Empty Migration',
+      submitLabel: 'Create',
+      hideCommandPreview: true,
+      fields: [
+        {
+          id: FIELD.name,
+          label: 'Migration name',
+          type: 'text',
+          value: '',
+          placeholder: 'e.g. SeedMasterData',
+          required: true
+        },
+        ...commonFields(target, detections)
+      ]
+    },
+    {
+      preview: () => '[DotNav Engine] Creates an instant empty migration (.cs + .Designer.cs) without running dotnet ef.',
+      onChange: async (current, handle) => {
+        await cascade.update(current, handle);
+        const projectPath = String(current[FIELD.project] ?? '');
+        if (projectPath !== lastScannedProject) {
+          lastScannedProject = projectPath;
+          const model = await feature.modelForProjectPath(projectPath);
+          if (model) {
+            existingNames = model.migrations.map(migration => migration.name);
+          }
+        }
+
+        const problem = validateMigrationName(String(current[FIELD.name] ?? ''), existingNames);
+        handle.setStatus(problem ?? '', Boolean(problem));
+        handle.setValid(!problem);
+      },
+      onSubmit: async (values, handle) => {
+        const name = String(values[FIELD.name] ?? '').trim();
+        const problem = validateMigrationName(name, existingNames);
+        if (problem) {
+          vscode.window.showErrorMessage(problem);
+          return;
+        }
+
+        const project = feature.findProject(String(values[FIELD.project] ?? ''));
+        if (!project) {
+          vscode.window.showErrorMessage('Could not resolve target project.');
+          return;
+        }
+
+        const contextName = String(values[FIELD.context] ?? '') || target.contextName || 'AppDbContext';
+        const model = await loadEfModel(project.directory);
+        const contextObj = model.contexts.find(c => c.name === contextName);
+
+        try {
+          const result = await createEmptyMigration({
+            projectDirectory: project.directory,
+            migrationName: name,
+            dbContextName: contextName,
+            dbContextNamespace: contextObj?.fullName?.includes('.')
+              ? contextObj.fullName.slice(0, contextObj.fullName.lastIndexOf('.'))
+              : undefined,
+            outputDirectory: String(values[FIELD.outputDir] ?? '').trim() || 'Migrations'
+          });
+
+          invalidateEfModel(project.directory);
+          handle.setValue(FIELD.name, '');
+
+          // Open generated migration file in editor
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(result.migrationFilePath));
+          await vscode.window.showTextDocument(doc, { preview: false });
+
+          vscode.window.showInformationMessage(
+            `Empty migration '${result.migrationId}' created successfully! You can now write custom SQL or seed logic.`
+          );
+        } catch (error) {
+          vscode.window.showErrorMessage(
+            `Failed to create empty migration: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
+  );
+}
+
+async function handleConnectionPing(
+  current: EfDialogValues,
+  handle: import('./efDialog').EfDialogHandle,
+  target: EfTarget
+): Promise<void> {
+  handle.setBusy(true);
+  handle.setStatus('Testing database connection…');
+  try {
+    let connStr = String(current[FIELD.connection] ?? '').trim();
+    if (!connStr || connStr.startsWith('Name=')) {
+      const startupPath = String(current[FIELD.startup] ?? target.startupProjectPath);
+      const conns = await discoverConnectionStrings(path.dirname(startupPath));
+      if (connStr.startsWith('Name=')) {
+        const keyName = connStr.slice(5).trim();
+        const matched = conns.find(c => c.name.toLowerCase() === keyName.toLowerCase());
+        connStr = matched?.value ?? '';
+      } else if (conns.length > 0) {
+        connStr = conns[0].value;
+      }
+    }
+
+    if (!connStr) {
+      handle.setStatus('No connection string configured to test.', true);
+      return;
+    }
+
+    const pingResult = await pingDatabaseConnection(connStr);
+    if (pingResult.online) {
+      handle.setStatus(`● Connected to ${pingResult.provider} (${pingResult.host}:${pingResult.port}) in ${pingResult.latencyMs}ms.`, false);
+    } else {
+      handle.setStatus(`✕ Could not reach ${pingResult.provider} (${pingResult.host}:${pingResult.port}): ${pingResult.error ?? 'Connection failed'}`, true);
+    }
+  } catch (error) {
+    handle.setStatus(`✕ Ping error: ${error instanceof Error ? error.message : String(error)}`, true);
+  } finally {
+    handle.setBusy(false);
+  }
+}
+
 async function removeLastMigration(feature: EfFeature, node?: EfCommandSource): Promise<void> {
   const target = await resolveTarget(feature, node);
   if (!target) {
@@ -877,31 +1016,78 @@ async function openMigrationBrowser(
     readonly migration: DiscoveredMigration;
   }
   const picker = vscode.window.createQuickPick<MigrationPickItem>();
-  picker.title = `Browse Migrations — ${contextName ?? project?.name ?? target.project.name}`;
-  picker.placeholder = 'Select a migration to open it; use the button to copy its name';
+  picker.title = `Visual Migration Timeline — ${contextName ?? project?.name ?? target.project.name}`;
+  picker.placeholder = 'Select a migration to inspect schema changes, open code, or update database';
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
   const sortOrder = vscode.workspace.getConfiguration('dotnav.ef')
-    .get<'oldestFirst' | 'newestFirst'>('migrationsSortOrder', 'oldestFirst');
+    .get<'oldestFirst' | 'newestFirst'>('migrationsSortOrder', 'newestFirst');
   const orderedMigrations = sortOrder === 'newestFirst' ? [...migrations].reverse() : [...migrations];
-  picker.items = orderedMigrations.map(migration => ({
-    label: `$(file-code) ${migration.name}`,
-    description: formatMigrationDate(migration.id),
-    detail: vscode.workspace.asRelativePath(migration.filePath),
-    buttons: [{ iconPath: new vscode.ThemeIcon('copy'), tooltip: 'Copy migration name' }],
-    migration
-  }));
-  picker.onDidAccept(() => {
+
+  // Pre-load schema summaries
+  const summaries = await Promise.all(orderedMigrations.map(m => inspectMigrationFile(m.filePath)));
+
+  picker.items = orderedMigrations.map((migration, idx) => {
+    const summary = summaries[idx];
+    const schemaSummaryText = summary && summary.changes.length > 0
+      ? summary.changes.slice(0, 3).map(c => c.label).join(' • ') + (summary.changes.length > 3 ? ` (+${summary.changes.length - 3} more)` : '')
+      : (summary?.hasRawSql ? '⚡ Raw SQL Script' : 'Initial / Empty schema');
+
+    return {
+      label: `$(history) ${migration.name}`,
+      description: `${formatMigrationDate(migration.id)} · ${schemaSummaryText}`,
+      detail: vscode.workspace.asRelativePath(migration.filePath),
+      buttons: [
+        { iconPath: new vscode.ThemeIcon('file-code'), tooltip: 'Open migration file' },
+        { iconPath: new vscode.ThemeIcon('database'), tooltip: 'Update database to this migration' },
+        { iconPath: new vscode.ThemeIcon('copy'), tooltip: 'Copy migration name' }
+      ],
+      migration
+    };
+  });
+
+  picker.onDidAccept(async () => {
     const selected = picker.selectedItems[0];
     if (selected) {
-      void vscode.window.showTextDocument(vscode.Uri.file(selected.migration.filePath), { preview: false });
+      const summary = await inspectMigrationFile(selected.migration.filePath);
+      const actionChoices = [
+        { label: '$(file-code) Open Migration Source Code', value: 'open' },
+        { label: `$(database) Update Database to '${selected.migration.name}'`, value: 'update' },
+        { label: `$(code) Generate SQL Script to '${selected.migration.name}'`, value: 'sql' },
+        { label: '$(copy) Copy Migration Name', value: 'copy' }
+      ];
+
+      const actionPicked = await vscode.window.showQuickPick(actionChoices, {
+        title: `Migration: ${selected.migration.name} (${formatMigrationDate(selected.migration.id)})`,
+        placeHolder: summary.changes.length > 0 ? `${summary.changes.length} schema change(s) detected` : 'Choose an action'
+      });
+
+      if (actionPicked?.value === 'open') {
+        void vscode.window.showTextDocument(vscode.Uri.file(selected.migration.filePath), { preview: false });
+      } else if (actionPicked?.value === 'update') {
+        void updateDatabase(feature, projectPath);
+      } else if (actionPicked?.value === 'sql') {
+        void generateScript(feature, projectPath);
+      } else if (actionPicked?.value === 'copy') {
+        void vscode.env.clipboard.writeText(selected.migration.name);
+        vscode.window.setStatusBarMessage(`$(check) Copied ${selected.migration.name}`, 3000);
+      }
     }
     picker.hide();
   });
-  picker.onDidTriggerItemButton(event => {
-    void vscode.env.clipboard.writeText(event.item.migration.name);
-    picker.title = `Copied ${event.item.migration.name}`;
+
+  picker.onDidTriggerItemButton(async event => {
+    const tooltip = event.button.tooltip;
+    if (tooltip === 'Open migration file') {
+      void vscode.window.showTextDocument(vscode.Uri.file(event.item.migration.filePath), { preview: false });
+    } else if (tooltip === 'Update database to this migration') {
+      void updateDatabase(feature, projectPath);
+    } else if (tooltip === 'Copy migration name') {
+      void vscode.env.clipboard.writeText(event.item.migration.name);
+      vscode.window.setStatusBarMessage(`$(check) Copied ${event.item.migration.name}`, 3000);
+    }
   });
+
   picker.onDidHide(() => picker.dispose());
   picker.show();
 }
@@ -1009,6 +1195,10 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
         }
       },
       onAction: async (action, current, handle) => {
+        if (action === 'pingConnection') {
+          await handleConnectionPing(current, handle, target);
+          return;
+        }
         if (action !== 'check') {
           return;
         }
@@ -1201,7 +1391,11 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
     {
       preview: current => previewCommand(feature, current, request(current)),
       onChange: (current, handle) => cascade.update(current, handle),
-      onAction: async (action, _current, handle) => {
+      onAction: async (action, current, handle) => {
+        if (action === 'pingConnection') {
+          await handleConnectionPing(current, handle, target);
+          return;
+        }
         if (action !== 'chooseOutput') {
           return;
         }
@@ -1312,6 +1506,10 @@ async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise
         handle.setValid(databaseIdentified && typed === wanted);
       },
       onAction: async (action, current, handle) => {
+        if (action === 'pingConnection') {
+          await handleConnectionPing(current, handle, target);
+          return;
+        }
         if (action !== 'identify') {
           return;
         }

@@ -107,6 +107,22 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
 }
 
-function gh(args) {
-  return execFileSync('gh', args, { encoding: 'utf8', env: process.env }).trim();
+function gh(args, maxRetries = 5) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return execFileSync('gh', args, { encoding: 'utf8', env: process.env }).trim();
+    } catch (error) {
+      lastError = error;
+      const isTransient = /503|502|504|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(String(error.stderr || error.message));
+      if (attempt < maxRetries && (isTransient || !error.status)) {
+        const delayMs = attempt * 3000;
+        console.warn(`gh ${args.join(' ')} failed (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`);
+        execFileSync('node', ['-e', `setTimeout(() => {}, ${delayMs})`]);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 }

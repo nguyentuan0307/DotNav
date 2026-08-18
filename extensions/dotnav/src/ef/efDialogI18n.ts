@@ -14,9 +14,11 @@ const vietnamese: Record<string, string> = {
   'Advanced': 'Nâng cao',
   'Danger zone': 'Vùng nguy hiểm',
   'Add Migration': 'Thêm migration',
+  'Create Empty Migration': 'Tạo migration rỗng',
   'Remove Last': 'Xóa migration cuối',
   'Remove Last Migration': 'Xóa migration cuối',
   'Browse Migrations': 'Duyệt migration',
+  'Visual Migration Timeline': 'Dòng thời gian migration',
   'Update Database': 'Cập nhật cơ sở dữ liệu',
   'Check Model': 'Kiểm tra model',
   'Check Pending Model Changes': 'Kiểm tra thay đổi model',
@@ -29,6 +31,8 @@ const vietnamese: Record<string, string> = {
   'Drop Database': 'Xóa cơ sở dữ liệu',
   'Capture the current model changes in a new migration.':
     'Ghi nhận các thay đổi model hiện tại vào một migration mới.',
+  'Create an empty migration boilerplate instantly without running dotnet ef.':
+    'Khởi tạo file migration rỗng tức thì mà không cần chạy dotnet ef.',
   'Remove the most recent migration from the project.':
     'Xóa migration mới nhất khỏi project.',
   'Inspect migration history for the selected DbContext.':
