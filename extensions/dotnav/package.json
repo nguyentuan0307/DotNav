@@ -543,6 +543,16 @@
         "command": "dotnav.formatSelection",
         "key": "ctrl+alt+l",
         "when": "editorTextFocus && editorLangId == csharp"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "key": "alt+shift+a",
+        "mac": "alt+shift+a"
       }
     ],
     "menus": {
