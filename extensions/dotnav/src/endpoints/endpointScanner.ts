@@ -141,7 +141,12 @@ export function parseEndpointsFromCSharp(
   relativePath: string
 ): ApiEndpoint[] {
   // Fast-path heuristic: skip files that cannot possibly contain ASP.NET Core controllers or minimal APIs
-  if (!code.includes('Controller') && !code.includes('Map')) {
+  if (
+    !code.includes('Controller') &&
+    !code.includes('Map') &&
+    !code.includes('Http') &&
+    !code.includes('Route')
+  ) {
     return [];
   }
 
@@ -331,6 +336,15 @@ export function parseEndpointsFromCSharp(
 export class EndpointIndex {
   private readonly fileCache = new Map<string, ApiEndpoint[]>();
   private cachedAllEndpoints: ApiEndpoint[] | undefined = undefined;
+  private _isFullScanCompleted: boolean = false;
+
+  public get isFullScanCompleted(): boolean {
+    return this._isFullScanCompleted;
+  }
+
+  public markFullScanCompleted(): void {
+    this._isFullScanCompleted = true;
+  }
 
   public scanFileContent(
     filePath: string,
@@ -367,6 +381,7 @@ export class EndpointIndex {
   public clear(): void {
     this.fileCache.clear();
     this.cachedAllEndpoints = undefined;
+    this._isFullScanCompleted = false;
   }
 
   public hasFile(filePath: string): boolean {
