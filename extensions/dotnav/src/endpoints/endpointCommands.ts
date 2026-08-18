@@ -114,18 +114,24 @@ export function resolveProjectForFile(
   return 'Workspace';
 }
 
+let fullSolutionScanned = false;
 let activeScanPromise: Promise<void> | undefined;
+
+export function markFullSolutionScanNeeded(): void {
+  fullSolutionScanned = false;
+}
 
 export async function warmUpEndpointIndex(
   provider: DotnetTreeProvider,
   index: EndpointIndex
 ): Promise<void> {
-  if (index.count > 0 || activeScanPromise) {
+  if (fullSolutionScanned || activeScanPromise) {
     return activeScanPromise;
   }
   activeScanPromise = (async () => {
     try {
       await populateEndpointIndexFromSolution(provider, index);
+      fullSolutionScanned = true;
     } catch (err) {
       console.error(`DotNav background endpoint warmup failed: ${err}`);
     } finally {
@@ -160,6 +166,44 @@ export async function populateEndpointIndexFromSolution(
   }
 }
 
+export async function ensureEndpointIndexReady(
+  provider: DotnetTreeProvider,
+  index: EndpointIndex
+): Promise<void> {
+  if (fullSolutionScanned) {
+    return;
+  }
+
+  if (activeScanPromise) {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Scanning ASP.NET Core API endpoints across solution...'
+      },
+      async () => {
+        await activeScanPromise;
+      }
+    );
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Scanning ASP.NET Core API endpoints across solution...'
+    },
+    async () => {
+      try {
+        activeScanPromise = populateEndpointIndexFromSolution(provider, index);
+        await activeScanPromise;
+        fullSolutionScanned = true;
+      } finally {
+        activeScanPromise = undefined;
+      }
+    }
+  );
+}
+
 let currentEndpointQuickPick: vscode.QuickPick<EndpointQuickPickItem> | undefined;
 
 export async function openActiveEndpointActions(): Promise<void> {
@@ -173,21 +217,7 @@ export async function searchEndpointsInteractive(
   provider: DotnetTreeProvider,
   index: EndpointIndex
 ): Promise<void> {
-  if (index.count === 0) {
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Scanning ASP.NET Core API endpoints...'
-      },
-      async () => {
-        if (activeScanPromise) {
-          await activeScanPromise;
-        } else {
-          await populateEndpointIndexFromSolution(provider, index);
-        }
-      }
-    );
-  }
+  await ensureEndpointIndexReady(provider, index);
 
   const allEndpoints = index.getAllEndpoints();
   if (allEndpoints.length === 0) {
@@ -284,15 +314,18 @@ export async function refreshEndpointsInteractive(
   provider: DotnetTreeProvider,
   index: EndpointIndex
 ): Promise<void> {
+  fullSolutionScanned = false;
   index.clear();
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: 'Refreshing ASP.NET Core endpoints index...'
+      title: 'Refreshing ASP.NET Core endpoints index across solution...'
     },
     async () => {
       await populateEndpointIndexFromSolution(provider, index);
+      fullSolutionScanned = true;
+      index.markFullScanCompleted();
     }
   );
-  vscode.window.showInformationMessage(`Scanned ${index.count} ASP.NET Core endpoints.`);
+  vscode.window.showInformationMessage(`Scanned ${index.count} ASP.NET Core endpoints across solution.`);
 }
