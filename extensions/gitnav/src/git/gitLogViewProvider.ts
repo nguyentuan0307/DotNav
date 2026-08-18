@@ -316,13 +316,23 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         return;
       }
       if (message.type === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent);
+      if (message.type === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path);
       if (message.type === 'workingDiff' && message.path) return await vscode.commands.executeCommand('git.openChange', vscode.Uri.file(path.join(this.root, message.path)));
       if (message.type === 'fileDiff' && message.path) {
         const root = this.root;
         const channel = `diff:${message.path}`;
         const read = this.beginRead(channel, root, message.generation);
         try {
-          const patch = await this.service.filePatch(root, message.path, message.hash, message.parent, message.working, read.source.token);
+          const patch = await this.service.filePatch(
+            root,
+            message.path,
+            message.hash,
+            message.parent,
+            message.working,
+            read.source.token,
+            message.from,
+            message.to
+          );
           if (this.requests.isCurrent(channel, read.identity, this.root)) {
             this.post({ type: 'fileDiffResult', path: message.path, patch, hash: message.hash, working: message.working, identity: read.identity });
           }
@@ -507,6 +517,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     if (action === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent, root);
+    if (action === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path, root);
     if (action === 'openRevision' && message.hash && message.path) {
       await vscode.window.showTextDocument(revisionUri(root, message.hash, message.path), { preview: true });
       return;
@@ -948,6 +959,22 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     await vscode.commands.executeCommand('vscode.diff', left, right, `${filePath} (${hash.slice(0, 8)})`);
   }
 
+  private async openCompareDiff(from: string, to: string, filePath: string, expectedRoot = this.root): Promise<void> {
+    if (!expectedRoot) return;
+    if (to === 'working tree') {
+      const left = revisionUri(expectedRoot, from, filePath);
+      const right = vscode.Uri.file(path.join(expectedRoot, filePath));
+      const title = `${path.basename(filePath)} (${from} ↔ Working Tree)`;
+      await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
+      return;
+    }
+
+    const left = revisionUri(expectedRoot, to, filePath);
+    const right = revisionUri(expectedRoot, from, filePath);
+    const title = `${path.basename(filePath)} (${from} ↔ ${to})`;
+    await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
+  }
+
   private async openWorkingTreeFile(root: string, filePath: string, hash?: string): Promise<void> {
     const uri = vscode.Uri.file(path.join(root, filePath));
     const revision = this.activeRevisionLocation(root, filePath);
@@ -1065,6 +1092,13 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
     contextAction('diff', 'Show Diff'), contextAction('fileHistory', 'Show File History'), contextAction('openRevision', 'Open Version at Revision'), contextAction('openFile', 'Open Working Tree File'),
     contextAction('copy', 'Copy Path', 'more'), contextAction('copyRelative', 'Copy Relative Path', 'more'), contextAction('revertFile', 'Revert This Commit’s File Changes', 'more'),
     contextAction('getFile', 'Restore File from Revision', 'danger')
+  ];
+  if (kind === 'compareFile') return [
+    contextAction('compareDiff', 'Show Diff'),
+    contextAction('openFile', 'Open Working Tree File'),
+    contextAction('fileHistory', 'Show File History'),
+    contextAction('copy', 'Copy Path', 'more'),
+    contextAction('copyRelative', 'Copy Relative Path', 'more')
   ];
   if (kind === 'workingFile') return [contextAction('workingFileDiff', 'Show Diff'), contextAction('openFile', 'Open in Editor'), contextAction('stashFile', 'Stash File Changes…', 'more'), contextAction('rollbackFile', 'Discard File Changes', 'danger')];
   if (kind === 'worktree') return [contextAction('openWorktree', 'Open in New Window'), contextAction('worktreeTerminal', 'Open Terminal'), contextAction('worktreePrune', 'Prune Worktrees', 'more'), contextAction('worktreeRemove', 'Remove Worktree', 'danger')];

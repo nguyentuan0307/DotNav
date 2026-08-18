@@ -13,6 +13,7 @@ export const gitWebviewMessageTypes = [
   'pushRecoverySettings',
   'interactiveRebase',
   'diff',
+  'compareDiff',
   'workingDiff',
   'openFile',
   'searchAuthors',
@@ -32,6 +33,8 @@ export interface GitWebviewMessage {
   readonly root?: string;
   readonly hash?: string;
   readonly hashes?: string[];
+  readonly from?: string;
+  readonly to?: string;
   readonly path?: string;
   readonly oldPath?: string;
   readonly working?: boolean;
