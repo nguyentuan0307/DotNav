@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.15.0...dotnav-v0.16.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add smart formatting for collection expressions, switch expressions, and multiline operators ([d7a2008](https://github.com/nguyentuan0307/DotNav/commit/d7a20080684d10732005767cb633dfd485df4a57))
+
+
 ## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.14.0...dotnav-v0.15.0) (2026-08-18)
 
 

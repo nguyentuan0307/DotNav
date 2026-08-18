@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.16.0...gitnav-v0.17.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** prioritize inline blame and remove external extension suppression ([8845c2a](https://github.com/nguyentuan0307/DotNav/commit/8845c2aa0e5a5dfdb7300cf2648a2e07aada5dd9))
+
+
 ## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.15.0...gitnav-v0.16.0) (2026-08-18)
 
 
