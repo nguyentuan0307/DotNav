@@ -280,9 +280,24 @@ export class GitRepositoryService {
     hash?: string,
     parent?: number,
     working?: boolean,
-    token?: vscode.CancellationToken
+    token?: vscode.CancellationToken,
+    from?: string,
+    to?: string
   ): Promise<string> {
     try {
+      if (from && to) {
+        if (to === 'working tree') {
+          const res = await runGit(root, ['diff', '-U3', from, '--', filePath], token);
+          return res.exitCode === 0 ? res.stdout : '';
+        }
+        const res = await runGit(root, ['diff', '-U3', `${from}...${to}`, '--', filePath], token);
+        if (res.exitCode === 0 && res.stdout.trim()) {
+          return res.stdout;
+        }
+        const directRes = await runGit(root, ['diff', '-U3', from, to, '--', filePath], token);
+        return directRes.exitCode === 0 ? directRes.stdout : '';
+      }
+
       if (working) {
         const res = await runGit(root, ['diff', '-U3', '--', filePath], token);
         if (res.exitCode === 0 && res.stdout.trim()) {

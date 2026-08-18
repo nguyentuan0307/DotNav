@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.15.0...gitnav-v0.16.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** enable side-by-side and inline diff for files in branch compare mode ([213807c](https://github.com/nguyentuan0307/DotNav/commit/213807c6227b6916d8573734eee5160bbbb7a52d))
+
+
 ## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.14.0...gitnav-v0.15.0) (2026-08-17)
 
 
