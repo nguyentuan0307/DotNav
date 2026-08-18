@@ -122,12 +122,29 @@ export function resolveRouteTokens(
   return resolved.replace(/\/+/g, '/');
 }
 
+export function isIgnoredEndpointFile(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (/\/(bin|obj|node_modules|\.vs|\.git)\//i.test(normalized)) {
+    return true;
+  }
+  const base = path.basename(filePath);
+  if (/\.(g|Designer|generated)\.cs$/i.test(base)) {
+    return true;
+  }
+  return false;
+}
+
 export function parseEndpointsFromCSharp(
   code: string,
   filePath: string,
   projectName: string,
   relativePath: string
 ): ApiEndpoint[] {
+  // Fast-path heuristic: skip files that cannot possibly contain ASP.NET Core controllers or minimal APIs
+  if (!code.includes('Controller') && !code.includes('Map')) {
+    return [];
+  }
+
   const endpoints: ApiEndpoint[] = [];
 
   // 1. Controller parsing
@@ -313,6 +330,7 @@ export function parseEndpointsFromCSharp(
 
 export class EndpointIndex {
   private readonly fileCache = new Map<string, ApiEndpoint[]>();
+  private cachedAllEndpoints: ApiEndpoint[] | undefined = undefined;
 
   public scanFileContent(
     filePath: string,
@@ -322,36 +340,52 @@ export class EndpointIndex {
   ): ApiEndpoint[] {
     const endpoints = parseEndpointsFromCSharp(content, filePath, projectName, relativePath);
     this.fileCache.set(filePath, endpoints);
+    this.cachedAllEndpoints = undefined;
     return endpoints;
   }
 
   public async scanFile(filePath: string, projectName: string, relativePath: string): Promise<ApiEndpoint[]> {
     try {
-      if (!fs.existsSync(filePath)) {
-        this.fileCache.delete(filePath);
+      if (isIgnoredEndpointFile(filePath) || !fs.existsSync(filePath)) {
+        this.invalidateFile(filePath);
         return [];
       }
       const content = await fs.promises.readFile(filePath, 'utf8');
       return this.scanFileContent(filePath, content, projectName, relativePath);
     } catch {
+      this.invalidateFile(filePath);
       return [];
     }
   }
 
   public invalidateFile(filePath: string): void {
-    this.fileCache.delete(filePath);
+    if (this.fileCache.delete(filePath)) {
+      this.cachedAllEndpoints = undefined;
+    }
   }
 
   public clear(): void {
     this.fileCache.clear();
+    this.cachedAllEndpoints = undefined;
+  }
+
+  public hasFile(filePath: string): boolean {
+    return this.fileCache.has(filePath);
+  }
+
+  public get fileCount(): number {
+    return this.fileCache.size;
   }
 
   public getAllEndpoints(): ApiEndpoint[] {
-    const all: ApiEndpoint[] = [];
-    for (const list of this.fileCache.values()) {
-      all.push(...list);
+    if (this.cachedAllEndpoints === undefined) {
+      const all: ApiEndpoint[] = [];
+      for (const list of this.fileCache.values()) {
+        all.push(...list);
+      }
+      this.cachedAllEndpoints = all;
     }
-    return all;
+    return this.cachedAllEndpoints;
   }
 
   public get count(): number {

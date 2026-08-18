@@ -224,3 +224,84 @@ namespace MyApp.Controllers
   assert.equal(endpoints[0].routeTemplate, 'api/v1/Orders/{id:int}');
   assert.equal(endpoints[1].routeTemplate, 'api/v2/Orders/{id:int}');
 });
+
+test('isIgnoredEndpointFile detects bin, obj, generated, and designer files', () => {
+  const { isIgnoredEndpointFile } = require('../endpoints/endpointScanner');
+  assert.equal(isIgnoredEndpointFile('/repo/src/MyProject/obj/Debug/net8.0/MyProject.AssemblyInfo.cs'), true);
+  assert.equal(isIgnoredEndpointFile('C:\\repo\\src\\bin\\Release\\net8.0\\App.g.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/MyView.Designer.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/User.generated.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/.git/HEAD'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/node_modules/pkg/index.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/UsersController.cs'), false);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Endpoints/TodoEndpoints.cs'), false);
+});
+
+test('EndpointIndex supports incremental updates, file modifications, and invalidations', () => {
+  const { EndpointIndex } = require('../endpoints/endpointScanner');
+  const index = new EndpointIndex();
+
+  const code1 = `
+[ApiController]
+[Route("api/users")]
+public class UsersController : ControllerBase {
+    [HttpGet]
+    public IActionResult GetAll() => Ok();
+}
+`;
+  const code2 = `
+[ApiController]
+[Route("api/orders")]
+public class OrdersController : ControllerBase {
+    [HttpGet("{id:int}")]
+    public IActionResult GetById(int id) => Ok();
+}
+`;
+
+  // 1. Initial scan
+  index.scanFileContent('/src/UsersController.cs', code1, 'MyProject', 'UsersController.cs');
+  index.scanFileContent('/src/OrdersController.cs', code2, 'MyProject', 'OrdersController.cs');
+  assert.equal(index.count, 2);
+  assert.equal(index.fileCount, 2);
+  assert.equal(index.hasFile('/src/UsersController.cs'), true);
+
+  // 2. Incremental modification of a file (add an endpoint)
+  const code1Updated = `
+[ApiController]
+[Route("api/users")]
+public class UsersController : ControllerBase {
+    [HttpGet]
+    public IActionResult GetAll() => Ok();
+    [HttpPost]
+    public IActionResult Create() => Ok();
+}
+`;
+  index.scanFileContent('/src/UsersController.cs', code1Updated, 'MyProject', 'UsersController.cs');
+  assert.equal(index.count, 3); // 2 in Users + 1 in Orders
+  assert.equal(index.fileCount, 2);
+
+  // 3. Invalidate single file (e.g. on delete or move)
+  index.invalidateFile('/src/UsersController.cs');
+  assert.equal(index.count, 1);
+  assert.equal(index.fileCount, 1);
+  assert.equal(index.hasFile('/src/UsersController.cs'), false);
+  assert.equal(index.getAllEndpoints()[0].controllerName, 'OrdersController');
+
+  // 4. Clear on mass checkout
+  index.clear();
+  assert.equal(index.count, 0);
+  assert.equal(index.fileCount, 0);
+  assert.equal(index.getAllEndpoints().length, 0);
+});
+
+test('parseEndpointsFromCSharp fast-paths and ignores non-endpoint C# files', () => {
+  const modelCode = `
+namespace MyProject.Models;
+public class UserModel {
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+`;
+  const endpoints = parseEndpointsFromCSharp(modelCode, '/src/Models/UserModel.cs', 'MyProject', 'Models/UserModel.cs');
+  assert.equal(endpoints.length, 0);
+});

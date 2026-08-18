@@ -67,7 +67,8 @@
     "onCommand:dotnav.localHistory.show",
     "onCommand:dotnav.localHistory.showSelection",
     "onCommand:dotnav.searchApiEndpoints",
-    "onCommand:dotnav.refreshApiEndpoints"
+    "onCommand:dotnav.refreshApiEndpoints",
+    "onCommand:dotnav.openEndpointActions"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -176,13 +177,17 @@
       },
       {
         "command": "dotnav.searchApiEndpoints",
-        "title": "DotNav: Search ASP.NET Core Endpoints (API Search)",
+        "title": "Search ASP.NET Core Endpoints",
         "icon": "$(globe)"
       },
       {
         "command": "dotnav.refreshApiEndpoints",
         "title": "DotNav: Refresh ASP.NET Core Endpoints",
         "icon": "$(sync)"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "title": "DotNav: Open Actions for Selected Endpoint"
       },
       {
         "command": "dotnav.openItem",
@@ -553,6 +558,18 @@
         "command": "dotnav.searchApiEndpoints",
         "key": "alt+shift+a",
         "mac": "alt+shift+a"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "dotnav.endpointSearchOpen"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "key": "alt+enter",
+        "mac": "alt+enter",
+        "when": "dotnav.endpointSearchOpen"
       }
     ],
     "menus": {
@@ -621,6 +638,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "dotnav.searchApiEndpoints",
+          "when": "view == dotnav",
+          "group": "navigation@1"
+        },
+        {
           "command": "dotnav.refresh",
           "when": "view == dotnav",
           "group": "navigation@4"
@@ -628,7 +650,7 @@
         {
           "command": "dotnav.checkOutdated",
           "when": "view == dotnav",
-          "group": "navigation@3.5"
+          "group": "2_view@4"
         },
         {
           "command": "dotnav.selectSolution",
