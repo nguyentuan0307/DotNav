@@ -51,37 +51,45 @@ export function parseSearchQuery(query: string): ParsedQuery {
   };
 }
 
-export function damerauLevenshteinDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
+export function isNearMatch(a: string, b: string): boolean {
   const al = a.length;
   const bl = b.length;
-  const matrix: number[][] = [];
+  if (Math.abs(al - bl) > 1) return false;
+  if (al < 4 || bl < 4) return false;
 
-  for (let i = 0; i <= al; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= bl; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= al; i++) {
-    for (let j = 1; j <= bl; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,        // deletion
-        matrix[i][j - 1] + 1,        // insertion
-        matrix[i - 1][j - 1] + cost  // substitution
-      );
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1); // transposition
+  // Check 1-char substitution or adjacent transposition
+  if (al === bl) {
+    let diffs = 0;
+    for (let i = 0; i < al; i++) {
+      if (a[i] !== b[i]) {
+        diffs++;
+        if (diffs > 2) return false;
+        // Check for adjacent transposition (e.g. feilds <-> fields)
+        if (diffs === 1 && i < al - 1 && a[i] === b[i + 1] && a[i + 1] === b[i]) {
+          i++; // skip transposed char
+        }
       }
     }
+    return diffs <= 2;
   }
 
-  return matrix[al][bl];
+  // 1 insertion / deletion check
+  const longer = al > bl ? a : b;
+  const shorter = al > bl ? b : a;
+  let i = 0;
+  let j = 0;
+  let diffs = 0;
+  while (i < longer.length && j < shorter.length) {
+    if (longer[i] === shorter[j]) {
+      i++;
+      j++;
+    } else {
+      diffs++;
+      if (diffs > 1) return false;
+      i++;
+    }
+  }
+  return true;
 }
 
 export function isAcronymMatch(token: string, text: string): boolean {
@@ -131,12 +139,9 @@ export function matchTokenToSegment(token: string, segment: RouteSegmentDescript
     }
   }
 
-  // 5. Typo tolerance with Damerau-Levenshtein (for tokens of length >= 4)
-  if (tokLower.length >= 4 && segment.cleanText.length >= 4) {
-    const dist = damerauLevenshteinDistance(tokLower, segment.cleanText.toLowerCase());
-    if (dist <= 1) {
-      return { matched: true, score: 75 };
-    }
+  // 5. Zero-allocation Typo tolerance (for tokens of length >= 4)
+  if (isNearMatch(tokLower, segment.cleanText.toLowerCase())) {
+    return { matched: true, score: 75 };
   }
 
   return { matched: false, score: 0 };
