@@ -167,13 +167,13 @@ export function escapeMarkdown(text: string): string {
 }
 
 export function resolveBlameAutoDefault(
-  explicitConfigValue: boolean | undefined,
-  hasExternalBlameExtension: boolean
+  explicitConfigValue?: boolean,
+  _hasExternalBlameExtension?: boolean
 ): boolean {
   if (explicitConfigValue !== undefined) {
     return explicitConfigValue;
   }
-  return !hasExternalBlameExtension;
+  return true;
 }
 
 export function buildBlameMarkdownContent(entry: GitBlameEntry, repoRoot: string): string {

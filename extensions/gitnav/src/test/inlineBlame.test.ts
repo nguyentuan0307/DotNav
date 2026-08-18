@@ -199,14 +199,17 @@ test('buildBlameMarkdownContent produces rich markdown with command links', () =
   assert.ok(markdown.includes('command:gitnav.showHistoryForCurrentLine'));
 });
 
-test('resolveBlameAutoDefault disables by default when external blame extension is installed', () => {
-  // When no user explicit setting is configured:
-  assert.equal(resolveBlameAutoDefault(undefined, true), false);
+test('resolveBlameAutoDefault defaults to true and prioritizes explicit settings', () => {
+  // When no user explicit setting is configured, it defaults to true:
+  assert.equal(resolveBlameAutoDefault(undefined), true);
+  assert.equal(resolveBlameAutoDefault(undefined, true), true);
   assert.equal(resolveBlameAutoDefault(undefined, false), true);
 
   // When user has explicitly set true or false, explicit setting always wins:
+  assert.equal(resolveBlameAutoDefault(true), true);
   assert.equal(resolveBlameAutoDefault(true, true), true);
   assert.equal(resolveBlameAutoDefault(true, false), true);
+  assert.equal(resolveBlameAutoDefault(false), false);
   assert.equal(resolveBlameAutoDefault(false, true), false);
   assert.equal(resolveBlameAutoDefault(false, false), false);
 });
