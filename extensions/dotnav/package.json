@@ -1323,6 +1323,26 @@
           "default": true,
           "description": "Collapse repeated blank lines and remove blank lines immediately inside braces."
         },
+        "dotnav.format.enableBinaryExpressionWrap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align multiline boolean binary expressions (&&, ||) consistently."
+        },
+        "dotnav.format.enableTernaryAlignment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align multiline ternary operator (? and :) lines consistently."
+        },
+        "dotnav.format.enableSwitchExpressionAlignment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align C# 8+ switch expression arms and pattern arrows."
+        },
+        "dotnav.format.enableCollectionExpressionWrap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format and wrap C# 12 collection expressions ([...]) with leading commas."
+        },
         "dotnav.format.expandToEnclosingMember": {
           "type": "boolean",
           "default": false,

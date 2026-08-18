@@ -48,8 +48,8 @@ function parenDepths(lines: { start: number; end: number }[], text: string, mask
     result.push(depth);
     for (let i = line.start; i < line.end; i++) {
       if (!mask[i]) continue;
-      if (text[i] === '(') depth++;
-      else if (text[i] === ')') depth = Math.max(0, depth - 1);
+      if (text[i] === '(' || text[i] === '[' || text[i] === '{') depth++;
+      else if (text[i] === ')' || text[i] === ']' || text[i] === '}') depth = Math.max(0, depth - 1);
     }
   }
   return result;

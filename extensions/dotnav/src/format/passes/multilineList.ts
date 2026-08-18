@@ -50,7 +50,12 @@ export function normalizeMultilineArgumentLists(text: string, ctx: PassContext):
         reindentAttachedTrivia(sourceLines, lines, nextItemLine + 1, closeLine, itemIndent);
       }
     }
-    reindent(lines[closeLine], baseIndent);
+
+    const closeOffset = pair.close - sourceLines[closeLine].start;
+    const contentBeforeClose = sourceLines[closeLine].text.slice(0, closeOffset).trim().replace(/^,\s*/, '');
+    if (contentBeforeClose === '') {
+      reindent(lines[closeLine], baseIndent);
+    }
   }
 
   return joinLines(lines);

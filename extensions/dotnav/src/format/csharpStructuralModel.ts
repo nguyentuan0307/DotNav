@@ -1,11 +1,14 @@
 import { buildCodeMask, classifySpans } from './csharpLexer';
 
+export type CSharpListKind = 'paren' | 'bracket' | 'brace';
+
 export class CSharpListNode {
   constructor(
     readonly open: number,
     readonly close: number,
     readonly separators: readonly number[],
-    readonly controlFlowAncestor: boolean
+    readonly controlFlowAncestor: boolean,
+    readonly kind: CSharpListKind = 'paren'
   ) {}
 }
 
@@ -28,10 +31,13 @@ class StructuralScan {
 
 class ListFrame {
   readonly separators: number[] = [];
+  hasSemicolons = false;
 
   constructor(
     readonly open: number,
+    readonly kind: CSharpListKind,
     readonly controlFlowAncestor: boolean,
+    readonly parenDepth: number,
     readonly bracketDepth: number,
     readonly braceDepth: number,
     readonly angleDepth: number
@@ -61,6 +67,7 @@ function scanCSharpLists(
 ): StructuralScan {
   const frames: ListFrame[] = [];
   const nodes: CSharpListNode[] = [];
+  let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
   let angleDepth = 0;
@@ -73,36 +80,77 @@ function scanCSharpLists(
     if (!mask[index]) continue;
     const ch = text[index];
     if (ch === '(') {
+      parenDepth++;
       const parent = frames[frames.length - 1];
       const controlFlowAncestor = (parent?.controlFlowAncestor ?? false) || isControlFlow(text, index);
-      frames.push(new ListFrame(index, controlFlowAncestor, bracketDepth, braceDepth, angleDepth));
+      frames.push(new ListFrame(index, 'paren', controlFlowAncestor, parenDepth, bracketDepth, braceDepth, angleDepth));
       continue;
     }
     if (ch === ')') {
-      const frame = frames.pop();
-      if (frame) {
-        nodes.push(new CSharpListNode(frame.open, index, frame.separators, frame.controlFlowAncestor));
+      const frameIndex = findLastFrameIndex(frames, 'paren');
+      if (frameIndex >= 0) {
+        const frame = frames.splice(frameIndex, 1)[0];
+        parenDepth = Math.max(0, parenDepth - 1);
+        nodes.push(new CSharpListNode(frame.open, index, frame.separators, frame.controlFlowAncestor, 'paren'));
       } else unmatchedParens++;
       continue;
     }
-    if (ch === '[') bracketDepth++;
-    else if (ch === ']') {
-      if (bracketDepth > 0) bracketDepth--;
-      else unmatchedBrackets++;
+    if (ch === '[') {
+      bracketDepth++;
+      const parent = frames[frames.length - 1];
+      frames.push(new ListFrame(index, 'bracket', parent?.controlFlowAncestor ?? false, parenDepth, bracketDepth, braceDepth, angleDepth));
+      continue;
     }
-    else if (ch === '{') braceDepth++;
-    else if (ch === '}') {
-      if (braceDepth > 0) braceDepth--;
-      else {
+    if (ch === ']') {
+      const frameIndex = findLastFrameIndex(frames, 'bracket');
+      if (frameIndex >= 0) {
+        const frame = frames.splice(frameIndex, 1)[0];
+        bracketDepth = Math.max(0, bracketDepth - 1);
+        nodes.push(new CSharpListNode(frame.open, index, frame.separators, frame.controlFlowAncestor, 'bracket'));
+      } else unmatchedBrackets++;
+      continue;
+    }
+    if (ch === '{') {
+      braceDepth++;
+      const parent = frames[frames.length - 1];
+      frames.push(new ListFrame(index, 'brace', parent?.controlFlowAncestor ?? false, parenDepth, bracketDepth, braceDepth, angleDepth));
+      continue;
+    }
+    if (ch === '}') {
+      const frameIndex = findLastFrameIndex(frames, 'brace');
+      if (frameIndex >= 0) {
+        const frame = frames.splice(frameIndex, 1)[0];
+        braceDepth = Math.max(0, braceDepth - 1);
+        if (!frame.hasSemicolons && frame.separators.length > 0) {
+          nodes.push(new CSharpListNode(frame.open, index, frame.separators, frame.controlFlowAncestor, 'brace'));
+        }
+      } else {
         unmatchedBraces++;
         if (frames.length > 0) unsafeBoundaryClosers++;
       }
+      continue;
     }
-    else if (ch === '<' && looksLikeGenericOpen(text, mask, index)) angleDepth++;
-    else if (ch === '>' && angleDepth > 0) angleDepth--;
-    else if (ch === ',') {
+    if (ch === ';') {
+      for (let i = frames.length - 1; i >= 0; i--) {
+        if (frames[i].kind === 'brace') {
+          frames[i].hasSemicolons = true;
+          break;
+        }
+      }
+      continue;
+    }
+    if (ch === '<' && looksLikeGenericOpen(text, mask, index)) {
+      angleDepth++;
+      continue;
+    }
+    if (ch === '>' && angleDepth > 0) {
+      angleDepth--;
+      continue;
+    }
+    if (ch === ',') {
       const frame = frames[frames.length - 1];
       if (frame
+        && parenDepth === frame.parenDepth
         && bracketDepth === frame.bracketDepth
         && braceDepth === frame.braceDepth
         && angleDepth === frame.angleDepth) {
@@ -112,11 +160,11 @@ function scanCSharpLists(
   }
 
   const delimiterBalance = [
-      frames.length, unmatchedParens,
-      bracketDepth, unmatchedBrackets,
-      braceDepth, unmatchedBraces,
-      angleDepth
-    ].join(':');
+    parenDepth, unmatchedParens,
+    bracketDepth, unmatchedBrackets,
+    braceDepth, unmatchedBraces,
+    angleDepth
+  ].join(':');
   const fragmentBoundaryCompatible = frames.length === 0
     && unmatchedParens === 0
     && bracketDepth === 0
@@ -125,6 +173,13 @@ function scanCSharpLists(
     && angleDepth === 0
     && unsafeBoundaryClosers === 0;
   return new StructuralScan(nodes, delimiterBalance, fragmentBoundaryCompatible);
+}
+
+function findLastFrameIndex(frames: readonly ListFrame[], kind: CSharpListKind): number {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    if (frames[i].kind === kind) return i;
+  }
+  return -1;
 }
 
 function looksLikeGenericOpen(text: string, mask: readonly boolean[], index: number): boolean {

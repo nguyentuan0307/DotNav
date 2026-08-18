@@ -11,41 +11,50 @@ export interface CSharpWrappingSettings {
 export function formatCSharpWrapping(text: string, ctx: PassContext, settings: CSharpWrappingSettings): string {
   if (settings.style === 'keep' || ctx.enableWrapping === false) return text;
   const lines = splitLines(text);
-  let parenDepth = 0;
+  let delimiterDepth = 0;
   for (const line of lines) {
-    const delta = codeParenDelta(line.text);
-    const isStandalone = parenDepth === 0 && delta === 0;
+    const delta = codeDelimiterDelta(line.text);
+    const isStandalone = delimiterDepth === 0 && delta === 0;
     if (isStandalone && !line.text.trimStart().startsWith(',')
       && (settings.style !== 'wrapIfLong' || visualWidth(line.text, ctx.tabSize) > ctx.wrapColumn)) {
       const wrapped = wrapBestList(line.text, ctx, settings.style === 'chopAlways');
       if (wrapped) line.text = wrapped;
     }
-    parenDepth = Math.max(0, parenDepth + delta);
+    delimiterDepth = Math.max(0, delimiterDepth + delta);
   }
   return joinLines(lines);
 }
 
-function codeParenDelta(line: string): number {
+function codeDelimiterDelta(line: string): number {
   const mask = buildCodeMask(line);
   let delta = 0;
   for (let i = 0; i < line.length; i++) {
     if (!mask[i]) continue;
-    if (line[i] === '(') delta++;
-    else if (line[i] === ')') delta--;
+    if (line[i] === '(' || line[i] === '[' || line[i] === '{') delta++;
+    else if (line[i] === ')' || line[i] === ']' || line[i] === '}') delta--;
   }
   return delta;
 }
 
 function wrapBestList(line: string, ctx: PassContext, chop: boolean): string | undefined {
   const mask = buildCodeMask(line);
-  const pairs = buildCSharpListModel(line, mask).sort((a, b) => a.open - b.open);
+  const pairs = buildCSharpListModel(line, mask);
+  if (pairs.length === 0) return undefined;
+
+  const validCandidates: Array<{ pair: typeof pairs[number]; parts: string[]; score: number }> = [];
+
   for (const pair of pairs) {
     if (pair.controlFlowAncestor) continue;
     const parts = splitItems(line, pair.open + 1, pair.close, pair.separators);
     if (parts.length < 2) continue;
-    return render(line, pair.open, pair.close, parts, ctx, chop);
+    validCandidates.push({ pair, parts, score: pair.open });
   }
-  return undefined;
+
+  if (validCandidates.length === 0) return undefined;
+
+  validCandidates.sort((a, b) => a.score - b.score);
+  const best = validCandidates[0];
+  return render(line, best.pair.open, best.pair.close, best.parts, ctx, chop);
 }
 
 function splitItems(line: string, start: number, end: number, separators: readonly number[]): string[] {
@@ -70,7 +79,8 @@ function render(line: string, open: number, close: number, parts: string[], ctx:
     if (!chop && visualWidth(output[last] + addition, ctx.tabSize) <= ctx.wrapColumn) output[last] += addition;
     else output.push(indent + addition);
   }
-  const closing = ')' + suffix;
+  const closeChar = line[close] ?? ')';
+  const closing = closeChar + suffix;
   const last = output.length - 1;
   if (!chop && visualWidth(output[last] + closing, ctx.tabSize) <= ctx.wrapColumn) output[last] += closing;
   else output.push(leadingWhitespace(line) + closing);

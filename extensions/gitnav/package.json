@@ -196,12 +196,12 @@
         "gitnav.inlineBlame.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Display inline Git blame annotations at the end of the active editor line. Automatically defaults to false if an external Git blame extension (such as Git Blame or GitLens) is installed."
+          "description": "Display inline Git blame annotations at the end of the active editor line."
         },
         "gitnav.inlineBlame.showOnStatusBar": {
           "type": "boolean",
           "default": true,
-          "description": "Display line blame information in the status bar. Automatically defaults to false if an external Git blame extension is installed."
+          "description": "Display line blame information in the status bar."
         },
         "gitnav.inlineBlame.delay": {
           "type": "number",

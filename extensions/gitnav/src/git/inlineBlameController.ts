@@ -74,13 +74,13 @@ export class InlineBlameController implements vscode.Disposable {
   public isEnabled(): boolean {
     const inspect = vscode.workspace.getConfiguration('gitnav').inspect<boolean>('inlineBlame.enabled');
     const explicit = inspect?.globalValue ?? inspect?.workspaceValue ?? inspect?.workspaceFolderValue;
-    return resolveBlameAutoDefault(explicit, isExternalBlameExtensionInstalled());
+    return resolveBlameAutoDefault(explicit);
   }
 
   public isStatusBarEnabled(): boolean {
     const inspect = vscode.workspace.getConfiguration('gitnav').inspect<boolean>('inlineBlame.showOnStatusBar');
     const explicit = inspect?.globalValue ?? inspect?.workspaceValue ?? inspect?.workspaceFolderValue;
-    return resolveBlameAutoDefault(explicit, isExternalBlameExtensionInstalled());
+    return resolveBlameAutoDefault(explicit);
   }
 
   public async toggle(): Promise<boolean> {
