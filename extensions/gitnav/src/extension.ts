@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { BranchCompareDocumentProvider, compareFileWithBranch, compareFileWithCommit, compareSelectionWithBranch } from './git/branchCompare';
 import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
@@ -10,6 +11,7 @@ import { GitRevisionProvider, gitRevisionScheme } from './git/gitRevisionProvide
 import { subscribeToBuiltInGitChanges } from './git/gitLocalSync';
 import { InlineBlameController } from './git/inlineBlameController';
 import { openFileAtRevision } from './git/revisionCommands';
+import { createWorktreeInteractive, pruneWorktreesInteractive, showWorktreeManager } from './git/worktreeManager';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const branchCompareProvider = new BranchCompareDocumentProvider();
@@ -19,6 +21,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     gitLogProvider.revealCommit(repoRoot, hash)
   );
 
+  const resolveTargetRoot = async (): Promise<string | undefined> => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document.uri.scheme === 'file') {
+      const root = await findRepoRoot(editor.document.uri.fsPath);
+      if (root) return root;
+    }
+    const repos = await repositoryService.discoverRepositories();
+    if (repos.length === 1) return repos[0];
+    if (repos.length > 1) {
+      const pick = await vscode.window.showQuickPick(
+        repos.map(r => ({ label: path.basename(r), description: r, root: r })),
+        { placeHolder: 'Select a Git repository' }
+      );
+      return pick?.root;
+    }
+    vscode.window.showInformationMessage('No Git repository found in the current workspace.');
+    return undefined;
+  };
+
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('gitnav-compare', branchCompareProvider),
     vscode.workspace.registerTextDocumentContentProvider(gitRevisionScheme, new GitRevisionProvider(repositoryService)),
@@ -27,6 +48,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     gitLogProvider,
     inlineBlameController,
+    vscode.commands.registerCommand('gitnav.manageWorktrees', async () => {
+      const root = await resolveTargetRoot();
+      if (root) await showWorktreeManager(repositoryService, root);
+    }),
+    vscode.commands.registerCommand('gitnav.createWorktree', async () => {
+      const root = await resolveTargetRoot();
+      if (root) await createWorktreeInteractive(repositoryService, root);
+    }),
+    vscode.commands.registerCommand('gitnav.pruneWorktrees', async () => {
+      const root = await resolveTargetRoot();
+      if (root) await pruneWorktreesInteractive(repositoryService, root);
+    }),
     vscode.commands.registerCommand('gitnav.showFileHistory', () => showFileHistory(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', () => showHistoryForCurrentLine(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForSelection', () => showHistoryForSelection(context)),

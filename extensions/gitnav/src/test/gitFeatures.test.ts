@@ -646,3 +646,14 @@ test('contributes inline blame commands and configuration', () => {
   assert.ok(gitnavManifest.contributes.configuration.properties['gitnav.inlineBlame.format']);
 });
 
+test('contributes worktree manager commands and actions', () => {
+  const commandIds = new Set(gitnavManifest.contributes.commands.map((c: { command: string }) => c.command));
+  assert.ok(commandIds.has('gitnav.manageWorktrees'), 'missing gitnav.manageWorktrees command');
+  assert.ok(commandIds.has('gitnav.createWorktree'), 'missing gitnav.createWorktree command');
+  assert.ok(commandIds.has('gitnav.pruneWorktrees'), 'missing gitnav.pruneWorktrees command');
+
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.manageWorktrees'));
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.createWorktree'));
+  assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.pruneWorktrees'));
+});
+
