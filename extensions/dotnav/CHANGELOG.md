@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.17.0...dotnav-v0.18.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive Git Worktree Status Bar controller with rich tooltip and quick switcher ([4be03cd](https://github.com/nguyentuan0307/DotNav/commit/4be03cd58eefe201f14b0f53168c6ae1bebfff23))
+
+### Bug Fixes
+
+* **dotnav:** ensure full solution scan completion lifecycle before returning endpoint search results ([faee559](https://github.com/nguyentuan0307/DotNav/commit/faee559e15537be410866e23c69a7eb936c90dc1))
+
+
 ## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.16.0...dotnav-v0.17.0) (2026-08-18)
 
 

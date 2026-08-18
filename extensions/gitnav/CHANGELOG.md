@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.18.0...gitnav-v0.19.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive Git Worktree Status Bar controller with rich tooltip and quick switcher ([4be03cd](https://github.com/nguyentuan0307/DotNav/commit/4be03cd58eefe201f14b0f53168c6ae1bebfff23))
+
+
 ## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.17.0...gitnav-v0.18.0) (2026-08-18)
 
 
