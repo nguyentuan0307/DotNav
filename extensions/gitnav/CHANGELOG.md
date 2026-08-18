@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.17.0...gitnav-v0.18.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive git worktree manager and user guide ([b2447f7](https://github.com/nguyentuan0307/DotNav/commit/b2447f71fc68aa2f6c208e1f4a2285cc12270045))
+
+
 ## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.16.0...gitnav-v0.17.0) (2026-08-18)
 
 
