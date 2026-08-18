@@ -694,6 +694,144 @@ test('full pass pipeline is idempotent and preserves non-whitespace tokens', () 
   assert.equal(output.includes('\t      ,'), false);
 });
 
+test('formats multiline C# 12 collection expressions with leading commas', () => {
+  const input = [
+    '\tvar numbers = [',
+    '\t\tfirstValue,',
+    '\t\tsecondValue,',
+    '\t\tthirdValue',
+    '\t];'
+  ].join('\n');
+
+  const output = formatLeadingCommas(input, ctx);
+
+  assert.equal(output, [
+    '\tvar numbers = [',
+    '\t\tfirstValue',
+    '\t\t, secondValue',
+    '\t\t, thirdValue',
+    '\t];'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, ctx), output);
+});
+
+test('wraps long single-line collection expressions with leading commas', () => {
+  const input = '\tvar items = [firstArgument, secondArgument, thirdArgument, fourthArgument, fifthArgument, sixthArgument, seventhArgument, eighthArgument];';
+  const output = formatLeadingCommas(input, ctx);
+
+  assert.ok(output.includes('\n\t\t, seventhArgument, eighthArgument];') || output.includes('\n\t\t, eighthArgument];'));
+  assert.equal(formatLeadingCommas(output, ctx), output);
+});
+
+test('formats multiline object initializers with leading commas', () => {
+  const input = [
+    '\tvar person = new Person',
+    '\t{',
+    '\t\tName = "Alice",',
+    '\t\tAge = 30,',
+    '\t\tCity = "Hanoi"',
+    '\t};'
+  ].join('\n');
+
+  const output = formatLeadingCommas(input, ctx);
+
+  assert.equal(output, [
+    '\tvar person = new Person',
+    '\t{',
+    '\t\tName = "Alice"',
+    '\t\t, Age = 30',
+    '\t\t, City = "Hanoi"',
+    '\t};'
+  ].join('\n'));
+  assert.equal(formatLeadingCommas(output, ctx), output);
+});
+
+test('aligns multiline boolean binary expressions consistently', () => {
+  const input = [
+    '\tif (user != null',
+    '\t  && user.IsActive',
+    '\t      && !user.IsLockedOut)',
+    '\t{',
+    '\t}'
+  ].join('\n');
+
+  const settings = {
+    normalizeIndentWhitespace: true,
+    enableLeadingComma: true,
+    enableFluentChainWrap: true,
+    enableBlankLineRules: true,
+    leadingCommaWrapStyle: 'wrapIfLong' as const,
+    enableBinaryExpressionWrap: true
+  };
+  const output = runFormatPasses(input, settings, ctx);
+
+  assert.equal(output, [
+    '\tif (user != null',
+    '\t\t&& user.IsActive',
+    '\t\t&& !user.IsLockedOut)',
+    '\t{',
+    '\t}'
+  ].join('\n'));
+  assert.equal(runFormatPasses(output, settings, ctx), output);
+});
+
+test('aligns multiline ternary operators (? and :) to the same continuation indent', () => {
+  const input = [
+    '\tvar status = isSuccess',
+    '\t  ? StatusCode.Ok',
+    '\t      : StatusCode.BadRequest;'
+  ].join('\n');
+
+  const settings = {
+    normalizeIndentWhitespace: true,
+    enableLeadingComma: true,
+    enableFluentChainWrap: true,
+    enableBlankLineRules: true,
+    leadingCommaWrapStyle: 'wrapIfLong' as const,
+    enableTernaryAlignment: true
+  };
+  const output = runFormatPasses(input, settings, ctx);
+
+  assert.equal(output, [
+    '\tvar status = isSuccess',
+    '\t\t? StatusCode.Ok',
+    '\t\t: StatusCode.BadRequest;'
+  ].join('\n'));
+  assert.equal(runFormatPasses(output, settings, ctx), output);
+});
+
+test('aligns C# 8+ switch expression arms and pattern arrows with leading commas', () => {
+  const input = [
+    '\tvar result = state switch',
+    '\t{',
+    '\tOrderState.Created => "Created",',
+    '\tOrderState.Processing => "Processing",',
+    '\t_ => "Unknown"',
+    '\t};'
+  ].join('\n');
+
+  const settings = {
+    normalizeIndentWhitespace: true,
+    enableLeadingComma: true,
+    enableFluentChainWrap: true,
+    enableBlankLineRules: true,
+    leadingCommaWrapStyle: 'wrapIfLong' as const,
+    enableSwitchExpressionAlignment: true
+  };
+  const output = runFormatPasses(input, settings, ctx);
+
+  assert.equal(output, [
+    '\tvar result = state switch',
+    '\t{',
+    '\t\t  OrderState.Created    => "Created"',
+    '\t\t, OrderState.Processing => "Processing"',
+    '\t\t, _                     => "Unknown"',
+    '\t};'
+  ].join('\n'));
+  assert.equal(runFormatPasses(output, settings, ctx), output);
+});
+
 function stripWhitespace(text: string): string {
   return text.replace(/\s+/g, '');
 }
+

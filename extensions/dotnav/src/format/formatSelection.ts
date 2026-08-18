@@ -137,7 +137,11 @@ function readPassSettings(
       ?? config.get<boolean>('enableLeadingComma', true),
     enableFluentChainWrap: config.get<boolean>('enableFluentChainWrap', true),
     enableBlankLineRules: config.get<boolean>('enableBlankLineRules', true),
-    leadingCommaWrapStyle: mapWrapStyle(editorConfigStyle.wrapArguments) ?? configuredLeadingStyle
+    leadingCommaWrapStyle: mapWrapStyle(editorConfigStyle.wrapArguments) ?? configuredLeadingStyle,
+    enableBinaryExpressionWrap: config.get<boolean>('enableBinaryExpressionWrap', true),
+    enableTernaryAlignment: config.get<boolean>('enableTernaryAlignment', true),
+    enableSwitchExpressionAlignment: config.get<boolean>('enableSwitchExpressionAlignment', true),
+    enableCollectionExpressionWrap: config.get<boolean>('enableCollectionExpressionWrap', true)
   };
 }
 

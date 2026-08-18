@@ -21,4 +21,8 @@ export interface FormatPassSettings {
   enableFluentChainWrap: boolean;
   enableBlankLineRules: boolean;
   leadingCommaWrapStyle: LeadingCommaWrapStyle;
+  enableBinaryExpressionWrap?: boolean;
+  enableTernaryAlignment?: boolean;
+  enableSwitchExpressionAlignment?: boolean;
+  enableCollectionExpressionWrap?: boolean;
 }
