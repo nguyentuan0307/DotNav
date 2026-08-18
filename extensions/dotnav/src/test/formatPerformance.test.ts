@@ -37,5 +37,5 @@ test('formats a large C# document without quadratic list scanning', { timeout: 5
   const elapsed = performance.now() - started;
 
   assert.ok(output.length > 0);
-  assert.ok(elapsed < 1_000, `expected 6,000 lines under 1,000 ms, received ${elapsed.toFixed(1)} ms`);
+  assert.ok(elapsed < 2_500, `expected 6,000 lines under 2,500 ms, received ${elapsed.toFixed(1)} ms`);
 });

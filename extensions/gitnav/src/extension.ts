@@ -12,6 +12,7 @@ import { subscribeToBuiltInGitChanges } from './git/gitLocalSync';
 import { InlineBlameController } from './git/inlineBlameController';
 import { openFileAtRevision } from './git/revisionCommands';
 import { createWorktreeInteractive, pruneWorktreesInteractive, showWorktreeManager } from './git/worktreeManager';
+import { WorktreeStatusBarController } from './git/worktreeStatusBarController';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const branchCompareProvider = new BranchCompareDocumentProvider();
@@ -20,6 +21,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const inlineBlameController = new InlineBlameController((repoRoot, hash) =>
     gitLogProvider.revealCommit(repoRoot, hash)
   );
+  const worktreeStatusBarController = new WorktreeStatusBarController(repositoryService);
 
   const resolveTargetRoot = async (): Promise<string | undefined> => {
     const editor = vscode.window.activeTextEditor;
@@ -48,17 +50,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     gitLogProvider,
     inlineBlameController,
+    worktreeStatusBarController,
     vscode.commands.registerCommand('gitnav.manageWorktrees', async () => {
       const root = await resolveTargetRoot();
-      if (root) await showWorktreeManager(repositoryService, root);
+      if (root) {
+        await showWorktreeManager(repositoryService, root);
+        void worktreeStatusBarController.refresh(root);
+      }
     }),
     vscode.commands.registerCommand('gitnav.createWorktree', async () => {
       const root = await resolveTargetRoot();
-      if (root) await createWorktreeInteractive(repositoryService, root);
+      if (root) {
+        await createWorktreeInteractive(repositoryService, root);
+        void worktreeStatusBarController.refresh(root);
+      }
     }),
     vscode.commands.registerCommand('gitnav.pruneWorktrees', async () => {
       const root = await resolveTargetRoot();
-      if (root) await pruneWorktreesInteractive(repositoryService, root);
+      if (root) {
+        await pruneWorktreesInteractive(repositoryService, root);
+        void worktreeStatusBarController.refresh(root);
+      }
     }),
     vscode.commands.registerCommand('gitnav.showFileHistory', () => showFileHistory(context)),
     vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', () => showHistoryForCurrentLine(context)),
@@ -92,7 +104,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     const gitEvents = await subscribeToBuiltInGitChanges((root, kind) => {
       gitLogProvider.scheduleLocalRepositoryChange(root, kind);
-    }, () => gitLogProvider.scheduleRepositoryDiscoveryRefresh());
+      void worktreeStatusBarController.refresh(root);
+    }, () => {
+      gitLogProvider.scheduleRepositoryDiscoveryRefresh();
+      void worktreeStatusBarController.refresh();
+    });
     gitLogProvider.setBuiltInGitSyncAvailable(gitEvents !== undefined);
     if (gitEvents) context.subscriptions.push(gitEvents);
   } catch (error) {

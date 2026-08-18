@@ -221,6 +221,11 @@
           "default": true,
           "description": "Display line blame information in the status bar."
         },
+        "gitnav.showStatusBarWorktree": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display the Git Worktree manager and quick switcher in the status bar."
+        },
         "gitnav.inlineBlame.delay": {
           "type": "number",
           "default": 150,
