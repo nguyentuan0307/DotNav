@@ -8,7 +8,7 @@ import {
 } from '../ef/efActionRegistry';
 
 test('defines each EF Center action exactly once', () => {
-  assert.equal(efActionDefinitions.length, 10);
+  assert.equal(efActionDefinitions.length, 11);
   assert.equal(new Set(efActionDefinitions.map(action => action.id)).size, efActionDefinitions.length);
 });
 
