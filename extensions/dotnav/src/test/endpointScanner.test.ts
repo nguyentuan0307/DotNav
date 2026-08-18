@@ -133,3 +133,34 @@ app.Run();
   assert.equal(endpoints[2].httpMethod, 'DELETE');
   assert.equal(endpoints[2].routeTemplate, '/api/todos/{id}');
 });
+
+test('parseEndpointsFromCSharp parses controller route with api/fields and {fieldId:int}/validation', () => {
+  const csharpCode = `
+namespace MyApp.Controllers
+{
+    [ApiController]
+    [Route("api/fields")]
+    public class FieldsController : ControllerBase
+    {
+        [HttpGet("{fieldId:int}/validation")]
+        public IActionResult ValidateField(int fieldId)
+        {
+            return Ok();
+        }
+    }
+}
+`;
+
+  const endpoints = parseEndpointsFromCSharp(
+    csharpCode,
+    '/src/Controllers/FieldsController.cs',
+    'MyApp',
+    'Controllers/FieldsController.cs'
+  );
+
+  assert.equal(endpoints.length, 1);
+  assert.equal(endpoints[0].httpMethod, 'GET');
+  assert.equal(endpoints[0].routeTemplate, 'api/fields/{fieldId:int}/validation');
+  assert.equal(endpoints[0].normalizedRoute, 'api/fields/{fieldId}/validation');
+  assert.equal(endpoints[0].actionName, 'ValidateField');
+});

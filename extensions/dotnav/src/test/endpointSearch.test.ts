@@ -60,6 +60,19 @@ const mockEndpoints: ApiEndpoint[] = [
     relativePath: 'Controllers/UsersController.cs',
     line: 80,
     projectName: 'WebApp.Api'
+  },
+  {
+    id: '5',
+    httpMethod: 'GET',
+    routeTemplate: 'api/fields/{fieldId:int}/validation',
+    normalizedRoute: 'api/fields/{fieldId}/validation',
+    controllerName: 'FieldsController',
+    actionName: 'ValidateField',
+    kind: 'controller',
+    filePath: '/src/FieldsController.cs',
+    relativePath: 'Controllers/FieldsController.cs',
+    line: 18,
+    projectName: 'WebApp.Api'
   }
 ];
 
@@ -133,4 +146,33 @@ test('formatEndpointAsCurl formats valid cURL command', () => {
   const curlPost = formatEndpointAsCurl(mockEndpoints[1]);
   assert.match(curlPost, /^curl -X POST "https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields"/);
   assert.match(curlPost, /-H "Content-Type: application\/json"/);
+});
+
+test('searchEndpoints accurately matches fields//validation across full URL route api/fields/{fieldId:int}/validation', () => {
+  // Scenario 1: fields//validation
+  const results1 = searchEndpoints(mockEndpoints, 'fields//validation');
+  assert.ok(results1.length >= 1);
+  assert.equal(results1[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+  assert.ok(results1[0].score >= 90);
+
+  // Scenario 2: fields/validation
+  const results2 = searchEndpoints(mockEndpoints, 'fields/validation');
+  assert.ok(results2.length >= 1);
+  assert.equal(results2[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+
+  // Scenario 3: api//validation
+  const results3 = searchEndpoints(mockEndpoints, 'api//validation');
+  assert.ok(results3.length >= 1);
+  assert.equal(results3[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+
+  // Scenario 4: fieldId/validation
+  const results4 = searchEndpoints(mockEndpoints, 'fieldId/validation');
+  assert.ok(results4.length >= 1);
+  assert.equal(results4[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+
+  // Scenario 5: GET fields//validation
+  const results5 = searchEndpoints(mockEndpoints, 'GET fields//validation');
+  assert.ok(results5.length >= 1);
+  assert.equal(results5[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+  assert.equal(results5[0].endpoint.httpMethod, 'GET');
 });
