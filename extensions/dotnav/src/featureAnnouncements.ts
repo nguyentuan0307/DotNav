@@ -19,9 +19,26 @@ const previewFeatures: PreviewFeature[] = [
   }
 ];
 
+const lastEndpointAnnouncementVersionKey = 'dotnav.endpointAnnouncement.lastVersion';
+
 export async function showFeatureAnnouncements(context: vscode.ExtensionContext): Promise<void> {
   const currentVersion = String(context.extension.packageJSON.version ?? '0.0.0');
   const lastVersion = context.globalState.get<string>(lastAnnouncementVersionKey);
+
+  // Announce Endpoint Explorer on update
+  const lastEndpointAnnounced = context.globalState.get<string>(lastEndpointAnnouncementVersionKey);
+  if (!lastEndpointAnnounced || compareVersions('0.11.0', lastEndpointAnnounced) > 0) {
+    await context.globalState.update(lastEndpointAnnouncementVersionKey, currentVersion);
+    void vscode.window.showInformationMessage(
+      '🚀 New in DotNav: ASP.NET Core Endpoint Explorer! Search API routes, jump to code, and copy cURL/.http with Ctrl+Alt+A (Ctrl+Enter for actions).',
+      'Search Endpoints'
+    ).then(action => {
+      if (action === 'Search Endpoints') {
+        void vscode.commands.executeCommand('dotnav.searchApiEndpoints');
+      }
+    });
+  }
+
   const available = previewFeatures.filter(feature =>
     compareVersions(feature.introducedIn, currentVersion) <= 0
     && (!lastVersion || compareVersions(feature.introducedIn, lastVersion) > 0));

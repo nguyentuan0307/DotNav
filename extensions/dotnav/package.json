@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -65,7 +65,10 @@
     "onCommand:dotnav.formatSelection",
     "onCommand:dotnav.formatDocument",
     "onCommand:dotnav.localHistory.show",
-    "onCommand:dotnav.localHistory.showSelection"
+    "onCommand:dotnav.localHistory.showSelection",
+    "onCommand:dotnav.searchApiEndpoints",
+    "onCommand:dotnav.refreshApiEndpoints",
+    "onCommand:dotnav.openEndpointActions"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -171,6 +174,20 @@
         "command": "dotnav.localHistory.showSelection",
         "title": "Show Local History for Selection",
         "icon": "$(history)"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "title": "Search ASP.NET Core Endpoints",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "dotnav.refreshApiEndpoints",
+        "title": "DotNav: Refresh ASP.NET Core Endpoints",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "title": "DotNav: Open Actions for Selected Endpoint"
       },
       {
         "command": "dotnav.openItem",
@@ -531,6 +548,28 @@
         "command": "dotnav.formatSelection",
         "key": "ctrl+alt+l",
         "when": "editorTextFocus && editorLangId == csharp"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "key": "alt+shift+a",
+        "mac": "alt+shift+a"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "dotnav.endpointSearchOpen"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "key": "alt+enter",
+        "mac": "alt+enter",
+        "when": "dotnav.endpointSearchOpen"
       }
     ],
     "menus": {
@@ -599,6 +638,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "dotnav.searchApiEndpoints",
+          "when": "view == dotnav",
+          "group": "navigation@1"
+        },
+        {
           "command": "dotnav.refresh",
           "when": "view == dotnav",
           "group": "navigation@4"
@@ -606,7 +650,7 @@
         {
           "command": "dotnav.checkOutdated",
           "when": "view == dotnav",
-          "group": "navigation@3.5"
+          "group": "2_view@4"
         },
         {
           "command": "dotnav.selectSolution",

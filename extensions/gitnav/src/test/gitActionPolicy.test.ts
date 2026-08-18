@@ -9,6 +9,8 @@ test('uses consistent user-facing labels', () => {
   assert.equal(actionLabel('amendCommit'), 'Amend Commit');
   assert.equal(actionLabel('copyFormatted'), 'Copy Full Commit Info');
   assert.equal(actionLabel('stashFile'), 'Stash File Changes');
+  assert.equal(actionLabel('worktreeLock'), 'Lock Worktree');
+  assert.equal(actionLabel('worktreeUnlock'), 'Unlock Worktree');
   assert.equal(actionLabel('unknownAction'), 'Git Operation');
 });
 

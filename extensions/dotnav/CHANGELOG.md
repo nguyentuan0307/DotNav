@@ -4,6 +4,31 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.16.0...dotnav-v0.17.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add ASP.NET Core endpoint explorer with flexible route search ([e0ad67c](https://github.com/nguyentuan0307/DotNav/commit/e0ad67c86efd94de7000696d10b67ec33e89891d))
+* **dotnav:** add cURL command formatting and pure formatter test separation ([a3ebe86](https://github.com/nguyentuan0307/DotNav/commit/a3ebe8638935cd125c38eaf25460f9e4b954dc4a))
+* **dotnav:** implement 5-tier ultra-smart ASP.NET Core endpoint search engine ([8dad3de](https://github.com/nguyentuan0307/DotNav/commit/8dad3de221e0acf4745a6e3e9a2ba32a42c2971d))
+* **dotnav:** support project-filtered endpoint search and workspace standalone project scanning ([ab6cf18](https://github.com/nguyentuan0307/DotNav/commit/ab6cf18d9fb6d52f3707e60d9e9274ea9ecaca10))
+* **dotnav:** contribute default keybindings ctrl+alt+a and alt+shift+a for endpoint search ([bfe85f2](https://github.com/nguyentuan0307/DotNav/commit/bfe85f289e0268664a09cd9075f04601e918667d))
+* **dotnav:** add rock-solid incremental cache, background warmup, and keyboard-first actions for endpoint explorer ([195d8cc](https://github.com/nguyentuan0307/DotNav/commit/195d8cc759f88d8cc39417bc7e6f94b833e2b28f))
+
+### Bug Fixes
+
+* **dotnav:** set alwaysShow true on QuickPick search results to prevent VS Code client-side filter suppression ([1c54619](https://github.com/nguyentuan0307/DotNav/commit/1c54619239ea5240e2f667d29b615b3e0f15a2d7))
+
+### Performance Improvements
+
+* **dotnav:** optimize typo matcher with zero-allocation isNearMatch ([10f80f7](https://github.com/nguyentuan0307/DotNav/commit/10f80f75dd4e256e9e167f826de740fbdb33b7f4))
+
+### Changes
+
+* test(dotnav): add tests for api/fields/{fieldId:int}/validation route matching ([bc1e687](https://github.com/nguyentuan0307/DotNav/commit/bc1e6873cc7eaacc30310025ec84eaf3eab747a7))
+
+
 ## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.15.0...dotnav-v0.16.0) (2026-08-18)
 
 
