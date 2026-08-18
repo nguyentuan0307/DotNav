@@ -1,15 +1,91 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApiEndpoint, HttpMethod } from './endpointModel';
+import { ApiEndpoint, HttpMethod, RouteParameterInfo, RouteSegmentDescriptor } from './endpointModel';
+
+export function toKebabCase(str: string): string {
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
+    .toLowerCase();
+}
+
+export function parseRouteSegments(routeTemplate: string): RouteSegmentDescriptor[] {
+  if (!routeTemplate) return [];
+  const rawSegments = routeTemplate
+    .replace(/^\/+|\/+$/g, '')
+    .split(/\/+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  return rawSegments.map(raw => {
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      const match = raw.match(/^\{([a-zA-Z0-9_]+)(?::([a-zA-Z0-9_()]+))?(\?)?(?:=([^}]+))?\}$/);
+      if (match) {
+        const paramName = match[1];
+        const constraint = match[2];
+        const variations = [
+          paramName.toLowerCase(),
+          toKebabCase(paramName),
+          paramName
+        ];
+        if (constraint) {
+          variations.push(`${paramName.toLowerCase()}:${constraint.toLowerCase()}`);
+        }
+        return {
+          raw,
+          isParam: true,
+          paramName,
+          constraint,
+          cleanText: paramName,
+          variations
+        };
+      }
+      const stripped = raw.slice(1, -1);
+      return {
+        raw,
+        isParam: true,
+        paramName: stripped,
+        cleanText: stripped,
+        variations: [stripped.toLowerCase(), raw.toLowerCase()]
+      };
+    }
+
+    const clean = raw.toLowerCase();
+    const kebab = toKebabCase(raw);
+    const variations = Array.from(new Set([clean, kebab, raw]));
+    return {
+      raw,
+      isParam: false,
+      cleanText: raw,
+      variations
+    };
+  });
+}
+
+export function extractRouteParameters(segments: readonly RouteSegmentDescriptor[]): RouteParameterInfo[] {
+  return segments
+    .filter(s => s.isParam && s.paramName)
+    .map(s => ({
+      name: s.paramName!,
+      typeConstraint: s.constraint
+    }));
+}
 
 export function normalizeRouteTemplate(route: string): string {
   if (!route) return '';
   let cleaned = route.trim().replace(/^\/+|^\~+\/+/, '');
-  // Clean double slashes
+  // Clean multiple slashes
   cleaned = cleaned.replace(/\/+/g, '/');
   // Normalize parameter constraints e.g. {id:int} -> {id}, {id:guid?} -> {id}
   cleaned = cleaned.replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '{$1}');
   return cleaned;
+}
+
+export function combineMinimalApiRoutes(groupPrefix: string | undefined, route: string | undefined): string {
+  const p = (groupPrefix || '').trim().replace(/^\/+|\/+$/g, '');
+  const r = (route || '').trim().replace(/^\/+|\/+$/g, '');
+  if (p && r) return `${p}/${r}`;
+  return p || r || '';
 }
 
 export function combineRoutes(classRoute: string | undefined, actionRoute: string | undefined): string {
@@ -53,7 +129,6 @@ export function parseEndpointsFromCSharp(
   relativePath: string
 ): ApiEndpoint[] {
   const endpoints: ApiEndpoint[] = [];
-  const lines = code.split(/\r?\n/);
 
   // 1. Controller parsing
   const classRegex = /(?:public\s+|internal\s+)?(?:partial\s+)?class\s+([A-Za-z0-9_]+Controller)\b(?:\s*:\s*([A-Za-z0-9_,\s<>]+))?/g;
@@ -63,18 +138,24 @@ export function parseEndpointsFromCSharp(
     const controllerName = classMatch[1];
     const classIndex = classMatch.index;
 
-    // Find class start line
-    const classLine = code.substring(0, classIndex).split('\n').length;
-
     // Look backwards from class definition for attributes
-    const beforeClass = code.substring(Math.max(0, classIndex - 1000), classIndex);
-    let classRoute: string | undefined;
+    const beforeClass = code.substring(Math.max(0, classIndex - 1500), classIndex);
+    const classRoutes: string[] = [];
     let areaName: string | undefined;
     const classAuth: string[] = [];
 
-    const routeAttrMatch = beforeClass.match(/\[Route\(\s*(?:\$|@)?"([^"]+)"\s*\)\]/i);
-    if (routeAttrMatch) {
-      classRoute = routeAttrMatch[1];
+    const routeAttrMatches = beforeClass.matchAll(/\[Route\(\s*(?:\$|@)?"([^"]+)"\s*\)\]/gi);
+    for (const m of routeAttrMatches) {
+      classRoutes.push(m[1]);
+    }
+
+    if (classRoutes.length === 0) {
+      // Check if ApiController attribute exists or inherits ControllerBase without explicit Route
+      if (/\[ApiController\]/i.test(beforeClass) || /ControllerBase|Controller/i.test(classMatch[2] || '')) {
+        classRoutes.push('api/[controller]');
+      } else {
+        classRoutes.push('');
+      }
     }
 
     const areaAttrMatch = beforeClass.match(/\[Area\(\s*"([^"]+)"\s*\)\]/i);
@@ -89,7 +170,7 @@ export function parseEndpointsFromCSharp(
       classAuth.push('AllowAnonymous');
     }
 
-    // Find class body boundaries (approximate based on brace counting)
+    // Find class body boundaries
     const bodyStartIndex = code.indexOf('{', classIndex);
     if (bodyStartIndex === -1) continue;
 
@@ -108,7 +189,7 @@ export function parseEndpointsFromCSharp(
 
     const classBody = code.substring(bodyStartIndex, bodyEndIndex);
 
-    // Method regex looking for action methods with HTTP attributes
+    // Match action methods with HTTP attributes
     const methodRegex = /\[(?:(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|HttpOptions|AcceptVerbs|Route)\s*(?:\(\s*(?:\$|@)?"([^"]*)"[^)]*\))?)\]\s*(?:\[[^\]]+\]\s*)*(?:public\s+|async\s+)*(?:Task<[^>]+>|Task|ActionResult<[^>]+>|IActionResult|IResult|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g;
 
     let methodMatch: RegExpExecArray | null;
@@ -134,42 +215,66 @@ export function parseEndpointsFromCSharp(
       const methodOffset = bodyStartIndex + methodMatch.index;
       const methodLine = code.substring(0, methodOffset).split('\n').length;
 
-      const combined = combineRoutes(classRoute, actionRouteArg);
-      const rawRoute = resolveRouteTokens(combined, controllerName, actionName, areaName);
-      const normalized = normalizeRouteTemplate(rawRoute);
-
       const params = paramsArg
         .split(',')
         .map(p => p.trim())
         .filter(Boolean);
 
-      const id = `${filePath}:${methodLine}:${httpMethod}:${rawRoute}`;
+      for (const classRoute of classRoutes) {
+        const combined = combineRoutes(classRoute, actionRouteArg);
+        const rawRoute = resolveRouteTokens(combined, controllerName, actionName, areaName);
+        const normalized = normalizeRouteTemplate(rawRoute);
+        const segments = parseRouteSegments(rawRoute);
+        const routeParams = extractRouteParameters(segments);
 
-      endpoints.push({
-        id,
-        httpMethod,
-        routeTemplate: rawRoute || '[root]',
-        normalizedRoute: normalized || '[root]',
-        controllerName,
-        actionName,
-        kind: 'controller',
-        filePath,
-        relativePath,
-        line: methodLine,
-        projectName,
-        parameters: params,
-        authorization: classAuth
-      });
+        const id = `${filePath}:${methodLine}:${httpMethod}:${rawRoute}`;
+
+        endpoints.push({
+          id,
+          httpMethod,
+          routeTemplate: rawRoute || '[root]',
+          normalizedRoute: normalized || '[root]',
+          segments,
+          controllerName,
+          actionName,
+          kind: 'controller',
+          filePath,
+          relativePath,
+          line: methodLine,
+          projectName,
+          parameters: params,
+          routeParameters: routeParams,
+          authorization: classAuth
+        });
+      }
     }
   }
 
-  // 2. Minimal API parsing (e.g. app.MapGet("...", ...), endpoints.MapPost("...", ...), group.MapPut("...", ...))
-  const minimalApiRegex = /\b(?:app|endpoints|group|routes|api|builder)\s*\.\s*(MapGet|MapPost|MapPut|MapDelete|MapPatch|MapMethods)\s*\(\s*(?:\$|@)?"([^"]+)"/g;
+  // 2. Minimal API parsing (with MapGroup hierarchy tracking)
+  const groupMap = new Map<string, string>();
+  const groupRegex = /(?:var|RouteGroupBuilder|[A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)\s*=\s*(?:[A-Za-z0-9_]+)\.MapGroup\(\s*(?:\$|@)?"([^"]+)"/g;
+  let groupMatch: RegExpExecArray | null;
+
+  while ((groupMatch = groupRegex.exec(code)) !== null) {
+    const varName = groupMatch[1];
+    const groupPrefix = groupMatch[2];
+    if (varName && groupPrefix) {
+      groupMap.set(varName, groupPrefix);
+    }
+  }
+
+  const minimalApiRegex = /([A-Za-z0-9_]+)\.(MapGet|MapPost|MapPut|MapDelete|MapPatch|MapMethods)\s*\(\s*(?:\$|@)?"([^"]+)"/g;
   let minimalMatch: RegExpExecArray | null;
 
   while ((minimalMatch = minimalApiRegex.exec(code)) !== null) {
-    const mapFunc = minimalMatch[1];
-    const route = minimalMatch[2];
+    const caller = minimalMatch[1];
+    const mapFunc = minimalMatch[2];
+    const route = minimalMatch[3];
+
+    let prefix = '';
+    if (caller && groupMap.has(caller)) {
+      prefix = groupMap.get(caller)!;
+    }
 
     let httpMethod: HttpMethod = 'GET';
     if (/MapPost/i.test(mapFunc)) httpMethod = 'POST';
@@ -177,23 +282,29 @@ export function parseEndpointsFromCSharp(
     else if (/MapDelete/i.test(mapFunc)) httpMethod = 'DELETE';
     else if (/MapPatch/i.test(mapFunc)) httpMethod = 'PATCH';
 
+    const fullRoute = combineMinimalApiRoutes(prefix, route);
     const matchOffset = minimalMatch.index;
     const line = code.substring(0, matchOffset).split('\n').length;
-    const normalized = normalizeRouteTemplate(route);
+    const normalized = normalizeRouteTemplate(fullRoute);
+    const segments = parseRouteSegments(fullRoute);
+    const routeParams = extractRouteParameters(segments);
 
-    const id = `${filePath}:${line}:${httpMethod}:${route}`;
+    const id = `${filePath}:${line}:${httpMethod}:${fullRoute}`;
 
     endpoints.push({
       id,
       httpMethod,
-      routeTemplate: route,
+      routeTemplate: fullRoute,
       normalizedRoute: normalized,
+      segments,
       actionName: `MinimalApi (${mapFunc})`,
       kind: 'minimalApi',
       filePath,
       relativePath,
       line,
-      projectName
+      projectName,
+      routeParameters: routeParams,
+      groupName: prefix || undefined
     });
   }
 

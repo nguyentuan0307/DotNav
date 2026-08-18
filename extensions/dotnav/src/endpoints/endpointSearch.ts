@@ -1,4 +1,4 @@
-import { ApiEndpoint, EndpointSearchResult, HttpMethod } from './endpointModel';
+import { ApiEndpoint, EndpointSearchResult, HttpMethod, RouteSegmentDescriptor } from './endpointModel';
 
 export interface ParsedQuery {
   readonly raw: string;
@@ -8,62 +8,138 @@ export interface ParsedQuery {
 }
 
 export function parseSearchQuery(query: string): ParsedQuery {
-  const trimmed = query.trim();
-  if (!trimmed) {
+  let clean = query.trim();
+  if (!clean) {
     return { raw: '', routeQuery: '', tokens: [] };
   }
 
-  // Extract leading or trailing HTTP method e.g. "GET interface-views" or "interface-views POST"
+  // Strip query params (?foo=bar) and hashes (#section)
+  clean = clean.replace(/[\?\#].*$/, '').trim();
+
+  // Extract leading or trailing HTTP method
   const methodRegex = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/i;
   const trailingMethodRegex = /\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/i;
 
   let desiredMethod: HttpMethod | undefined;
-  let cleanQuery = trimmed;
+  let cleanQuery = clean;
 
-  const leadingMatch = trimmed.match(methodRegex);
+  const leadingMatch = clean.match(methodRegex);
   if (leadingMatch) {
     desiredMethod = leadingMatch[1].toUpperCase() as HttpMethod;
-    cleanQuery = trimmed.substring(leadingMatch[0].length).trim();
+    cleanQuery = clean.substring(leadingMatch[0].length).trim();
   } else {
-    const trailingMatch = trimmed.match(trailingMethodRegex);
+    const trailingMatch = clean.match(trailingMethodRegex);
     if (trailingMatch) {
       desiredMethod = trailingMatch[1].toUpperCase() as HttpMethod;
-      cleanQuery = trimmed.substring(0, trailingMatch.index).trim();
+      cleanQuery = clean.substring(0, trailingMatch.index).trim();
     }
   }
 
-  // Split query into tokens by slashes, spaces, or hyphens/underscores if searching words
-  // e.g. "interface-views//filter-fields" -> ["interface-views", "filter-fields"]
-  const rawSegments = cleanQuery.split(/[\/\\]+/).map(s => s.trim()).filter(Boolean);
-
-  // If no slashes were used, split by whitespace
-  const tokens = rawSegments.length > 0
-    ? rawSegments
-    : cleanQuery.split(/\s+/).map(s => s.trim()).filter(Boolean);
+  // Split query into tokens: handle slashes, backslashes, wildcards (*), and whitespace
+  // e.g. "fields//validation" -> ["fields", "validation"]
+  // e.g. "fields * validation" -> ["fields", "validation"]
+  const rawSegments = cleanQuery
+    .split(/[\/\\\*\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
 
   return {
-    raw: trimmed,
+    raw: query.trim(),
     desiredMethod,
     routeQuery: cleanQuery,
-    tokens
+    tokens: rawSegments
   };
 }
 
-export function extractRouteSegments(routeTemplate: string): string[] {
-  return routeTemplate
-    .replace(/^\/+|\/+$/g, '')
-    .split(/\/+/)
-    .map(s => s.trim())
-    .filter(Boolean);
+export function damerauLevenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const al = a.length;
+  const bl = b.length;
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= al; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= bl; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= al; i++) {
+    for (let j = 1; j <= bl; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,        // deletion
+        matrix[i][j - 1] + 1,        // insertion
+        matrix[i - 1][j - 1] + cost  // substitution
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1); // transposition
+      }
+    }
+  }
+
+  return matrix[al][bl];
 }
 
-export function isParameterSegment(segment: string): boolean {
-  return segment.startsWith('{') && segment.endsWith('}');
+export function isAcronymMatch(token: string, text: string): boolean {
+  if (!token || !text) return false;
+  const words = text.split(/[-_\s/]+/).filter(Boolean);
+  if (words.length < 2 && token.length > 1) return false;
+
+  const initials = words.map(w => w[0].toLowerCase()).join('');
+  return initials.includes(token.toLowerCase()) || token.toLowerCase() === initials;
 }
 
-export function stripParamConstraints(segment: string): string {
-  if (!isParameterSegment(segment)) return segment;
-  return segment.replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '$1');
+export function getRouteInitials(endpoint: ApiEndpoint): { full: string; nonParams: string } {
+  const full = endpoint.segments.map(s => s.cleanText[0] || '').join('').toLowerCase();
+  const nonParams = endpoint.segments.filter(s => !s.isParam).map(s => s.cleanText[0] || '').join('').toLowerCase();
+  return { full, nonParams };
+}
+
+export function matchTokenToSegment(token: string, segment: RouteSegmentDescriptor): { matched: boolean; score: number } {
+  const tokLower = token.toLowerCase();
+
+  // 1. Exact match on raw or clean text or variations
+  for (const v of segment.variations) {
+    if (v === tokLower) {
+      return { matched: true, score: 100 };
+    }
+  }
+
+  // 2. Substring match
+  for (const v of segment.variations) {
+    if (v.includes(tokLower)) {
+      return { matched: true, score: 85 };
+    }
+  }
+
+  // 3. Acronym match (e.g. "iv" -> "interface-views")
+  if (isAcronymMatch(tokLower, segment.cleanText)) {
+    return { matched: true, score: 80 };
+  }
+
+  // 4. Parameter constraint match (e.g. query "fieldId:int" or "int" matching "{fieldId:int}")
+  if (segment.isParam) {
+    if (segment.paramName?.toLowerCase() === tokLower) {
+      return { matched: true, score: 90 };
+    }
+    if (segment.constraint?.toLowerCase() === tokLower) {
+      return { matched: true, score: 85 };
+    }
+  }
+
+  // 5. Typo tolerance with Damerau-Levenshtein (for tokens of length >= 4)
+  if (tokLower.length >= 4 && segment.cleanText.length >= 4) {
+    const dist = damerauLevenshteinDistance(tokLower, segment.cleanText.toLowerCase());
+    if (dist <= 1) {
+      return { matched: true, score: 75 };
+    }
+  }
+
+  return { matched: false, score: 0 };
 }
 
 export function scoreEndpoint(endpoint: ApiEndpoint, query: ParsedQuery): EndpointSearchResult | undefined {
@@ -86,71 +162,80 @@ export function scoreEndpoint(endpoint: ApiEndpoint, query: ParsedQuery): Endpoi
     baseScore = 100;
     matchReason = 'Exact route match';
   }
-  // 2. Segment Subsequence Match with Parameter Gaps (e.g. "interface-views//filter-fields" matching "interface-views/{id}/filter-fields")
+  // 2. Multi-Gap Subsequence Matcher with Parameter Skips
   else if (tokens.length > 0) {
-    const routeSegments = extractRouteSegments(endpoint.routeTemplate);
+    const segments = endpoint.segments;
     let matchedTokenCount = 0;
     let lastSegmentIndex = -1;
     let inOrder = true;
-    let matchedGapCount = 0;
+    let totalParamGaps = 0;
+    let totalStaticGaps = 0;
 
     for (let t = 0; t < tokens.length; t++) {
-      const token = tokens[t].toLowerCase();
-      let foundIndex = -1;
+      const token = tokens[t];
+      let bestSegmentIndex = -1;
+      let bestSegmentScore = 0;
 
-      for (let s = lastSegmentIndex + 1; s < routeSegments.length; s++) {
-        const seg = routeSegments[s].toLowerCase();
-        const segClean = stripParamConstraints(seg).toLowerCase();
-
-        if (seg === token || segClean === token || seg.includes(token)) {
-          foundIndex = s;
-          if (lastSegmentIndex !== -1 && s > lastSegmentIndex + 1) {
-            // There was a gap of 1 or more segments in between (e.g. a parameter segment)
-            matchedGapCount += (s - lastSegmentIndex - 1);
-          }
+      for (let s = lastSegmentIndex + 1; s < segments.length; s++) {
+        const result = matchTokenToSegment(token, segments[s]);
+        if (result.matched) {
+          bestSegmentIndex = s;
+          bestSegmentScore = result.score;
           break;
         }
       }
 
-      if (foundIndex !== -1) {
-        matchedTokenCount++;
-        lastSegmentIndex = foundIndex;
+      if (bestSegmentIndex !== -1) {
+        matchedTokenCount += (bestSegmentScore / 100);
+
+        if (lastSegmentIndex !== -1 && bestSegmentIndex > lastSegmentIndex + 1) {
+          // Check what was skipped in the gap between lastSegmentIndex and bestSegmentIndex
+          for (let g = lastSegmentIndex + 1; g < bestSegmentIndex; g++) {
+            if (segments[g].isParam) {
+              totalParamGaps++;
+            } else {
+              totalStaticGaps++;
+            }
+          }
+        }
+        lastSegmentIndex = bestSegmentIndex;
       } else {
         inOrder = false;
         // Check if token matches controller or action instead
-        if (controllerLower.includes(token) || actionLower.includes(token)) {
-          matchedTokenCount += 0.75;
+        const tokLower = token.toLowerCase();
+        if (controllerLower.includes(tokLower) || actionLower.includes(tokLower) || isAcronymMatch(tokLower, controllerLower) || isAcronymMatch(tokLower, actionLower)) {
+          matchedTokenCount += 0.8;
         }
       }
     }
 
-    if (matchedTokenCount === tokens.length && inOrder) {
-      baseScore = 95 - Math.min(10, matchedGapCount * 2);
-      matchReason = matchedGapCount > 0
+    if (inOrder && matchedTokenCount >= tokens.length * 0.6) {
+      const matchRatio = matchedTokenCount / tokens.length;
+      baseScore = Math.round(96 * matchRatio) - (totalParamGaps * 1) - (totalStaticGaps * 3);
+      matchReason = totalParamGaps > 0
         ? 'Route matched with parameter wildcards'
         : 'Sequential segment match';
-    } else if (matchedTokenCount >= tokens.length * 0.75) {
-      baseScore = 80;
+    } else if (matchedTokenCount >= tokens.length * 0.6) {
+      baseScore = 82;
       matchReason = 'Multi-token route match';
     } else if (routeLower.includes(queryLower) || normalizedLower.includes(queryLower)) {
-      baseScore = 75;
+      baseScore = 78;
       matchReason = 'Route substring match';
     } else if (controllerLower.includes(queryLower) || actionLower.includes(queryLower)) {
-      baseScore = 70;
+      baseScore = 74;
       matchReason = 'Controller/Action match';
     } else {
-      // Fuzzy acronym or loose token match
-      let looseMatches = 0;
-      for (const token of tokens) {
-        const tok = token.toLowerCase();
-        if (routeLower.includes(tok) || controllerLower.includes(tok) || actionLower.includes(tok)) {
-          looseMatches++;
+      // Route initials / Acronym match (e.g. "afv" for "api/fields/{id}/validation")
+      const { full: fullInitials, nonParams: nonParamInitials } = getRouteInitials(endpoint);
+      if (nonParamInitials === queryLower || fullInitials === queryLower || nonParamInitials.includes(queryLower)) {
+        baseScore = 80;
+        matchReason = 'Acronym route match';
+      } else {
+        const fullAcronymMatch = isAcronymMatch(queryLower, routeLower) || isAcronymMatch(queryLower, controllerLower) || isAcronymMatch(queryLower, actionLower);
+        if (fullAcronymMatch) {
+          baseScore = 75;
+          matchReason = 'Acronym match';
         }
-      }
-
-      if (looseMatches > 0) {
-        baseScore = 50 + (looseMatches / tokens.length) * 20;
-        matchReason = 'Partial token match';
       }
     }
   }
@@ -200,6 +285,33 @@ export function searchEndpoints(
   return results.slice(0, limit);
 }
 
+export function generateMockValueForConstraint(constraint?: string, paramName?: string): string {
+  const c = (constraint || '').toLowerCase();
+  const n = (paramName || '').toLowerCase();
+
+  if (c.includes('int') || c.includes('long') || c.includes('short') || c.includes('byte')) return '1';
+  if (c.includes('guid')) return '00000000-0000-0000-0000-000000000000';
+  if (c.includes('bool')) return 'true';
+  if (c.includes('decimal') || c.includes('double') || c.includes('float')) return '99.99';
+  if (c.includes('datetime')) return '2026-01-01T00:00:00Z';
+
+  if (n.includes('id')) return '1';
+  if (n.includes('email')) return 'user@example.com';
+  if (n.includes('name')) return 'sample-name';
+  return 'sample';
+}
+
+export function formatResolvedUrl(endpoint: ApiEndpoint, host: string = 'https://localhost:5001'): string {
+  let resolved = endpoint.routeTemplate.replace(/^\/+/, '');
+  for (const seg of endpoint.segments) {
+    if (seg.isParam && seg.paramName) {
+      const mockVal = generateMockValueForConstraint(seg.constraint, seg.paramName);
+      resolved = resolved.replace(seg.raw, mockVal);
+    }
+  }
+  return `${host}/${resolved}`;
+}
+
 export function formatEndpointAsHttp(endpoint: ApiEndpoint): string {
   const host = 'https://localhost:5001';
   const cleanRoute = endpoint.routeTemplate.replace(/^\/+/, '');
@@ -221,13 +333,11 @@ export function formatEndpointAsHttp(endpoint: ApiEndpoint): string {
 }
 
 export function formatEndpointAsCurl(endpoint: ApiEndpoint): string {
-  const host = 'https://localhost:5001';
-  const cleanRoute = endpoint.routeTemplate.replace(/^\/+/, '');
+  const resolvedUrl = formatResolvedUrl(endpoint);
   const method = endpoint.httpMethod === 'ANY' ? 'GET' : endpoint.httpMethod;
 
   if (['POST', 'PUT', 'PATCH'].includes(method)) {
-    return `curl -X ${method} "${host}/${cleanRoute}" -H "Accept: application/json" -H "Content-Type: application/json" -d '{}'`;
+    return `curl -X ${method} "${resolvedUrl}" -H "Accept: application/json" -H "Content-Type: application/json" -d '{}'`;
   }
-  return `curl -X ${method} "${host}/${cleanRoute}" -H "Accept: application/json"`;
+  return `curl -X ${method} "${resolvedUrl}" -H "Accept: application/json"`;
 }
-

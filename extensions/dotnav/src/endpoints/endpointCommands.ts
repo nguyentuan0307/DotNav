@@ -6,6 +6,7 @@ import { EndpointIndex } from './endpointScanner';
 import {
   formatEndpointAsCurl,
   formatEndpointAsHttp,
+  formatResolvedUrl,
   searchEndpoints
 } from './endpointSearch';
 
@@ -84,6 +85,10 @@ export async function searchEndpointsInteractive(
             tooltip: 'Copy Route Template'
           },
           {
+            iconPath: new vscode.ThemeIcon('link-external'),
+            tooltip: 'Copy Resolved Test URL'
+          },
+          {
             iconPath: new vscode.ThemeIcon('code'),
             tooltip: 'Copy as .http Request'
           },
@@ -109,6 +114,10 @@ export async function searchEndpointsInteractive(
     if (event.button.tooltip === 'Copy Route Template') {
       await vscode.env.clipboard.writeText(ep.routeTemplate);
       vscode.window.showInformationMessage(`Copied route: ${ep.routeTemplate}`);
+    } else if (event.button.tooltip === 'Copy Resolved Test URL') {
+      const resolvedUrl = formatResolvedUrl(ep);
+      await vscode.env.clipboard.writeText(resolvedUrl);
+      vscode.window.showInformationMessage(`Copied test URL: ${resolvedUrl}`);
     } else if (event.button.tooltip === 'Copy as .http Request') {
       const httpPayload = formatEndpointAsHttp(ep);
       await vscode.env.clipboard.writeText(httpPayload);

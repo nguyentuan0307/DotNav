@@ -124,14 +124,14 @@ app.Run();
 
   assert.equal(endpoints.length, 3);
   assert.equal(endpoints[0].httpMethod, 'GET');
-  assert.equal(endpoints[0].routeTemplate, '/api/todos');
+  assert.equal(endpoints[0].routeTemplate, 'api/todos');
   assert.equal(endpoints[0].kind, 'minimalApi');
 
   assert.equal(endpoints[1].httpMethod, 'POST');
-  assert.equal(endpoints[1].routeTemplate, '/api/todos/{id:guid}');
+  assert.equal(endpoints[1].routeTemplate, 'api/todos/{id:guid}');
 
   assert.equal(endpoints[2].httpMethod, 'DELETE');
-  assert.equal(endpoints[2].routeTemplate, '/api/todos/{id}');
+  assert.equal(endpoints[2].routeTemplate, 'api/todos/{id}');
 });
 
 test('parseEndpointsFromCSharp parses controller route with api/fields and {fieldId:int}/validation', () => {
@@ -163,4 +163,64 @@ namespace MyApp.Controllers
   assert.equal(endpoints[0].routeTemplate, 'api/fields/{fieldId:int}/validation');
   assert.equal(endpoints[0].normalizedRoute, 'api/fields/{fieldId}/validation');
   assert.equal(endpoints[0].actionName, 'ValidateField');
+  assert.equal(endpoints[0].segments.length, 4);
+  assert.equal(endpoints[0].segments[2].isParam, true);
+  assert.equal(endpoints[0].segments[2].paramName, 'fieldId');
+  assert.equal(endpoints[0].segments[2].constraint, 'int');
+});
+
+test('parseEndpointsFromCSharp parses chained MapGroup Minimal APIs', () => {
+  const csharpCode = `
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+var api = app.MapGroup("/api/v1");
+api.MapGet("/users", () => "users");
+api.MapPost("/users/{id:guid}/activate", (Guid id) => "activated");
+
+app.Run();
+`;
+
+  const endpoints = parseEndpointsFromCSharp(
+    csharpCode,
+    '/src/Program.cs',
+    'ApiApp',
+    'Program.cs'
+  );
+
+  assert.equal(endpoints.length, 2);
+  assert.equal(endpoints[0].routeTemplate, 'api/v1/users');
+  assert.equal(endpoints[0].httpMethod, 'GET');
+
+  assert.equal(endpoints[1].routeTemplate, 'api/v1/users/{id:guid}/activate');
+  assert.equal(endpoints[1].httpMethod, 'POST');
+  assert.equal(endpoints[1].routeParameters?.[0].name, 'id');
+  assert.equal(endpoints[1].routeParameters?.[0].typeConstraint, 'guid');
+});
+
+test('parseEndpointsFromCSharp parses multiple Route attributes on controller', () => {
+  const csharpCode = `
+namespace MyApp.Controllers
+{
+    [ApiController]
+    [Route("api/v1/[controller]")]
+    [Route("api/v2/[controller]")]
+    public class OrdersController : ControllerBase
+    {
+        [HttpGet("{id:int}")]
+        public IActionResult GetOrder(int id) => Ok();
+    }
+}
+`;
+
+  const endpoints = parseEndpointsFromCSharp(
+    csharpCode,
+    '/src/Controllers/OrdersController.cs',
+    'MyApp',
+    'Controllers/OrdersController.cs'
+  );
+
+  assert.equal(endpoints.length, 2);
+  assert.equal(endpoints[0].routeTemplate, 'api/v1/Orders/{id:int}');
+  assert.equal(endpoints[1].routeTemplate, 'api/v2/Orders/{id:int}');
 });

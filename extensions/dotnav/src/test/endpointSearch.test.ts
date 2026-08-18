@@ -1,9 +1,11 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiEndpoint } from '../endpoints/endpointModel';
+import { parseRouteSegments } from '../endpoints/endpointScanner';
 import {
   formatEndpointAsCurl,
   formatEndpointAsHttp,
+  formatResolvedUrl,
   parseSearchQuery,
   searchEndpoints
 } from '../endpoints/endpointSearch';
@@ -14,6 +16,7 @@ const mockEndpoints: ApiEndpoint[] = [
     httpMethod: 'GET',
     routeTemplate: 'interface-views/{interfaceViewId:int}/filter-fields',
     normalizedRoute: 'interface-views/{interfaceViewId}/filter-fields',
+    segments: parseRouteSegments('interface-views/{interfaceViewId:int}/filter-fields'),
     controllerName: 'InterfaceViewsController',
     actionName: 'GetFilterFields',
     kind: 'controller',
@@ -27,6 +30,7 @@ const mockEndpoints: ApiEndpoint[] = [
     httpMethod: 'POST',
     routeTemplate: 'interface-views/{interfaceViewId:int}/filter-fields',
     normalizedRoute: 'interface-views/{interfaceViewId}/filter-fields',
+    segments: parseRouteSegments('interface-views/{interfaceViewId:int}/filter-fields'),
     controllerName: 'InterfaceViewsController',
     actionName: 'CreateFilterField',
     kind: 'controller',
@@ -40,6 +44,7 @@ const mockEndpoints: ApiEndpoint[] = [
     httpMethod: 'GET',
     routeTemplate: 'api/users/{userId:guid}/orders/{orderId:int}',
     normalizedRoute: 'api/users/{userId}/orders/{orderId}',
+    segments: parseRouteSegments('api/users/{userId:guid}/orders/{orderId:int}'),
     controllerName: 'UsersController',
     actionName: 'GetUserOrder',
     kind: 'controller',
@@ -53,6 +58,7 @@ const mockEndpoints: ApiEndpoint[] = [
     httpMethod: 'DELETE',
     routeTemplate: 'api/users/{id}',
     normalizedRoute: 'api/users/{id}',
+    segments: parseRouteSegments('api/users/{id}'),
     controllerName: 'UsersController',
     actionName: 'DeleteUser',
     kind: 'controller',
@@ -66,12 +72,27 @@ const mockEndpoints: ApiEndpoint[] = [
     httpMethod: 'GET',
     routeTemplate: 'api/fields/{fieldId:int}/validation',
     normalizedRoute: 'api/fields/{fieldId}/validation',
+    segments: parseRouteSegments('api/fields/{fieldId:int}/validation'),
     controllerName: 'FieldsController',
     actionName: 'ValidateField',
     kind: 'controller',
     filePath: '/src/FieldsController.cs',
     relativePath: 'Controllers/FieldsController.cs',
     line: 18,
+    projectName: 'WebApp.Api'
+  },
+  {
+    id: '6',
+    httpMethod: 'POST',
+    routeTemplate: 'api/fields/{fieldId:int}/sub-items/{subItemId:guid}/validation',
+    normalizedRoute: 'api/fields/{fieldId}/sub-items/{subItemId}/validation',
+    segments: parseRouteSegments('api/fields/{fieldId:int}/sub-items/{subItemId:guid}/validation'),
+    controllerName: 'FieldsController',
+    actionName: 'ValidateSubItem',
+    kind: 'controller',
+    filePath: '/src/FieldsController.cs',
+    relativePath: 'Controllers/FieldsController.cs',
+    line: 35,
     projectName: 'WebApp.Api'
   }
 ];
@@ -141,10 +162,10 @@ test('formatEndpointAsHttp formats valid HTTP request', () => {
 
 test('formatEndpointAsCurl formats valid cURL command', () => {
   const curlGet = formatEndpointAsCurl(mockEndpoints[0]);
-  assert.match(curlGet, /^curl -X GET "https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields"/);
+  assert.match(curlGet, /^curl -X GET "https:\/\/localhost:5001\/interface-views\/1\/filter-fields"/);
 
   const curlPost = formatEndpointAsCurl(mockEndpoints[1]);
-  assert.match(curlPost, /^curl -X POST "https:\/\/localhost:5001\/interface-views\/\{interfaceViewId:int\}\/filter-fields"/);
+  assert.match(curlPost, /^curl -X POST "https:\/\/localhost:5001\/interface-views\/1\/filter-fields"/);
   assert.match(curlPost, /-H "Content-Type: application\/json"/);
 });
 
@@ -175,4 +196,41 @@ test('searchEndpoints accurately matches fields//validation across full URL rout
   assert.ok(results5.length >= 1);
   assert.equal(results5[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
   assert.equal(results5[0].endpoint.httpMethod, 'GET');
+});
+
+test('searchEndpoints matches multi-gap route queries with parameter skips', () => {
+  const results = searchEndpoints(mockEndpoints, 'fields//sub-items//validation');
+  assert.ok(results.length >= 1);
+  assert.equal(results[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/sub-items/{subItemId:guid}/validation');
+  assert.ok(results[0].score >= 90);
+});
+
+test('searchEndpoints matches acronyms like iv/ff and afv', () => {
+  const results1 = searchEndpoints(mockEndpoints, 'iv/ff');
+  assert.ok(results1.length >= 1);
+  assert.equal(results1[0].endpoint.routeTemplate, 'interface-views/{interfaceViewId:int}/filter-fields');
+
+  const results2 = searchEndpoints(mockEndpoints, 'afv');
+  assert.ok(results2.length >= 1);
+  assert.equal(results2[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+});
+
+test('searchEndpoints matches parameter name and type constraints', () => {
+  const results1 = searchEndpoints(mockEndpoints, 'fieldId:int');
+  assert.ok(results1.length >= 2);
+
+  const results2 = searchEndpoints(mockEndpoints, 'subItemId:guid');
+  assert.ok(results2.length >= 1);
+  assert.equal(results2[0].endpoint.actionName, 'ValidateSubItem');
+});
+
+test('searchEndpoints tolerates single-letter typos in segment names', () => {
+  const results = searchEndpoints(mockEndpoints, 'feilds//validation');
+  assert.ok(results.length >= 1);
+  assert.equal(results[0].endpoint.routeTemplate, 'api/fields/{fieldId:int}/validation');
+});
+
+test('formatResolvedUrl generates mock parameters for test URLs', () => {
+  const url = formatResolvedUrl(mockEndpoints[5]);
+  assert.equal(url, 'https://localhost:5001/api/fields/1/sub-items/00000000-0000-0000-0000-000000000000/validation');
 });
