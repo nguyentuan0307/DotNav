@@ -53,7 +53,10 @@
     "onCommand:gitnav.toggleInlineBlame",
     "onCommand:gitnav.showBlameDetails",
     "onCommand:gitnav.openFileAtRevision",
-    "onCommand:gitnav.openSettings"
+    "onCommand:gitnav.openSettings",
+    "onCommand:gitnav.manageWorktrees",
+    "onCommand:gitnav.createWorktree",
+    "onCommand:gitnav.pruneWorktrees"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -76,6 +79,21 @@
       ]
     },
     "commands": [
+      {
+        "command": "gitnav.manageWorktrees",
+        "title": "GitNav: Manage Worktrees...",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "gitnav.createWorktree",
+        "title": "GitNav: Create Worktree...",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "gitnav.pruneWorktrees",
+        "title": "GitNav: Prune Stale Worktrees",
+        "icon": "$(trash)"
+      },
       {
         "command": "gitnav.showFileHistory",
         "title": "Show File History",

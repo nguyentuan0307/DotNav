@@ -62,6 +62,7 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   worktreeAdd: new GitActionPresentation('Create Worktree', 'Create Worktree', 'normal', 'status'),
   worktreeRemove: new GitActionPresentation('Remove Worktree', 'Remove Worktree', 'danger', 'toast'),
   worktreePrune: new GitActionPresentation('Prune Worktrees', 'Prune Worktrees', 'normal', 'silent'),
+  worktreeLock: new GitActionPresentation('Lock Worktree', 'Lock Worktree', 'normal', 'status'),
   worktreeUnlock: new GitActionPresentation('Unlock Worktree', 'Unlock Worktree', 'normal', 'status'),
   continue: new GitActionPresentation('Continue Operation', 'Continue', 'normal', 'status'),
   skip: new GitActionPresentation('Skip Commit', 'Skip Commit', 'normal', 'status'),

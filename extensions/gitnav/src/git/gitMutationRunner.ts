@@ -180,6 +180,7 @@ export class GitMutationRunner {
       case 'worktreeAdd': return ['worktree', 'add', ...(request.options?.newBranch ? ['-b', String(request.options.newBranch)] : []), String(request.path), ref];
       case 'worktreeRemove': return ['worktree', 'remove', ...(request.options?.force ? ['--force'] : []), String(request.path)];
       case 'worktreePrune': return ['worktree', 'prune'];
+      case 'worktreeLock': return ['worktree', 'lock', ...(request.options?.reason ? ['--reason', String(request.options.reason)] : []), String(request.path)];
       case 'worktreeUnlock': return ['worktree', 'unlock', String(request.path)];
       case 'interactiveRebase': {
         const plan = JSON.parse(String(request.options?.plan ?? '[]')) as GitRebasePlanItem[];
