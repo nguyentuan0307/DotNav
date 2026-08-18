@@ -156,6 +156,7 @@ export function scoreEndpoint(endpoint: ApiEndpoint, query: ParsedQuery): Endpoi
   const queryLower = routeQuery.toLowerCase();
   const controllerLower = (endpoint.controllerName || '').toLowerCase();
   const actionLower = (endpoint.actionName || '').toLowerCase();
+  const projectLower = (endpoint.projectName || '').toLowerCase();
 
   // 1. Exact match on raw or normalized route
   if (routeLower === queryLower || normalizedLower === queryLower) {
@@ -201,9 +202,15 @@ export function scoreEndpoint(endpoint: ApiEndpoint, query: ParsedQuery): Endpoi
         lastSegmentIndex = bestSegmentIndex;
       } else {
         inOrder = false;
-        // Check if token matches controller or action instead
+        // Check if token matches controller, action, or project instead
         const tokLower = token.toLowerCase();
-        if (controllerLower.includes(tokLower) || actionLower.includes(tokLower) || isAcronymMatch(tokLower, controllerLower) || isAcronymMatch(tokLower, actionLower)) {
+        if (
+          controllerLower.includes(tokLower) ||
+          actionLower.includes(tokLower) ||
+          projectLower.includes(tokLower) ||
+          isAcronymMatch(tokLower, controllerLower) ||
+          isAcronymMatch(tokLower, actionLower)
+        ) {
           matchedTokenCount += 0.8;
         }
       }
@@ -221,9 +228,13 @@ export function scoreEndpoint(endpoint: ApiEndpoint, query: ParsedQuery): Endpoi
     } else if (routeLower.includes(queryLower) || normalizedLower.includes(queryLower)) {
       baseScore = 78;
       matchReason = 'Route substring match';
-    } else if (controllerLower.includes(queryLower) || actionLower.includes(queryLower)) {
+    } else if (
+      controllerLower.includes(queryLower) ||
+      actionLower.includes(queryLower) ||
+      projectLower.includes(queryLower)
+    ) {
       baseScore = 74;
-      matchReason = 'Controller/Action match';
+      matchReason = 'Project/Controller/Action match';
     } else {
       // Route initials / Acronym match (e.g. "afv" for "api/fields/{id}/validation")
       const { full: fullInitials, nonParams: nonParamInitials } = getRouteInitials(endpoint);

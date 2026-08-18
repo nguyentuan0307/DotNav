@@ -21,15 +21,17 @@ export async function populateEndpointIndexFromSolution(
   index: EndpointIndex
 ): Promise<void> {
   const solution = provider.getSolution();
-  if (!solution) return;
-
-  const files = await vscode.workspace.findFiles('**/*.cs', '**/obj/**');
+  const files = await vscode.workspace.findFiles('**/*.cs', '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**}');
 
   for (const file of files) {
     const fsPath = file.fsPath;
-    // Find matching project
-    const project = solution.projects.find(p => fsPath.startsWith(path.dirname(p.path)));
-    const projectName = project?.name || 'Workspace';
+    let projectName = 'Workspace';
+    if (solution?.projects) {
+      const project = solution.projects.find(p => fsPath.startsWith(path.dirname(p.path)));
+      if (project) {
+        projectName = project.name;
+      }
+    }
     const relPath = vscode.workspace.asRelativePath(fsPath);
     await index.scanFile(fsPath, projectName, relPath);
   }
