@@ -362,7 +362,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       if (this.batchingMetadataUpdates) {
         this.pendingMetadataRefresh = true;
       } else {
-        this.onDidChangeTreeDataEmitter.fire();
+        this.onDidChangeTreeDataEmitter.fire(this.projectNode(next));
       }
     }
 
@@ -444,6 +444,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     if (this.treeFilterText) {
       return {
+        id: 'solution:root',
         kind: 'solution',
         label: `${solutionName} (Filter: "${this.treeFilterText}")`,
         resourcePath: solution.path,
@@ -452,6 +453,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     return {
+      id: 'solution:root',
       kind: 'solution',
       label: solutionName,
       resourcePath: solution.path,
@@ -1073,6 +1075,10 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     if (node.kind === 'runConfigs') {
       return 'runConfigs';
+    }
+
+    if (node.kind === 'message') {
+      return `message:${node.label}`;
     }
 
     if (node.kind === 'runConfig') {
