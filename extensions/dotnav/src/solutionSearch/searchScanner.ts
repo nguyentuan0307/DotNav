@@ -59,7 +59,7 @@ export function parseSymbolsFromCSharp(
   const lines = code.split(/\r?\n/);
 
   // 2. Parse EF Core DbSets
-  const dbSetRegex = /public\s+DbSet<([a-zA-Z0-9_]+)>\s+([a-zA-Z0-9_]+)\s*\{\s*get;\s*set;\s*\}/g;
+  const dbSetRegex = /public\s+(?:virtual\s+)?DbSet<([a-zA-Z0-9_]+)>\s+([a-zA-Z0-9_]+)\s*\{\s*get;\s*set;\s*\}(?:\s*=\s*[^;]+;)?/g;
   let dbSetMatch: RegExpExecArray | null;
   while ((dbSetMatch = dbSetRegex.exec(code)) !== null) {
     const entityType = dbSetMatch[1];
@@ -81,8 +81,8 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // 3. Parse Types & CQRS Patterns line by line or block regex
-  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*:\s*([^{]+))?/gm;
+  // 3. Parse Types & CQRS & Domain Patterns
+  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*\([^)]*\))?(?:\s*:\s*([^{]+))?/gm;
   let typeMatch: RegExpExecArray | null;
 
   while ((typeMatch = typeRegex.exec(code)) !== null) {
@@ -100,7 +100,7 @@ export function parseSymbolsFromCSharp(
       kind = 'enum';
     }
 
-    // CQRS & EF Core classifications
+    // CQRS, EF Core & Domain classifications
     if (inheritanceList) {
       if (/\bMigration\b/.test(inheritanceList)) {
         kind = 'ef_migration';
@@ -112,8 +112,14 @@ export function parseSymbolsFromCSharp(
         kind = 'cqrs_query';
       } else if (/\b(INotification|IDomainEvent)\b/.test(inheritanceList)) {
         kind = 'cqrs_event';
-      } else if (/\bIEntityTypeConfiguration\b/.test(inheritanceList)) {
+      } else if (
+        /\b(IEntityTypeConfiguration|TenantEntity|BaseEntity|AuditableEntity|AggregateRoot|DbContext|AuditlogDBContext)\b/.test(
+          inheritanceList
+        )
+      ) {
         kind = 'ef_entity';
+      } else if (/\b(BackgroundService|IHostedService|IJob)\b/.test(inheritanceList)) {
+        kind = 'cqrs_event';
       }
     } else {
       if (typeName.endsWith('Command') && !typeName.endsWith('CommandHandler')) {
@@ -122,7 +128,11 @@ export function parseSymbolsFromCSharp(
         kind = 'cqrs_handler';
       } else if (typeName.endsWith('Query') && !typeName.endsWith('QueryHandler')) {
         kind = 'cqrs_query';
-      } else if (typeName.endsWith('Entity')) {
+      } else if (
+        typeName.endsWith('Entity') ||
+        relativePath.includes('/Entities/') ||
+        relativePath.includes('/Domain/Entities/')
+      ) {
         kind = 'ef_entity';
       }
     }
