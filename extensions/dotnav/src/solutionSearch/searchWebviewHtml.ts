@@ -19,11 +19,9 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       --list-active-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
       --text-color: var(--vscode-editor-foreground, #d4d4d4);
       --text-muted: var(--vscode-descriptionForeground, #8c8c8c);
-      --badge-bg: var(--vscode-badge-background, #4d4d4d);
-      --badge-fg: var(--vscode-badge-foreground, #ffffff);
-      --border-color: var(--vscode-panel-border, #333333);
+      --border-color: var(--vscode-panel-border, #3c3c3c);
       --target-line-bg: rgba(255, 215, 0, 0.15);
-      --target-line-border: rgba(255, 215, 0, 0.6);
+      --target-line-border: rgba(255, 215, 0, 0.7);
       --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
       --font-code: var(--vscode-editor-font-family, 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace);
     }
@@ -35,19 +33,41 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
     }
 
     body {
-      background-color: var(--bg-color);
+      background: rgba(0, 0, 0, 0.45);
       color: var(--text-color);
       font-family: var(--font-family);
       font-size: 13px;
       line-height: 1.4;
       height: 100vh;
+      width: 100vw;
       display: flex;
-      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding-top: 5vh;
       overflow: hidden;
       user-select: none;
     }
 
-    /* Top Search Bar */
+    /* Floating Modal Container */
+    .modal-container {
+      width: 820px;
+      max-width: 94vw;
+      height: 640px;
+      max-height: 90vh;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      resize: both;
+      min-width: 500px;
+      min-height: 380px;
+      position: relative;
+    }
+
+    /* Top Search Bar & Header */
     .search-header {
       background: var(--header-bg);
       border-bottom: 1px solid var(--border-color);
@@ -55,6 +75,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       display: flex;
       flex-direction: column;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .input-row {
@@ -115,7 +136,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       gap: 6px;
     }
 
-    .btn-toggle-preview {
+    .btn-action {
       background: var(--panel-bg);
       border: 1px solid var(--border-color);
       color: var(--text-color);
@@ -126,11 +147,12 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       display: flex;
       align-items: center;
       gap: 5px;
+      transition: all 0.15s ease;
     }
-    .btn-toggle-preview:hover {
+    .btn-action:hover {
       background: var(--list-hover);
     }
-    .btn-toggle-preview.active {
+    .btn-action.active {
       background: var(--list-active);
       color: var(--list-active-fg);
       border-color: var(--focus-border);
@@ -170,26 +192,27 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       font-weight: 600;
     }
 
-    /* Main Content: Split Columns */
-    .main-content {
+    /* 2-Row Vertical Layout */
+    .content-body {
       flex: 1;
       display: flex;
+      flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
 
-    /* Left Results List */
+    /* Row 1: Upper Search Results Pane */
     .results-pane {
-      flex: 1;
-      min-width: 320px;
-      max-width: 50%;
-      border-right: 1px solid var(--border-color);
+      height: 260px;
+      min-height: 100px;
       overflow-y: auto;
+      background: var(--bg-color);
       display: flex;
       flex-direction: column;
     }
 
     .group-header {
-      padding: 6px 12px;
+      padding: 5px 12px;
       font-size: 11px;
       font-weight: bold;
       text-transform: uppercase;
@@ -203,7 +226,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
     }
 
     .result-item {
-      padding: 8px 12px;
+      padding: 7px 12px;
       display: flex;
       align-items: center;
       gap: 10px;
@@ -227,7 +250,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
     }
 
     .item-icon {
-      font-size: 16px;
+      font-size: 15px;
       width: 20px;
       text-align: center;
       flex-shrink: 0;
@@ -238,7 +261,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 1px;
     }
 
     .item-title-row {
@@ -279,25 +302,53 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       font-size: 10px;
       color: var(--text-muted);
       background: rgba(128, 128, 128, 0.15);
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: 1px 6px;
+      border-radius: 3px;
       flex-shrink: 0;
       white-space: nowrap;
     }
 
     .empty-state {
-      padding: 40px 20px;
+      padding: 35px 20px;
       text-align: center;
       color: var(--text-muted);
     }
 
-    /* Right Code Preview Pane */
+    /* Draggable Split Resizer Divider */
+    .resizer-divider {
+      height: 6px;
+      background: var(--header-bg);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      cursor: row-resize;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-shrink: 0;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .resizer-divider:hover,
+    .resizer-divider.dragging {
+      background: var(--focus-border);
+    }
+
+    .resizer-grip {
+      width: 32px;
+      height: 2px;
+      background: var(--text-muted);
+      border-radius: 1px;
+    }
+
+    /* Row 2: Lower Code Preview Box */
     .preview-pane {
       flex: 1;
       display: flex;
       flex-direction: column;
       background: var(--panel-bg);
       overflow: hidden;
+      min-height: 100px;
     }
 
     .preview-pane.hidden {
@@ -305,13 +356,14 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
     }
 
     .preview-header {
-      padding: 8px 14px;
+      padding: 6px 14px;
       background: var(--header-bg);
       border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      flex-shrink: 0;
     }
 
     .preview-title {
@@ -346,7 +398,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       font-size: 12px;
       line-height: 19px;
       background: #1e1e1e;
-      padding: 10px 0;
+      padding: 8px 0;
     }
 
     .code-line {
@@ -392,6 +444,7 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       justify-content: space-between;
       font-size: 11px;
       color: var(--text-muted);
+      flex-shrink: 0;
     }
 
     .shortcuts-hint {
@@ -410,76 +463,87 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
   </style>
 </head>
 <body>
-  <!-- Top Search Bar -->
-  <div class="search-header">
-    <div class="input-row">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input
-          type="text"
-          id="searchInput"
-          class="search-input"
-          placeholder="Search everywhere: /api, $cqrs, %db, #type, @method, !file, :Line..."
-          autofocus
-          autocomplete="off"
-          spellcheck="false"
-          value="${initialPrefix}"
-        />
-        <button id="clearBtn" class="clear-btn" title="Clear input" style="display: none;">✕</button>
-      </div>
-      <div class="header-actions">
-        <button id="togglePreviewBtn" class="btn-toggle-preview active" title="Toggle Code Preview Pane (Ctrl+P)">
-          👁️ Preview
-        </button>
-      </div>
-    </div>
-
-    <!-- Filter Pills -->
-    <div class="filter-pills">
-      <div class="pill active" data-filter="all">All</div>
-      <div class="pill" data-filter="endpoints">⚡ Endpoints (/)</div>
-      <div class="pill" data-filter="cqrs">⚡ CQRS ($)</div>
-      <div class="pill" data-filter="database">💾 Database (%)</div>
-      <div class="pill" data-filter="types">📦 Types (#)</div>
-      <div class="pill" data-filter="methods">⚡ Methods (@)</div>
-      <div class="pill" data-filter="files">📄 Files (!)</div>
-    </div>
-  </div>
-
-  <!-- Main Split Layout -->
-  <div class="main-content">
-    <!-- Left: Results List -->
-    <div id="resultsPane" class="results-pane">
-      <div class="empty-state">Type a query to search across the entire solution...</div>
-    </div>
-
-    <!-- Right: Code Preview Pane -->
-    <div id="previewPane" class="preview-pane">
-      <div class="preview-header">
-        <div id="previewTitle" class="preview-title">
-          <span>📄</span> <span id="previewFileName">No selection</span>
+  <!-- Floating Modal Card -->
+  <div id="modalCard" class="modal-container">
+    <!-- Top Header -->
+    <div class="search-header">
+      <div class="input-row">
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            id="searchInput"
+            class="search-input"
+            placeholder="Search everywhere: /api, $cqrs, %db, #type, @method, !file, :Line..."
+            autofocus
+            autocomplete="off"
+            spellcheck="false"
+            value="${initialPrefix}"
+          />
+          <button id="clearBtn" class="clear-btn" title="Clear input" style="display: none;">✕</button>
         </div>
-        <button id="previewOpenBtn" class="preview-open-btn" style="display: none;">
-          Open in Editor ↗
-        </button>
-      </div>
-      <div id="previewCodeContainer" class="preview-code-container">
-        <div style="padding: 20px; color: var(--text-muted); text-align: center;">
-          Select a symbol to preview code definition
+        <div class="header-actions">
+          <button id="togglePreviewBtn" class="btn-action active" title="Toggle Code Preview Pane (Ctrl+P)">
+            👁️ Preview
+          </button>
+          <button id="closeBtn" class="btn-action" title="Close (Esc)">
+            ✕
+          </button>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- Bottom Status Bar -->
-  <div class="status-bar">
-    <div id="statusCount">Ready</div>
-    <div class="shortcuts-hint">
-      <span><span class="kbd">↑↓</span> Navigate</span>
-      <span><span class="kbd">↵</span> Open</span>
-      <span><span class="kbd">Esc</span> Close</span>
-      <span><span class="kbd">Tab</span> Filter</span>
-      <span><span class="kbd">Ctrl+P</span> Preview</span>
+      <!-- Filter Pills -->
+      <div class="filter-pills">
+        <div class="pill active" data-filter="all">All</div>
+        <div class="pill" data-filter="endpoints">⚡ Endpoints (/)</div>
+        <div class="pill" data-filter="cqrs">⚡ CQRS ($)</div>
+        <div class="pill" data-filter="database">💾 Database (%)</div>
+        <div class="pill" data-filter="types">📦 Types (#)</div>
+        <div class="pill" data-filter="methods">⚡ Methods (@)</div>
+        <div class="pill" data-filter="files">📄 Files (!)</div>
+      </div>
+    </div>
+
+    <!-- 2-Row Vertical Split Body -->
+    <div class="content-body">
+      <!-- Row 1: Upper Search Results List -->
+      <div id="resultsPane" class="results-pane">
+        <div class="empty-state">Type a query to search across the entire solution...</div>
+      </div>
+
+      <!-- Draggable Split Resizer Divider -->
+      <div id="resizerDivider" class="resizer-divider" title="Drag to resize results / preview">
+        <div class="resizer-grip"></div>
+      </div>
+
+      <!-- Row 2: Lower Code Preview Box -->
+      <div id="previewPane" class="preview-pane">
+        <div class="preview-header">
+          <div id="previewTitle" class="preview-title">
+            <span>📄</span> <span id="previewFileName">No selection</span>
+          </div>
+          <button id="previewOpenBtn" class="preview-open-btn" style="display: none;">
+            Open in Editor ↗
+          </button>
+        </div>
+        <div id="previewCodeContainer" class="preview-code-container">
+          <div style="padding: 20px; color: var(--text-muted); text-align: center;">
+            Select a symbol to preview code definition
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Status Bar -->
+    <div class="status-bar">
+      <div id="statusCount">Ready</div>
+      <div class="shortcuts-hint">
+        <span><span class="kbd">↑↓</span> Navigate</span>
+        <span><span class="kbd">↵</span> Open</span>
+        <span><span class="kbd">Esc</span> Close</span>
+        <span><span class="kbd">Tab</span> Filter</span>
+        <span><span class="kbd">Ctrl+P</span> Preview</span>
+      </div>
     </div>
   </div>
 
@@ -487,8 +551,10 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
     const vscode = acquireVsCodeApi();
     const searchInput = document.getElementById('searchInput');
     const clearBtn = document.getElementById('clearBtn');
+    const closeBtn = document.getElementById('closeBtn');
     const resultsPane = document.getElementById('resultsPane');
     const previewPane = document.getElementById('previewPane');
+    const resizerDivider = document.getElementById('resizerDivider');
     const togglePreviewBtn = document.getElementById('togglePreviewBtn');
     const previewFileName = document.getElementById('previewFileName');
     const previewCodeContainer = document.getElementById('previewCodeContainer');
@@ -674,6 +740,36 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
         .replace(/'/g, '&#039;');
     }
 
+    // Draggable Split Divider Logic
+    let isDraggingDivider = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    resizerDivider.addEventListener('mousedown', (e) => {
+      isDraggingDivider = true;
+      startY = e.clientY;
+      startHeight = resultsPane.offsetHeight;
+      resizerDivider.classList.add('dragging');
+      document.body.style.cursor = 'row-resize';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingDivider) return;
+      const delta = e.clientY - startY;
+      const newHeight = Math.max(100, Math.min(startHeight + delta, window.innerHeight - 250));
+      resultsPane.style.height = newHeight + 'px';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDraggingDivider) {
+        isDraggingDivider = false;
+        resizerDivider.classList.remove('dragging');
+        document.body.style.cursor = 'default';
+      }
+    });
+
     // Event listeners
     searchInput.addEventListener('input', () => {
       selectedIndex = 0;
@@ -686,6 +782,10 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       triggerSearch();
     });
 
+    closeBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'close' });
+    });
+
     previewOpenBtn.addEventListener('click', () => {
       openSelectedItem();
     });
@@ -694,8 +794,14 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       isPreviewVisible = !isPreviewVisible;
       togglePreviewBtn.classList.toggle('active', isPreviewVisible);
       previewPane.classList.toggle('hidden', !isPreviewVisible);
-      if (isPreviewVisible && currentResults[selectedIndex]) {
-        requestPreview(currentResults[selectedIndex].symbol);
+      resizerDivider.style.display = isPreviewVisible ? 'flex' : 'none';
+      if (isPreviewVisible) {
+        resultsPane.style.height = '260px';
+        if (currentResults[selectedIndex]) {
+          requestPreview(currentResults[selectedIndex].symbol);
+        }
+      } else {
+        resultsPane.style.height = '100%';
       }
     });
 
@@ -706,6 +812,13 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
         activeFilter = pill.dataset.filter;
         triggerSearch();
       });
+    });
+
+    // Close on click outside modal card
+    document.body.addEventListener('click', (e) => {
+      if (e.target === document.body) {
+        vscode.postMessage({ type: 'close' });
+      }
     });
 
     // Keyboard navigation
