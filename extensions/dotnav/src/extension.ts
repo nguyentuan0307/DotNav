@@ -97,8 +97,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.removeProjectReference', (node: TreeNode) =>
       removeProjectReference(provider, node)),
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
-    vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
-    vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
+    vscode.commands.registerCommand('dotnav.searchSolutionTree', () => filterSolutionTree(provider)),
+    vscode.commands.registerCommand('dotnav.clearSolutionTreeFilter', () => clearSolutionTreeFilter(provider)),
     vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
@@ -252,7 +252,12 @@ async function selectOpenedFile(
     return;
   }
 
-  const node = await provider.findNodeForFile(editor.document.uri.fsPath);
+  let node = await provider.findNodeForFile(editor.document.uri.fsPath);
+  if (!node && provider.getTreeFilter()) {
+    provider.clearTreeFilter();
+    node = await provider.findNodeForFile(editor.document.uri.fsPath);
+  }
+
   if (!node) {
     if (notifyNotFound) {
       vscode.window.showInformationMessage('File is not in the solution tree.');
@@ -283,9 +288,26 @@ function openSolutionTerminal(provider: DotnetTreeProvider): void {
   openTerminalAt(solution.path ? path.dirname(solution.path) : solution.rootPath);
 }
 
-async function openSolutionTreeFind(): Promise<void> {
-  await vscode.commands.executeCommand('dotnav.focus');
-  await vscode.commands.executeCommand('list.find');
+async function filterSolutionTree(provider: DotnetTreeProvider): Promise<void> {
+  const current = provider.getTreeFilter() || '';
+  const result = await vscode.window.showInputBox({
+    title: 'Filter Solution Tree',
+    prompt: 'Filter projects, folders, and files across the solution (plain text)',
+    value: current,
+    valueSelection: [0, current.length],
+    placeHolder: 'e.g. Services, CustomApp, RecordAppearance, Domain...',
+    validateInput: () => null
+  });
+
+  if (result === undefined) {
+    return;
+  }
+
+  provider.setTreeFilter(result);
+}
+
+function clearSolutionTreeFilter(provider: DotnetTreeProvider): void {
+  provider.clearTreeFilter();
 }
 
 async function revealWithScrollPadding(

@@ -57,6 +57,7 @@
     "onCommand:dotnav.addProjectReference",
     "onCommand:dotnav.removeProjectReference",
     "onCommand:dotnav.searchSolutionTree",
+    "onCommand:dotnav.clearSolutionTreeFilter",
     "onCommand:dotnav.buildSolution",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
@@ -154,6 +155,11 @@
         "command": "dotnav.searchSolutionTree",
         "title": "Filter Solution Tree",
         "icon": "$(filter)"
+      },
+      {
+        "command": "dotnav.clearSolutionTreeFilter",
+        "title": "Clear Solution Filter",
+        "icon": "$(clear-all)"
       },
       {
         "command": "dotnav.formatSelection",
@@ -583,6 +589,17 @@
         "mac": "alt+shift+a"
       },
       {
+        "command": "dotnav.searchSolutionTree",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "focusedView == dotnav"
+      },
+      {
+        "command": "dotnav.clearSolutionTreeFilter",
+        "key": "escape",
+        "when": "focusedView == dotnav && dotnav.hasTreeFilter"
+      },
+      {
         "command": "dotnav.openSymbolActions",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
@@ -639,6 +656,11 @@
           "command": "dotnav.searchSolutionTree",
           "when": "view == dotnav",
           "group": "navigation@0.5"
+        },
+        {
+          "command": "dotnav.clearSolutionTreeFilter",
+          "when": "view == dotnav && dotnav.hasTreeFilter",
+          "group": "navigation@0.55"
         },
         {
           "command": "dotnav.searchEverywhere",

@@ -1,5 +1,5 @@
 import * as path from 'path';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { TreeNode } from './models';
 
 interface FileNestingRule {
@@ -56,7 +56,7 @@ export function nestFiles(fileNodes: TreeNode[]): TreeNode[] {
       return {
         ...node,
         children: children.sort(compareByLabel),
-        collapsibleState: vscode.TreeItemCollapsibleState.Collapsed
+        collapsibleState: 1 // Collapsed
       };
     });
 }
@@ -135,9 +135,13 @@ function specificityScore(parentName: string): number {
 }
 
 function getRules(): FileNestingRule[] {
-  const customRules = vscode.workspace
-    .getConfiguration('dotnav')
-    .get<FileNestingRule[]>('fileNestingRules', []);
+  let customRules: FileNestingRule[] = [];
+  try {
+    const vscodeModule = require('vscode') as typeof import('vscode') | undefined;
+    customRules = vscodeModule?.workspace?.getConfiguration('dotnav')?.get<FileNestingRule[]>('fileNestingRules', []) ?? [];
+  } catch {
+    customRules = [];
+  }
 
   return [...defaultRules, ...customRules.filter(isValidRule)];
 }
