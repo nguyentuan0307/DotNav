@@ -153,7 +153,7 @@
       {
         "command": "dotnav.searchSolutionTree",
         "title": "Filter Solution Tree",
-        "icon": "$(search)"
+        "icon": "$(filter)"
       },
       {
         "command": "dotnav.formatSelection",
@@ -178,12 +178,11 @@
       {
         "command": "dotnav.searchEverywhere",
         "title": "Search Everywhere (Global Search)",
-        "icon": "$(search)"
+        "icon": "$(search-fuzzy)"
       },
       {
         "command": "dotnav.searchApiEndpoints",
-        "title": "Search ASP.NET Core Endpoints",
-        "icon": "$(globe)"
+        "title": "Search ASP.NET Core Endpoints"
       },
       {
         "command": "dotnav.openSymbolActions",
@@ -631,11 +630,6 @@
           "command": "dotnav.searchEverywhere",
           "when": "view == dotnav",
           "group": "navigation@0.8"
-        },
-        {
-          "command": "dotnav.searchApiEndpoints",
-          "when": "view == dotnav",
-          "group": "navigation@0.9"
         },
         {
           "command": "dotnav.runActiveConfig",
