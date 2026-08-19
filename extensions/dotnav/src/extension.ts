@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { addCodeItem, addExistingItem, addFile, addFolder } from './addCommands';
+import { addCodeItem, addExistingItem, addFile, addFolder, addNewItemInteractive } from './addCommands';
 import { buildConfig, configuredBuildBeforeRunMode, pickProfile, runConfig, startTarget } from './debugRunner';
 import { SolutionOperation, openTerminalAt, runDotnetForProject, runDotnetForProjects, runDotnetForSolution } from './dotnetCli';
 import { projectsUnderFolder, projectsUnderSolutionFolder } from './folderBuild';
@@ -130,7 +130,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.addClass', (node: TreeNode) => addCodeItem(provider, node, 'class')),
     vscode.commands.registerCommand('dotnav.addInterface', (node: TreeNode) => addCodeItem(provider, node, 'interface')),
     vscode.commands.registerCommand('dotnav.addRecord', (node: TreeNode) => addCodeItem(provider, node, 'record')),
+    vscode.commands.registerCommand('dotnav.addRecordStruct', (node: TreeNode) => addCodeItem(provider, node, 'recordStruct')),
+    vscode.commands.registerCommand('dotnav.addStruct', (node: TreeNode) => addCodeItem(provider, node, 'struct')),
     vscode.commands.registerCommand('dotnav.addEnum', (node: TreeNode) => addCodeItem(provider, node, 'enum')),
+    vscode.commands.registerCommand('dotnav.addController', (node: TreeNode) => addCodeItem(provider, node, 'controller')),
+    vscode.commands.registerCommand('dotnav.addException', (node: TreeNode) => addCodeItem(provider, node, 'exception')),
+    vscode.commands.registerCommand('dotnav.addNewItem', (node?: TreeNode) => addNewItemInteractive(provider, node)),
     vscode.commands.registerCommand('dotnav.addFile', (node: TreeNode) => addFile(provider, node)),
     vscode.commands.registerCommand('dotnav.addFolder', (node: TreeNode) => addFolder(provider, node)),
     vscode.commands.registerCommand('dotnav.addExistingItem', (node: TreeNode) => addExistingItem(provider, node)),

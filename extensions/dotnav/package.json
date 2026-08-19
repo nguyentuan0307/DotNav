@@ -306,8 +306,29 @@
         "title": "Record"
       },
       {
+        "command": "dotnav.addController",
+        "title": "API Controller"
+      },
+      {
         "command": "dotnav.addEnum",
         "title": "Enum"
+      },
+      {
+        "command": "dotnav.addStruct",
+        "title": "Struct"
+      },
+      {
+        "command": "dotnav.addRecordStruct",
+        "title": "Record Struct"
+      },
+      {
+        "command": "dotnav.addException",
+        "title": "Exception"
+      },
+      {
+        "command": "dotnav.addNewItem",
+        "title": "Add New Item...",
+        "icon": "$(add)"
       },
       {
         "command": "dotnav.addFile",
@@ -610,6 +631,12 @@
         "key": "alt+enter",
         "mac": "alt+enter",
         "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
+      },
+      {
+        "command": "dotnav.addNewItem",
+        "key": "alt+insert",
+        "mac": "alt+cmd+n",
+        "when": "focusedView == dotnav"
       }
     ],
     "menus": {
@@ -994,20 +1021,36 @@
           "group": "1_new@3"
         },
         {
-          "command": "dotnav.addEnum",
+          "command": "dotnav.addController",
           "group": "1_new@4"
         },
         {
+          "command": "dotnav.addEnum",
+          "group": "2_type@1"
+        },
+        {
+          "command": "dotnav.addStruct",
+          "group": "2_type@2"
+        },
+        {
+          "command": "dotnav.addRecordStruct",
+          "group": "2_type@3"
+        },
+        {
+          "command": "dotnav.addException",
+          "group": "2_type@4"
+        },
+        {
           "command": "dotnav.addFile",
-          "group": "2_file@1"
+          "group": "3_file@1"
         },
         {
           "command": "dotnav.addFolder",
-          "group": "2_file@2"
+          "group": "3_file@2"
         },
         {
           "command": "dotnav.addExistingItem",
-          "group": "3_existing@1"
+          "group": "4_existing@1"
         }
       ],
       "dotnav.project": [

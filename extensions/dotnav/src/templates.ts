@@ -1,7 +1,15 @@
 import * as path from 'path';
 import { ProjectModel } from './models';
 
-export type CodeItemKind = 'class' | 'interface' | 'record' | 'enum';
+export type CodeItemKind =
+  | 'class'
+  | 'interface'
+  | 'record'
+  | 'enum'
+  | 'struct'
+  | 'recordStruct'
+  | 'controller'
+  | 'exception';
 
 export function computeNamespace(project: ProjectModel, targetDir: string): string {
   const root = sanitizeNamespace(project.rootNamespace ?? project.name);
@@ -55,16 +63,30 @@ export function renderTemplate(
   fileScoped = true,
   options: CodeItemTemplateOptions = {}
 ): string {
+  const usings = renderUsings(kind);
   const body = renderBody(kind, name, options);
+
   if (!namespaceName) {
-    return `${body}\n`;
+    return usings ? `${usings}${body}\n` : `${body}\n`;
   }
 
   if (fileScoped) {
-    return `namespace ${namespaceName};\n\n${body}\n`;
+    return usings
+      ? `${usings}namespace ${namespaceName};\n\n${body}\n`
+      : `namespace ${namespaceName};\n\n${body}\n`;
   }
 
-  return `namespace ${namespaceName}\n{\n${indent(body)}\n}\n`;
+  const namespacedBlock = `namespace ${namespaceName}\n{\n${indent(body)}\n}\n`;
+  return usings ? `${usings}${namespacedBlock}` : namespacedBlock;
+}
+
+function renderUsings(kind: CodeItemKind): string {
+  switch (kind) {
+    case 'controller':
+      return 'using Microsoft.AspNetCore.Mvc;\n\n';
+    default:
+      return '';
+  }
 }
 
 function renderBody(kind: CodeItemKind, name: string, options: CodeItemTemplateOptions): string {
@@ -77,8 +99,16 @@ function renderBody(kind: CodeItemKind, name: string, options: CodeItemTemplateO
       return `public${partial} interface ${name}\n{\n}`;
     case 'record':
       return `public${partial} record ${name};`;
+    case 'recordStruct':
+      return `public${partial} record struct ${name};`;
+    case 'struct':
+      return `public${partial} struct ${name}\n{\n}`;
     case 'enum':
       return `public enum ${name}\n{\n}`;
+    case 'controller':
+      return `[ApiController]\n[Route("api/[controller]")]\npublic${partial} class ${name} : ControllerBase\n{\n}`;
+    case 'exception':
+      return `public class ${name} : Exception\n{\n    public ${name}()\n    {\n    }\n\n    public ${name}(string message) : base(message)\n    {\n    }\n\n    public ${name}(string message, Exception innerException) : base(message, innerException)\n    {\n    }\n}`;
   }
 }
 
