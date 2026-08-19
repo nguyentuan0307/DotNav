@@ -181,6 +181,10 @@
         "icon": "$(search-fuzzy)"
       },
       {
+        "command": "dotnav.searchEverywhereQuickPick",
+        "title": "Search Everywhere (QuickPick Mode)"
+      },
+      {
         "command": "dotnav.searchApiEndpoints",
         "title": "Search ASP.NET Core Endpoints"
       },

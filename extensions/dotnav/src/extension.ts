@@ -27,6 +27,7 @@ import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 import {
   openActiveSymbolActions,
+  openSearchEverywhereWebview,
   resolveProjectForFile,
   searchEverywhereInteractive,
   UniversalSymbolIndex,
@@ -99,8 +100,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
-    vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
-    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
+    vscode.commands.registerCommand('dotnav.searchEverywhere', () => openSearchEverywhereWebview(provider, symbolIndex, '', context)),
+    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => openSearchEverywhereWebview(provider, symbolIndex, '/', context)),
+    vscode.commands.registerCommand('dotnav.searchEverywhereQuickPick', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),

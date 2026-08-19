@@ -146,7 +146,7 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
 
 let mruSymbolIds: string[] = [];
 
-async function openSymbolInEditor(symbol: UniversalSymbol, targetLine?: number, targetColumn?: number): Promise<void> {
+export async function openSymbolInEditor(symbol: UniversalSymbol, targetLine?: number, targetColumn?: number): Promise<void> {
   try {
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(symbol.filePath));
     const editor = await vscode.window.showTextDocument(doc);
@@ -630,28 +630,7 @@ export async function searchEverywhereInteractive(
     updateItems(value);
   });
 
-  // Feature 2: Live Code Preview / Peek Definition as user navigates with Up/Down
-  quickPick.onDidChangeActive(async activeItems => {
-    if (!isLivePreviewEnabled || activeItems.length === 0) return;
-    const activeSym = activeItems[0].symbol;
-    if (!activeSym || !activeSym.filePath || !fs.existsSync(activeSym.filePath)) return;
-
-    try {
-      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(activeSym.filePath));
-      const lineIndex = Math.max(0, activeSym.line - 1);
-      const colIndex = Math.max(0, activeSym.column - 1);
-      const pos = new vscode.Position(lineIndex, colIndex);
-      const targetRange = new vscode.Range(pos, pos);
-      await vscode.window.showTextDocument(doc, {
-        preserveFocus: true,
-        preview: true,
-        selection: targetRange
-      });
-    } catch {
-      // Ignore preview failure
-    }
-  });
-
+  // QuickPick mode: keeps user's open editor tabs untouched until Enter
   quickPick.onDidTriggerItemButton(async event => {
     const sym = event.item.symbol;
     if (!sym) return;
