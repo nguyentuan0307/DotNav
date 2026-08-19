@@ -899,7 +899,11 @@ export function renderSearchEverywhereHtml(cspSource: string, initialPrefix: str
       }
     }
 
-    // Initial query
+    // Initial autofocus and query
+    searchInput.focus();
+    setTimeout(() => {
+      searchInput.focus();
+    }, 60);
     triggerSearch();
   </script>
 </body>

@@ -76,6 +76,11 @@ export async function openSearchEverywhereWebview(
 
   await ensureUniversalIndexReady(provider, index, context);
 
+  const previousActiveEditor = vscode.window.activeTextEditor;
+  const previousDocUri = previousActiveEditor?.document.uri;
+  const previousSelection = previousActiveEditor?.selection;
+  let didOpenSymbol = false;
+
   const panel = vscode.window.createWebviewPanel(
     'dotnav.searchEverywhereRider',
     'Search Everywhere',
@@ -95,10 +100,18 @@ export async function openSearchEverywhereWebview(
     if (activeSearchPanel === panel) {
       activeSearchPanel = undefined;
     }
+    if (!didOpenSymbol && previousDocUri) {
+      vscode.workspace.openTextDocument(previousDocUri).then(doc => {
+        vscode.window.showTextDocument(doc, { preserveFocus: false }).then(editor => {
+          if (previousSelection) {
+            editor.selection = previousSelection;
+          }
+        });
+      });
+    }
   });
 
-  const activeEditor = vscode.window.activeTextEditor;
-  const activeFilePath = activeEditor ? activeEditor.document.uri.fsPath : undefined;
+  const activeFilePath = previousActiveEditor ? previousActiveEditor.document.uri.fsPath : undefined;
   const solution = provider.getSolution();
   const activeProjectName = activeFilePath ? resolveProjectForFile(activeFilePath, solution?.projects) : undefined;
   const rankingContext = {
@@ -144,6 +157,7 @@ export async function openSearchEverywhereWebview(
       const sym: UniversalSymbol = message.symbol;
       const rawQuery: string = message.rawQuery || '';
       const parsed = parseUniversalSearchQuery(rawQuery);
+      didOpenSymbol = true;
       panel.dispose();
       await openSymbolInEditor(sym, parsed.targetLine, parsed.targetColumn);
     } else if (message.type === 'close') {
