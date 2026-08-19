@@ -26,21 +26,19 @@ import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 import {
-  EndpointIndex,
-  isIgnoredEndpointFile,
-  openActiveEndpointActions,
-  refreshEndpointsInteractive,
+  openActiveSymbolActions,
   resolveProjectForFile,
-  searchEndpointsInteractive,
-  warmUpEndpointIndex
-} from './endpoints';
+  searchEverywhereInteractive,
+  UniversalSymbolIndex,
+  warmUpUniversalSearchIndex
+} from './solutionSearch';
 
 let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
-  const endpointIndex = new EndpointIndex();
+  const symbolIndex = new UniversalSymbolIndex();
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
     configId => {
@@ -101,9 +99,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
-    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEndpointsInteractive(provider, endpointIndex)),
-    vscode.commands.registerCommand('dotnav.refreshApiEndpoints', () => refreshEndpointsInteractive(provider, endpointIndex)),
-    vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveEndpointActions),
+    vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
+    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
+    vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
+    vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
     vscode.commands.registerCommand('dotnav.openProjectFile', openProjectFile),
     vscode.commands.registerCommand('dotnav.openSolutionFile', () => openSolutionFile(provider)),
@@ -211,12 +210,12 @@ export function activate(context: vscode.ExtensionContext): void {
   provider.refresh();
   refreshStatusBar();
   updateRunningContext(processManager.hasRunningProcesses());
-  registerWorkspaceFileWatcher(context, provider, endpointIndex);
+  registerWorkspaceFileWatcher(context, provider, symbolIndex);
   activateLocalHistory(context);
   activateEfCore(context, provider, processManager);
   void showFeatureAnnouncements(context);
   setTimeout(() => {
-    void warmUpEndpointIndex(provider, endpointIndex);
+    void warmUpUniversalSearchIndex(provider, symbolIndex, context);
   }, 1200);
 }
 
@@ -537,12 +536,20 @@ async function runSelectedResourceCommand(
 function registerWorkspaceFileWatcher(
   context: vscode.ExtensionContext,
   provider: DotnetTreeProvider,
-  endpointIndex: EndpointIndex
+  symbolIndex: UniversalSymbolIndex
 ): void {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*');
   let refreshTimer: NodeJS.Timeout | undefined;
   const pending = new Map<string, WorkspaceChange>();
   const pendingCsFiles = new Map<string, WorkspaceFileEventKind>();
+
+  const isRelevantSymbolFile = (fsPath: string) => {
+    return (
+      (fsPath.endsWith('.cs') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
+      path.basename(fsPath).startsWith('appsettings') ||
+      fsPath.endsWith('.csproj')
+    );
+  };
 
   const flush = async () => {
     const changes = [...pending.values()];
@@ -552,16 +559,14 @@ function registerWorkspaceFileWatcher(
     refreshTimer = undefined;
 
     if (changes.some(item => item.kind === 'solution')) {
-      endpointIndex.clear();
+      symbolIndex.clear();
       await provider.refresh();
       return;
     }
 
-    // Process C# file changes for EndpointIndex
+    // Process file changes for UniversalSymbolIndex
     if (csChanges.length > 25) {
-      // Mass file change detected (e.g. git checkout, branch switch, pull)
-      // Invalidate the full cache so next search scans fresh from workspace
-      endpointIndex.clear();
+      symbolIndex.clear();
     } else if (csChanges.length > 0) {
       const solution = provider.getSolution();
       const projects = solution?.projects;
@@ -569,11 +574,11 @@ function registerWorkspaceFileWatcher(
       await Promise.all(
         csChanges.map(async ([fsPath, eventKind]) => {
           if (eventKind === 'delete') {
-            endpointIndex.invalidateFile(fsPath);
+            symbolIndex.invalidateFile(fsPath);
           } else {
             const projectName = resolveProjectForFile(fsPath, projects);
             const relPath = vscode.workspace.asRelativePath(fsPath);
-            await endpointIndex.scanFile(fsPath, projectName, relPath);
+            await symbolIndex.scanFile(fsPath, projectName, relPath);
           }
         })
       );
@@ -595,13 +600,13 @@ function registerWorkspaceFileWatcher(
   };
 
   const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
-    if (uri.fsPath.endsWith('.cs') && !isIgnoredEndpointFile(uri.fsPath)) {
+    if (isRelevantSymbolFile(uri.fsPath)) {
       pendingCsFiles.set(uri.fsPath, eventKind);
     }
 
     const change = classifyWorkspaceChange(uri.fsPath, eventKind);
     if (change.kind === 'ignored') {
-      if (uri.fsPath.endsWith('.cs') && !isIgnoredEndpointFile(uri.fsPath)) {
+      if (isRelevantSymbolFile(uri.fsPath)) {
         if (refreshTimer) {
           clearTimeout(refreshTimer);
         }
@@ -628,25 +633,25 @@ function registerWorkspaceFileWatcher(
     watcher.onDidDelete(uri => scheduleRefresh(uri, 'delete')),
     watcher.onDidChange(uri => scheduleRefresh(uri, 'change')),
     vscode.workspace.onDidSaveTextDocument(doc => {
-      if (doc.languageId === 'csharp' && doc.uri.scheme === 'file' && !isIgnoredEndpointFile(doc.uri.fsPath)) {
+      if (doc.uri.scheme === 'file' && isRelevantSymbolFile(doc.uri.fsPath)) {
         const solution = provider.getSolution();
         const projects = solution?.projects;
         const projectName = resolveProjectForFile(doc.uri.fsPath, projects);
         const relPath = vscode.workspace.asRelativePath(doc.uri.fsPath);
-        endpointIndex.scanFileContent(doc.uri.fsPath, doc.getText(), projectName, relPath);
+        symbolIndex.scanFileContent(doc.uri.fsPath, doc.getText(), projectName, relPath);
       }
     }),
     vscode.workspace.onDidRenameFiles(event => {
       const solution = provider.getSolution();
       const projects = solution?.projects;
       for (const file of event.files) {
-        if (file.oldUri.fsPath.endsWith('.cs')) {
-          endpointIndex.invalidateFile(file.oldUri.fsPath);
+        if (isRelevantSymbolFile(file.oldUri.fsPath)) {
+          symbolIndex.invalidateFile(file.oldUri.fsPath);
         }
-        if (file.newUri.fsPath.endsWith('.cs') && !isIgnoredEndpointFile(file.newUri.fsPath)) {
+        if (isRelevantSymbolFile(file.newUri.fsPath)) {
           const projectName = resolveProjectForFile(file.newUri.fsPath, projects);
           const relPath = vscode.workspace.asRelativePath(file.newUri.fsPath);
-          void endpointIndex.scanFile(file.newUri.fsPath, projectName, relPath);
+          void symbolIndex.scanFile(file.newUri.fsPath, projectName, relPath);
         }
       }
     }),
