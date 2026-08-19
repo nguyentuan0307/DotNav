@@ -4,6 +4,32 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.18.0...dotnav-v0.19.0) (2026-08-19)
+
+
+### Features
+
+* **dotnav:** implement high-performance Universal Solution Search Everywhere across all 8 enterprise .NET layers ([48c732c](https://github.com/nguyentuan0307/DotNav/commit/48c732cb4cf9b6eea12aef8d250a1c2e170238f9))
+* **dotnav:** enhance EF Core DbSet and domain entity recognition heuristics in universal search ([22ef67b](https://github.com/nguyentuan0307/DotNav/commit/22ef67b64501604f3c0845cc930a7b7b54379260))
+* **dotnav:** expand universal search coverage to 82,000+ symbols including all method modifiers and entity properties ([f8a2185](https://github.com/nguyentuan0307/DotNav/commit/f8a21856d95fd2dc030937d9655a28c58efac933))
+* **dotnav:** implement 4 deep optimizations for universal search (sub-3ms latency, interning, smart ranking, git warming) ([21951f7](https://github.com/nguyentuan0307/DotNav/commit/21951f7de35cba05ff2eee813f84b20b32e6e30b))
+* **dotnav:** implement persistent disk cache with SWR sync and live code definition preview ([2c0df5c](https://github.com/nguyentuan0307/DotNav/commit/2c0df5c440750c07da292e572565626cc120877a))
+* **dotnav:** implement JetBrains Rider Search Everywhere webview with side-by-side code preview pane ([86cd9e2](https://github.com/nguyentuan0307/DotNav/commit/86cd9e232c88d90e2e7efcda29e6da7d2dbc2c9e))
+* **dotnav:** refactor Search Everywhere to 2-row popup modal with draggable resizer divider ([bb6b788](https://github.com/nguyentuan0307/DotNav/commit/bb6b7887b19b2bf11afc2b3f96049168a5ddf4fe))
+* **dotnav:** set Search Everywhere to native floating popup with embedded multi-line code preview ([5ab67d9](https://github.com/nguyentuan0307/DotNav/commit/5ab67d9b41bc732dbdaa7543ef7fdca7a48c8f0f))
+* **dotnav:** bump to v0.12.0 and add Search Everywhere feature announcement popup on update ([7ad03af](https://github.com/nguyentuan0307/DotNav/commit/7ad03afc54cf69921a590a48c321150f3bfc6850))
+
+### Bug Fixes
+
+* **dotnav:** fix inheritance parsing boundary and acronym case preservation in universal search ([8e304d0](https://github.com/nguyentuan0307/DotNav/commit/8e304d0d93dce9defc964dadc364ec5ae2b594a8))
+* **dotnav:** remove search endpoints toolbar icon and distinguish search everywhere icon from solution filter ([9990fd5](https://github.com/nguyentuan0307/DotNav/commit/9990fd584d7f3f002cda5e1afc29f8f1a1dc3d29))
+* **dotnav:** route searchEverywhere to Rider 2-row modal and restore focus on dismiss ([4aa27da](https://github.com/nguyentuan0307/DotNav/commit/4aa27daf6ee5732676b341153e7d0cb672215a7f))
+
+### Changes
+
+* refactor(dotnav): restore clean, ultra-fast native QuickPick Search Everywhere without webview tabs ([613c5da](https://github.com/nguyentuan0307/DotNav/commit/613c5daccdf1fbfbebe3d79196c1ebb4a0333c16))
+
+
 ## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.17.0...dotnav-v0.18.0) (2026-08-18)
 
 
