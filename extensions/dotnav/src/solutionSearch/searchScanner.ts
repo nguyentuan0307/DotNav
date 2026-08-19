@@ -51,6 +51,42 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
     }
   }
 
+  // Container name and segments
+  if (symbol.containerName) {
+    const cLower = symbol.containerName.toLowerCase();
+    tokens.add(cLower);
+    if (cLower.length >= 2) tokens.add(cLower.slice(0, 2));
+    const cSegments = symbol.containerName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+    for (const cSeg of cSegments) {
+      const cSegLower = cSeg.toLowerCase();
+      if (cSegLower.length >= 2) {
+        tokens.add(cSegLower);
+        tokens.add(cSegLower.slice(0, 2));
+      }
+    }
+  }
+
+  // BaseType / Return Type metadata and segments (e.g. RecordAppearanceLayoutType)
+  const typeMeta = symbol.metadata?.baseType || symbol.metadata?.returnType;
+  if (typeMeta) {
+    const baseTokens = typeMeta.split(/<|>|\s|,|\[|\]|:/).filter(Boolean);
+    for (const b of baseTokens) {
+      const bLower = b.toLowerCase();
+      if (bLower.length >= 2) {
+        tokens.add(bLower);
+        tokens.add(bLower.slice(0, 2));
+      }
+      const bSegs = b.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+      for (const bs of bSegs) {
+        const bsLower = bs.toLowerCase();
+        if (bsLower.length >= 2) {
+          tokens.add(bsLower);
+          tokens.add(bsLower.slice(0, 2));
+        }
+      }
+    }
+  }
+
   // Endpoint route template tokens
   if (symbol.metadata?.routeTemplate) {
     const routeSegments = symbol.metadata.routeTemplate.toLowerCase().split(/[\/\\{}:]+/).filter(Boolean);
@@ -60,10 +96,6 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
         tokens.add(rSeg.slice(0, 2));
       }
     }
-  }
-
-  if (symbol.containerName) {
-    tokens.add(symbol.containerName.toLowerCase());
   }
 
   return Array.from(tokens);
@@ -237,20 +269,25 @@ export function parseSymbolsFromCSharp(
             currentEnumLine++;
             const trimmed = rawLine.replace(/\/\/.*$/, '').trim();
             if (!trimmed || trimmed.startsWith('[')) continue;
-            const memberMatch = /^([a-zA-Z0-9_]+)/.exec(trimmed);
-            if (memberMatch && memberMatch[1] && memberMatch[1] !== typeName) {
-              const memberName = memberMatch[1];
-              symbols.push({
-                id: `${filePath}:${currentEnumLine}:enum_member:${typeName}.${memberName}`,
-                name: `${typeName}.${memberName}`,
-                kind: 'enum_member',
-                filePath,
-                relativePath,
-                projectName,
-                line: currentEnumLine,
-                column: 1,
-                containerName: typeName
-              });
+            const lineMembers = trimmed.split(',');
+            for (const item of lineMembers) {
+              const itemTrimmed = item.trim();
+              if (!itemTrimmed || itemTrimmed.startsWith('[')) continue;
+              const memberMatch = /^([a-zA-Z0-9_]+)/.exec(itemTrimmed);
+              if (memberMatch && memberMatch[1] && memberMatch[1] !== typeName) {
+                const memberName = memberMatch[1];
+                symbols.push({
+                  id: `${filePath}:${currentEnumLine}:enum_member:${typeName}.${memberName}`,
+                  name: `${typeName}.${memberName}`,
+                  kind: 'enum_member',
+                  filePath,
+                  relativePath,
+                  projectName,
+                  line: currentEnumLine,
+                  column: 1,
+                  containerName: typeName
+                });
+              }
             }
           }
         }
@@ -645,17 +682,47 @@ export class UniversalSymbolIndex {
       return pool || all;
     }
 
-    const firstTok = tokens[0].toLowerCase();
-    let matchedSet = this.tokenBuckets.get(firstTok);
-    if ((!matchedSet || matchedSet.size === 0) && firstTok.length >= 2) {
-      matchedSet = this.tokenBuckets.get(firstTok.slice(0, 2));
+    const candidateSet = new Set<UniversalSymbol>();
+    const rawQuery = tokens.join(' ');
+    const rawQueryLower = rawQuery.toLowerCase();
+
+    // 1. Direct token bucket match
+    const direct = this.tokenBuckets.get(rawQueryLower);
+    if (direct) {
+      for (const s of direct) candidateSet.add(s);
     }
 
-    if (!matchedSet || matchedSet.size === 0) {
+    // 2. Query word segments & 2-char prefix buckets
+    const segments = rawQuery.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+    for (const seg of segments) {
+      const segLower = seg.toLowerCase();
+      const segBucket = this.tokenBuckets.get(segLower);
+      if (segBucket) {
+        for (const s of segBucket) candidateSet.add(s);
+      }
+      if (segLower.length >= 2) {
+        const p2 = segLower.slice(0, 2);
+        const p2Bucket = this.tokenBuckets.get(p2);
+        if (p2Bucket) {
+          for (const s of p2Bucket) candidateSet.add(s);
+        }
+      }
+    }
+
+    // 3. Acronym bucket match
+    const uppercase = rawQuery.replace(/[^A-Z]/g, '').toLowerCase();
+    if (uppercase.length >= 2) {
+      const acBucket = this.tokenBuckets.get(uppercase);
+      if (acBucket) {
+        for (const s of acBucket) candidateSet.add(s);
+      }
+    }
+
+    if (candidateSet.size === 0) {
       return pool || all;
     }
 
-    let candidates = Array.from(matchedSet);
+    let candidates = Array.from(candidateSet);
     if (pool) {
       const poolSet = new Set(pool);
       candidates = candidates.filter(s => poolSet.has(s));
@@ -663,11 +730,6 @@ export class UniversalSymbolIndex {
 
     if (projectNameFilter) {
       candidates = candidates.filter(s => s.projectName.toLowerCase().includes(projectNameFilter));
-    }
-
-    const isDirectMatch = this.tokenBuckets.has(firstTok);
-    if (!isDirectMatch && candidates.length < 20 && tokens.length === 1 && firstTok.length <= 3) {
-      return pool || all;
     }
 
     return candidates;
