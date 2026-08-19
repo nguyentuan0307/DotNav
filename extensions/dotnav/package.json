@@ -181,8 +181,8 @@
         "icon": "$(search-fuzzy)"
       },
       {
-        "command": "dotnav.searchEverywhereQuickPick",
-        "title": "Search Everywhere (QuickPick Mode)"
+        "command": "dotnav.searchEverywhereWebview",
+        "title": "Search Everywhere (Full Webview Center)"
       },
       {
         "command": "dotnav.searchApiEndpoints",

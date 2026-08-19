@@ -104,7 +104,37 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
   }
 }
 
-export function formatSymbolDetail(symbol: UniversalSymbol): string {
+const snippetCache = new Map<string, string>();
+
+export function getCodeSnippetForSymbol(symbol: UniversalSymbol, contextBefore = 1, contextAfter = 3): string {
+  const cacheKey = `${symbol.filePath}:${symbol.line}`;
+  if (snippetCache.has(cacheKey)) {
+    return snippetCache.get(cacheKey)!;
+  }
+
+  try {
+    if (!fs.existsSync(symbol.filePath)) return '';
+    const content = fs.readFileSync(symbol.filePath, 'utf8');
+    const lines = content.split(/\r?\n/);
+    const start = Math.max(0, symbol.line - 1 - contextBefore);
+    const end = Math.min(lines.length, symbol.line + contextAfter);
+    const slice = lines.slice(start, end);
+
+    const formatted = slice.map((l, idx) => {
+      const lineNum = start + idx + 1;
+      const isTarget = lineNum === symbol.line;
+      const marker = isTarget ? '►' : '│';
+      return `  ${lineNum.toString().padStart(4, ' ')} ${marker} ${l.replace(/\t/g, '  ')}`;
+    }).join('\n');
+
+    snippetCache.set(cacheKey, formatted);
+    return formatted;
+  } catch {
+    return '';
+  }
+}
+
+export function formatSymbolDetail(symbol: UniversalSymbol, showSnippet = true): string {
   const fileInfo = symbol.relativePath
     ? `${symbol.relativePath}:${symbol.line}`
     : `${path.basename(symbol.filePath)}:${symbol.line}`;
@@ -112,7 +142,16 @@ export function formatSymbolDetail(symbol: UniversalSymbol): string {
   const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
   const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
 
-  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${configVal}`;
+  const header = `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${configVal}`;
+  if (!showSnippet) {
+    return header;
+  }
+
+  const snippet = getCodeSnippetForSymbol(symbol);
+  if (snippet) {
+    return `${header}\n${snippet}`;
+  }
+  return header;
 }
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
@@ -548,6 +587,7 @@ export async function searchEverywhereInteractive(
     if (button.tooltip?.includes('Live Code Preview')) {
       isLivePreviewEnabled = !isLivePreviewEnabled;
       updateButtons();
+      updateItems(quickPick.value);
     } else if (button.tooltip?.includes('Endpoints')) {
       quickPick.value = '/' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('CQRS')) {
@@ -603,7 +643,7 @@ export async function searchEverywhereInteractive(
 
       items.push({
         label: formatSymbolLabel(sym),
-        detail: formatSymbolDetail(sym),
+        detail: formatSymbolDetail(sym, isLivePreviewEnabled),
         alwaysShow: true,
         symbol: sym,
         searchResult: res,
