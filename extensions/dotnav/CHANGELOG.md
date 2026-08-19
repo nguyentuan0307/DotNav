@@ -4,6 +4,15 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.20.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.19.0...dotnav-v0.20.0) (2026-08-19)
+
+
+### Features
+
+* **dotnav:** bump to v0.15.0 with full keybindings for Search Everywhere ([a7b73e7](https://github.com/nguyentuan0307/DotNav/commit/a7b73e783adc1297951b820554da32259017c328))
+* **dotnav:** release v0.20.0 with Search Everywhere ([0089de1](https://github.com/nguyentuan0307/DotNav/commit/0089de18ee287c5c3729ab2900d88a3689940a02))
+
+
 ## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.18.0...dotnav-v0.19.0) (2026-08-19)
 
 
