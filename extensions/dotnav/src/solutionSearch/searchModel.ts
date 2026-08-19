@@ -46,6 +46,7 @@ export interface UniversalSymbol {
     readonly baseType?: string;
     readonly parameterSummary?: string;
     readonly configValue?: string;
+    readonly docSummary?: string;
   };
 }
 
@@ -70,5 +71,12 @@ export interface SearchRankingContext {
   readonly activeProjectName?: string;
   readonly activeFilePath?: string;
   readonly mruSymbolIds?: readonly string[];
+}
+
+export interface SearchIndexSnapshot {
+  readonly version: number;
+  readonly timestamp: number;
+  readonly fileTimestamps: Record<string, number>;
+  readonly symbolsByFile: Record<string, UniversalSymbol[]>;
 }
 

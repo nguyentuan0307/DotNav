@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SearchFilterMode, UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import { SearchFilterMode, SearchIndexSnapshot, UniversalSymbol, UniversalSymbolKind } from './searchModel';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 const CSHARP_RESERVED_KEYWORDS = new Set([
@@ -376,6 +376,7 @@ export function parseSymbolsFromAppSettings(
 
 export class UniversalSymbolIndex {
   private readonly fileCache = new Map<string, UniversalSymbol[]>();
+  private readonly fileTimestamps = new Map<string, number>();
   private readonly kindBuckets = new Map<UniversalSymbolKind, Set<UniversalSymbol>>();
   private readonly tokenBuckets = new Map<string, Set<UniversalSymbol>>();
   private readonly projectBuckets = new Map<string, Set<UniversalSymbol>>();
@@ -390,7 +391,45 @@ export class UniversalSymbolIndex {
     this._isFullScanCompleted = true;
   }
 
-  private addSymbolToBuckets(sym: UniversalSymbol): void {
+  public getFileTimestamp(filePath: string): number | undefined {
+    return this.fileTimestamps.get(filePath);
+  }
+
+  public exportSnapshot(): SearchIndexSnapshot {
+    const symbolsByFile: Record<string, UniversalSymbol[]> = {};
+    const fileTimestamps: Record<string, number> = {};
+    for (const [filePath, symbols] of this.fileCache.entries()) {
+      symbolsByFile[filePath] = symbols;
+      const mtime = this.fileTimestamps.get(filePath) || 0;
+      if (mtime > 0) {
+        fileTimestamps[filePath] = mtime;
+      }
+    }
+    return {
+      version: 1,
+      timestamp: Date.now(),
+      fileTimestamps,
+      symbolsByFile
+    };
+  }
+
+  public loadSnapshot(snapshot: SearchIndexSnapshot): void {
+    this.clear();
+    if (!snapshot || !snapshot.symbolsByFile) return;
+    for (const [filePath, symbols] of Object.entries(snapshot.symbolsByFile)) {
+      this.fileCache.set(filePath, symbols);
+      const mtime = snapshot.fileTimestamps?.[filePath] || 0;
+      if (mtime > 0) {
+        this.fileTimestamps.set(filePath, mtime);
+      }
+      for (const s of symbols) {
+        this.addSymbolToBuckets(s);
+      }
+    }
+    this._isFullScanCompleted = true;
+  }
+
+  public addSymbolToBuckets(sym: UniversalSymbol): void {
     // Kind bucket
     let kb = this.kindBuckets.get(sym.kind);
     if (!kb) {
@@ -438,13 +477,18 @@ export class UniversalSymbolIndex {
     filePath: string,
     content: string,
     projectName: string,
-    relativePath: string
+    relativePath: string,
+    mtime?: number
   ): UniversalSymbol[] {
     const oldSymbols = this.fileCache.get(filePath);
     if (oldSymbols) {
       for (const s of oldSymbols) {
         this.removeSymbolFromBuckets(s);
       }
+    }
+
+    if (mtime !== undefined && mtime > 0) {
+      this.fileTimestamps.set(filePath, mtime);
     }
 
     let symbols: UniversalSymbol[] = [];
@@ -483,8 +527,9 @@ export class UniversalSymbolIndex {
         this.invalidateFile(filePath);
         return [];
       }
+      const stat = await fs.promises.stat(filePath);
       const content = await fs.promises.readFile(filePath, 'utf8');
-      return this.scanFileContent(filePath, content, projectName, relativePath);
+      return this.scanFileContent(filePath, content, projectName, relativePath, stat.mtimeMs);
     } catch {
       this.invalidateFile(filePath);
       return [];
@@ -498,12 +543,14 @@ export class UniversalSymbolIndex {
         this.removeSymbolFromBuckets(s);
       }
       this.fileCache.delete(filePath);
+      this.fileTimestamps.delete(filePath);
       this.cachedAllSymbols = undefined;
     }
   }
 
   public clear(): void {
     this.fileCache.clear();
+    this.fileTimestamps.clear();
     this.kindBuckets.clear();
     this.tokenBuckets.clear();
     this.projectBuckets.clear();

@@ -151,3 +151,34 @@ test('extractIndexTokens and internString optimize candidate lookups and memory'
   assert.ok(candidates.length >= 1);
   assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
 });
+
+test('UniversalSymbolIndex snapshot export and load restores all symbols and token buckets', () => {
+  const index = new UniversalSymbolIndex();
+  index.scanFileContent(
+    '/src/SubmitService.cs',
+    'public class SubmitService {\n    public void ProcessOrder() {}\n}',
+    'ELDesk.Sales',
+    'SubmitService.cs',
+    1700000000000
+  );
+
+  assert.equal(index.count, 2); // Class and Method
+  assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+
+  const snapshot = index.exportSnapshot();
+  assert.equal(snapshot.version, 1);
+  assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
+  assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
+
+  const restoredIndex = new UniversalSymbolIndex();
+  restoredIndex.loadSnapshot(snapshot);
+
+  assert.equal(restoredIndex.isFullScanCompleted, true);
+  assert.equal(restoredIndex.count, 2);
+  assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+
+  const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
+  assert.equal(searchResults.length, 1);
+  assert.equal(searchResults[0].symbol.name, 'ProcessOrder()');
+});
+

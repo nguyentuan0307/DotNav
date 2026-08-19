@@ -99,8 +99,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', openSolutionTreeFind),
-    vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex)),
-    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/')),
+    vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
+    vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
@@ -215,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
   activateEfCore(context, provider, processManager);
   void showFeatureAnnouncements(context);
   setTimeout(() => {
-    void warmUpUniversalSearchIndex(provider, symbolIndex);
+    void warmUpUniversalSearchIndex(provider, symbolIndex, context);
   }, 1200);
 }
 

@@ -1,11 +1,13 @@
+import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import * as vscode from 'vscode';
 import { DotnetTreeProvider } from '../treeProvider';
 import { ApiEndpoint, HttpMethod } from '../endpoints/endpointModel';
 import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
 import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
-import { SearchFilterMode, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import { SearchFilterMode, SearchIndexSnapshot, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
 import { UniversalSymbolIndex } from './searchScanner';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
@@ -17,6 +19,7 @@ export interface UniversalQuickPickItem extends vscode.QuickPickItem {
 let lastSearchQuery = '';
 let activeFullScanPromise: Promise<void> | undefined;
 let currentUniversalQuickPick: vscode.QuickPick<UniversalQuickPickItem> | undefined;
+let isLivePreviewEnabled = true;
 
 export function resolveProjectForFile(
   fsPath: string,
@@ -260,14 +263,104 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
   }
 }
 
+export function getCacheFilePath(context?: vscode.ExtensionContext): string | undefined {
+  if (context?.storageUri?.fsPath) {
+    const dir = context.storageUri.fsPath;
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch {
+        // ignore
+      }
+    }
+    return path.join(dir, 'dotnav_search_cache.json.gz');
+  }
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (root) {
+    const vsCodeDir = path.join(root, '.vscode');
+    if (!fs.existsSync(vsCodeDir)) {
+      try {
+        fs.mkdirSync(vsCodeDir, { recursive: true });
+      } catch {
+        // ignore
+      }
+    }
+    return path.join(vsCodeDir, 'dotnav_search_cache.json.gz');
+  }
+  return undefined;
+}
+
+export async function loadSnapshotFromDisk(
+  context: vscode.ExtensionContext | undefined,
+  index: UniversalSymbolIndex
+): Promise<boolean> {
+  const cachePath = getCacheFilePath(context);
+  if (!cachePath || !fs.existsSync(cachePath)) {
+    return false;
+  }
+  try {
+    const compressed = await fs.promises.readFile(cachePath);
+    const unzipped = await new Promise<string>((resolve, reject) => {
+      zlib.gunzip(compressed, (err, buf) => {
+        if (err) reject(err);
+        else resolve(buf.toString('utf8'));
+      });
+    });
+    const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
+    if (snapshot && snapshot.symbolsByFile) {
+      index.loadSnapshot(snapshot);
+      return true;
+    }
+  } catch (err) {
+    console.warn(`[DotNav] Failed to load search snapshot from disk: ${err}`);
+  }
+  return false;
+}
+
+let saveDebounceTimer: NodeJS.Timeout | undefined;
+
+export function scheduleSaveSnapshotToDisk(
+  context: vscode.ExtensionContext | undefined,
+  index: UniversalSymbolIndex
+): void {
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+  }
+  saveDebounceTimer = setTimeout(async () => {
+    saveDebounceTimer = undefined;
+    const cachePath = getCacheFilePath(context);
+    if (!cachePath) return;
+    try {
+      const snapshot = index.exportSnapshot();
+      const jsonStr = JSON.stringify(snapshot);
+      const compressed = await new Promise<Buffer>((resolve, reject) => {
+        zlib.gzip(Buffer.from(jsonStr), { level: 6 }, (err, buf) => {
+          if (err) reject(err);
+          else resolve(buf);
+        });
+      });
+      await fs.promises.writeFile(cachePath, compressed);
+    } catch (err) {
+      console.warn(`[DotNav] Failed to save search snapshot to disk: ${err}`);
+    }
+  }, 1500);
+}
+
 export async function populateUniversalIndexFromSolution(
   provider: DotnetTreeProvider,
-  index: UniversalSymbolIndex
+  index: UniversalSymbolIndex,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
   const solution = provider.getSolution();
   const projects = solution?.projects;
 
-  // Phase 1: Git-modified Priority Warming (< 50ms)
+  // Phase 1: Zero-Delay Startup Load (< 50ms)
+  let loadedFromCache = false;
+  if (!index.isFullScanCompleted && index.count === 0) {
+    loadedFromCache = await loadSnapshotFromDisk(context, index);
+  }
+
+  // Phase 2: Git-modified Priority Warming (< 50ms)
   try {
     const dirtyFiles = await getGitModifiedFiles();
     for (const fsPath of dirtyFiles) {
@@ -279,38 +372,62 @@ export async function populateUniversalIndexFromSolution(
     // Ignore git error
   }
 
-  // Phase 2: Full Solution Scan
+  // Phase 3: Stale-While-Revalidate Background Sync (check mtime diff)
   const files = await vscode.workspace.findFiles(
     '**/*.{cs,json,csproj}',
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**}'
   );
 
+  let hasChanges = false;
+  const existingFilesInDisk = new Set<string>();
   const chunkSize = 48;
+
   for (let i = 0; i < files.length; i += chunkSize) {
     const chunk = files.slice(i, i + chunkSize);
     await Promise.all(
       chunk.map(async file => {
         const fsPath = file.fsPath;
-        if (!index.hasFile(fsPath)) {
-          const projectName = resolveProjectForFile(fsPath, projects);
-          const relPath = vscode.workspace.asRelativePath(fsPath);
-          await index.scanFile(fsPath, projectName, relPath);
+        existingFilesInDisk.add(fsPath);
+        try {
+          const stat = await fs.promises.stat(fsPath);
+          const cachedMtime = index.getFileTimestamp(fsPath);
+          if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath)) {
+            const projectName = resolveProjectForFile(fsPath, projects);
+            const relPath = vscode.workspace.asRelativePath(fsPath);
+            await index.scanFile(fsPath, projectName, relPath);
+            hasChanges = true;
+          }
+        } catch {
+          // ignore
         }
       })
     );
+  }
+
+  // Clean up any deleted files from cache
+  for (const cachedPath of index.getAllSymbols().map(s => s.filePath)) {
+    if (!existingFilesInDisk.has(cachedPath) && !fs.existsSync(cachedPath)) {
+      index.invalidateFile(cachedPath);
+      hasChanges = true;
+    }
+  }
+
+  if (hasChanges || !loadedFromCache) {
+    scheduleSaveSnapshotToDisk(context, index);
   }
 }
 
 export async function warmUpUniversalSearchIndex(
   provider: DotnetTreeProvider,
-  index: UniversalSymbolIndex
+  index: UniversalSymbolIndex,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
   if (index.isFullScanCompleted || activeFullScanPromise) {
     return activeFullScanPromise;
   }
   activeFullScanPromise = (async () => {
     try {
-      await populateUniversalIndexFromSolution(provider, index);
+      await populateUniversalIndexFromSolution(provider, index, context);
       index.markFullScanCompleted();
     } catch (err) {
       console.error(`DotNav background universal search warmup failed: ${err}`);
@@ -323,7 +440,8 @@ export async function warmUpUniversalSearchIndex(
 
 export async function ensureUniversalIndexReady(
   provider: DotnetTreeProvider,
-  index: UniversalSymbolIndex
+  index: UniversalSymbolIndex,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
   if (index.isFullScanCompleted) {
     return;
@@ -349,7 +467,7 @@ export async function ensureUniversalIndexReady(
     },
     async () => {
       try {
-        activeFullScanPromise = populateUniversalIndexFromSolution(provider, index);
+        activeFullScanPromise = populateUniversalIndexFromSolution(provider, index, context);
         await activeFullScanPromise;
         index.markFullScanCompleted();
       } finally {
@@ -369,15 +487,22 @@ export async function openActiveSymbolActions(): Promise<void> {
 export async function searchEverywhereInteractive(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  initialPrefix = ''
+  initialPrefix = '',
+  context?: vscode.ExtensionContext
 ): Promise<void> {
-  await ensureUniversalIndexReady(provider, index);
+  await ensureUniversalIndexReady(provider, index, context);
 
   const allSymbols = index.getAllSymbols();
   if (allSymbols.length === 0) {
     vscode.window.showInformationMessage('No C# symbols, endpoints, or configurations found in this workspace.');
     return;
   }
+
+  // Preserve initial active editor and selection to restore on cancellation
+  const initialActiveEditor = vscode.window.activeTextEditor;
+  const initialDocUri = initialActiveEditor?.document.uri;
+  const initialSelection = initialActiveEditor?.selection;
+  let isAccepted = false;
 
   const quickPick = vscode.window.createQuickPick<UniversalQuickPickItem>();
   currentUniversalQuickPick = quickPick;
@@ -388,32 +513,42 @@ export async function searchEverywhereInteractive(
   quickPick.matchOnDescription = false;
   quickPick.matchOnDetail = false;
 
-  // Title bar filter buttons
-  quickPick.buttons = [
-    {
-      iconPath: new vscode.ThemeIcon('globe'),
-      tooltip: 'Filter Endpoints (/)'
-    },
-    {
-      iconPath: new vscode.ThemeIcon('zap'),
-      tooltip: 'Filter CQRS ($)'
-    },
-    {
-      iconPath: new vscode.ThemeIcon('database'),
-      tooltip: 'Filter Database & EF (%)'
-    },
-    {
-      iconPath: new vscode.ThemeIcon('symbol-class'),
-      tooltip: 'Filter Types (#)'
-    },
-    {
-      iconPath: new vscode.ThemeIcon('symbol-method'),
-      tooltip: 'Filter Methods (@)'
-    }
-  ];
+  const updateButtons = () => {
+    quickPick.buttons = [
+      {
+        iconPath: new vscode.ThemeIcon(isLivePreviewEnabled ? 'eye' : 'eye-closed'),
+        tooltip: isLivePreviewEnabled ? 'Live Code Preview: On (Click to toggle)' : 'Live Code Preview: Off (Click to toggle)'
+      },
+      {
+        iconPath: new vscode.ThemeIcon('globe'),
+        tooltip: 'Filter Endpoints (/)'
+      },
+      {
+        iconPath: new vscode.ThemeIcon('zap'),
+        tooltip: 'Filter CQRS ($)'
+      },
+      {
+        iconPath: new vscode.ThemeIcon('database'),
+        tooltip: 'Filter Database & EF (%)'
+      },
+      {
+        iconPath: new vscode.ThemeIcon('symbol-class'),
+        tooltip: 'Filter Types (#)'
+      },
+      {
+        iconPath: new vscode.ThemeIcon('symbol-method'),
+        tooltip: 'Filter Methods (@)'
+      }
+    ];
+  };
+
+  updateButtons();
 
   quickPick.onDidTriggerButton(button => {
-    if (button.tooltip?.includes('Endpoints')) {
+    if (button.tooltip?.includes('Live Code Preview')) {
+      isLivePreviewEnabled = !isLivePreviewEnabled;
+      updateButtons();
+    } else if (button.tooltip?.includes('Endpoints')) {
       quickPick.value = '/' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('CQRS')) {
       quickPick.value = '$' + quickPick.value.replace(/^[/%$#@!]/, '');
@@ -495,6 +630,28 @@ export async function searchEverywhereInteractive(
     updateItems(value);
   });
 
+  // Feature 2: Live Code Preview / Peek Definition as user navigates with Up/Down
+  quickPick.onDidChangeActive(async activeItems => {
+    if (!isLivePreviewEnabled || activeItems.length === 0) return;
+    const activeSym = activeItems[0].symbol;
+    if (!activeSym || !activeSym.filePath || !fs.existsSync(activeSym.filePath)) return;
+
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(activeSym.filePath));
+      const lineIndex = Math.max(0, activeSym.line - 1);
+      const colIndex = Math.max(0, activeSym.column - 1);
+      const pos = new vscode.Position(lineIndex, colIndex);
+      const targetRange = new vscode.Range(pos, pos);
+      await vscode.window.showTextDocument(doc, {
+        preserveFocus: true,
+        preview: true,
+        selection: targetRange
+      });
+    } catch {
+      // Ignore preview failure
+    }
+  });
+
   quickPick.onDidTriggerItemButton(async event => {
     const sym = event.item.symbol;
     if (!sym) return;
@@ -505,6 +662,7 @@ export async function searchEverywhereInteractive(
     const selected = quickPick.selectedItems[0];
     if (!selected || !selected.symbol || selected.isAction) return;
     const sym = selected.symbol;
+    isAccepted = true;
 
     // Track MRU
     mruSymbolIds = [sym.id, ...mruSymbolIds.filter(id => id !== sym.id)].slice(0, 50);
@@ -520,6 +678,20 @@ export async function searchEverywhereInteractive(
       currentUniversalQuickPick = undefined;
     }
     await vscode.commands.executeCommand('setContext', 'dotnav.solutionSearchOpen', false);
+
+    // Restore original document if user cancelled preview
+    if (!isAccepted && initialDocUri) {
+      try {
+        const origDoc = await vscode.workspace.openTextDocument(initialDocUri);
+        const editor = await vscode.window.showTextDocument(origDoc, { preserveFocus: true, preview: true });
+        if (initialSelection) {
+          editor.selection = initialSelection;
+          editor.revealRange(initialSelection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+        }
+      } catch {
+        // Ignore restore failure
+      }
+    }
   });
 
   quickPick.show();
