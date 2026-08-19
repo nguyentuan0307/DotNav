@@ -89,7 +89,7 @@ export function parseSymbolsFromCSharp(
   }
 
   // 3. Parse Types & CQRS & Domain Patterns
-  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*\([^)]*\))?(?:\s*:\s*([^{]+))?/gm;
+  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*\([^)]*\))?(?:\s*:\s*([^{;\r\n]+))?/gm;
   let typeMatch: RegExpExecArray | null;
 
   while ((typeMatch = typeRegex.exec(code)) !== null) {

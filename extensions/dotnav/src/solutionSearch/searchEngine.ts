@@ -175,7 +175,8 @@ export function scoreSymbol(
   }
 
   const symbolNameLower = symbol.name.toLowerCase();
-  const bareSymbolName = symbol.name.split('(')[0].trim().toLowerCase();
+  const originalBareName = symbol.name.split('(')[0].trim();
+  const bareSymbolName = originalBareName.toLowerCase();
   const rawQueryLower = query.cleanQuery.toLowerCase();
   let baseScore = 0;
   let matchReason = '';
@@ -197,7 +198,7 @@ export function scoreSymbol(
 
   // 4. CamelCase Acronym match (e.g. CIVC -> CreateInterfaceViewCommand)
   if (baseScore === 0 && query.cleanQuery.length >= 2) {
-    if (isCamelCaseAcronymMatch(query.cleanQuery, bareSymbolName || symbol.name)) {
+    if (isCamelCaseAcronymMatch(query.cleanQuery, originalBareName || symbol.name)) {
       baseScore = 92;
       matchReason = 'CamelCase acronym match';
     }
