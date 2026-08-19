@@ -1,0 +1,363 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
+
+export function isIgnoredSearchFile(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (/\/(bin|obj|node_modules|\.vs|\.git|\.idea)\//i.test(normalized)) {
+    return true;
+  }
+  const base = path.basename(filePath);
+  if (/\.(g|Designer|generated)\.cs$/i.test(base)) {
+    return true;
+  }
+  return false;
+}
+
+export function parseSymbolsFromCSharp(
+  code: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+
+  // 1. Parse ASP.NET Core Endpoints (Controllers & Minimal APIs)
+  const endpoints = parseEndpointsFromCSharp(code, filePath, projectName, relativePath);
+  for (const ep of endpoints) {
+    symbols.push({
+      id: `${ep.filePath}:${ep.line}:${ep.httpMethod}:${ep.routeTemplate}`,
+      name: `${ep.httpMethod} /${ep.routeTemplate.replace(/^\/+/, '')}`,
+      kind: 'endpoint',
+      filePath: ep.filePath,
+      relativePath: ep.relativePath,
+      projectName: ep.projectName,
+      line: ep.line,
+      column: 1,
+      containerName: ep.controllerName,
+      metadata: {
+        httpMethod: ep.httpMethod,
+        routeTemplate: ep.routeTemplate,
+        controllerName: ep.controllerName,
+        actionName: ep.actionName
+      }
+    });
+  }
+
+  // Fast-path heuristic: If file doesn't have class/interface/record/enum/struct declarations, skip
+  if (
+    !code.includes('class') &&
+    !code.includes('interface') &&
+    !code.includes('record') &&
+    !code.includes('enum') &&
+    !code.includes('struct')
+  ) {
+    return symbols;
+  }
+
+  const lines = code.split(/\r?\n/);
+
+  // 2. Parse EF Core DbSets
+  const dbSetRegex = /public\s+DbSet<([a-zA-Z0-9_]+)>\s+([a-zA-Z0-9_]+)\s*\{\s*get;\s*set;\s*\}/g;
+  let dbSetMatch: RegExpExecArray | null;
+  while ((dbSetMatch = dbSetRegex.exec(code)) !== null) {
+    const entityType = dbSetMatch[1];
+    const propertyName = dbSetMatch[2];
+    const lineIndex = code.substring(0, dbSetMatch.index).split(/\r?\n/).length;
+
+    symbols.push({
+      id: `${filePath}:${lineIndex}:dbset:${propertyName}`,
+      name: `DbSet<${entityType}> ${propertyName}`,
+      kind: 'ef_dbset',
+      filePath,
+      relativePath,
+      projectName,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: entityType
+      }
+    });
+  }
+
+  // 3. Parse Types & CQRS Patterns line by line or block regex
+  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*:\s*([^{]+))?/gm;
+  let typeMatch: RegExpExecArray | null;
+
+  while ((typeMatch = typeRegex.exec(code)) !== null) {
+    const typeKeyword = typeMatch[1]; // class, interface, record, enum, struct
+    const typeName = typeMatch[2];
+    const inheritanceList = typeMatch[3] ? typeMatch[3].trim() : '';
+    const lineIndex = code.substring(0, typeMatch.index).split(/\r?\n/).length;
+
+    let kind: UniversalSymbolKind = 'class';
+    if (typeKeyword === 'interface') {
+      kind = 'interface';
+    } else if (typeKeyword === 'record') {
+      kind = 'record';
+    } else if (typeKeyword === 'enum') {
+      kind = 'enum';
+    }
+
+    // CQRS & EF Core classifications
+    if (inheritanceList) {
+      if (/\bMigration\b/.test(inheritanceList)) {
+        kind = 'ef_migration';
+      } else if (/\bIRequestHandler\b/.test(inheritanceList)) {
+        kind = 'cqrs_handler';
+      } else if (/\b(IRequest|ICommand)\b/.test(inheritanceList) && !typeName.endsWith('Query')) {
+        kind = 'cqrs_command';
+      } else if (/\b(IRequest|IQuery)\b/.test(inheritanceList) || typeName.endsWith('Query')) {
+        kind = 'cqrs_query';
+      } else if (/\b(INotification|IDomainEvent)\b/.test(inheritanceList)) {
+        kind = 'cqrs_event';
+      } else if (/\bIEntityTypeConfiguration\b/.test(inheritanceList)) {
+        kind = 'ef_entity';
+      }
+    } else {
+      if (typeName.endsWith('Command') && !typeName.endsWith('CommandHandler')) {
+        kind = 'cqrs_command';
+      } else if (typeName.endsWith('CommandHandler') || typeName.endsWith('Handler')) {
+        kind = 'cqrs_handler';
+      } else if (typeName.endsWith('Query') && !typeName.endsWith('QueryHandler')) {
+        kind = 'cqrs_query';
+      } else if (typeName.endsWith('Entity')) {
+        kind = 'ef_entity';
+      }
+    }
+
+    // Ignore Controller classes from types list if already parsed as endpoints
+    if (typeName.endsWith('Controller') && kind === 'class') {
+      // Still include Controller as a Class symbol so user can search by class name
+    }
+
+    symbols.push({
+      id: `${filePath}:${lineIndex}:${kind}:${typeName}`,
+      name: typeName,
+      kind,
+      filePath,
+      relativePath,
+      projectName,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: inheritanceList || undefined
+      }
+    });
+
+    // 4. If Enum, parse enum values
+    if (typeKeyword === 'enum') {
+      const enumBodyStartIndex = typeMatch.index + typeMatch[0].length;
+      const openBrace = code.indexOf('{', enumBodyStartIndex);
+      if (openBrace !== -1) {
+        const closeBrace = code.indexOf('}', openBrace);
+        if (closeBrace !== -1) {
+          const enumBody = code.substring(openBrace + 1, closeBrace);
+          const enumLines = enumBody.split(/\r?\n/);
+          let currentEnumLine = code.substring(0, openBrace).split(/\r?\n/).length;
+
+          for (const rawLine of enumLines) {
+            currentEnumLine++;
+            const trimmed = rawLine.replace(/\/\/.*$/, '').trim();
+            if (!trimmed || trimmed.startsWith('[')) continue;
+            const memberMatch = /^([a-zA-Z0-9_]+)/.exec(trimmed);
+            if (memberMatch && memberMatch[1] && memberMatch[1] !== typeName) {
+              const memberName = memberMatch[1];
+              symbols.push({
+                id: `${filePath}:${currentEnumLine}:enum_member:${typeName}.${memberName}`,
+                name: `${typeName}.${memberName}`,
+                kind: 'enum_member',
+                filePath,
+                relativePath,
+                projectName,
+                line: currentEnumLine,
+                column: 1,
+                containerName: typeName
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 5. Parse Public Methods (high-value business functions)
+  const methodRegex = /^\s*public\s+(?:virtual|override|async|static|sealed)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*(?:where[^{]+)?(?:\{|=>)/gm;
+  let methodMatch: RegExpExecArray | null;
+
+  while ((methodMatch = methodRegex.exec(code)) !== null) {
+    const returnType = methodMatch[1];
+    const methodName = methodMatch[2];
+    const params = methodMatch[3];
+    const lineIndex = code.substring(0, methodMatch.index).split(/\r?\n/).length;
+
+    // Filter out common boilerplate / constructors / getters
+    if (
+      methodName === 'ToString' ||
+      methodName === 'Dispose' ||
+      methodName === 'GetHashCode' ||
+      methodName === 'Equals' ||
+      returnType === 'void' && methodName.startsWith('get_') ||
+      methodName.startsWith('set_')
+    ) {
+      continue;
+    }
+
+    symbols.push({
+      id: `${filePath}:${lineIndex}:method:${methodName}`,
+      name: `${methodName}(${params.split(',').length > 1 ? '...' : params.trim()})`,
+      kind: 'method',
+      filePath,
+      relativePath,
+      projectName,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        returnType,
+        parameterSummary: params.trim()
+      }
+    });
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromAppSettings(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  try {
+    const parsed = JSON.parse(content);
+    const flatten = (obj: Record<string, any>, prefix = '', lineTracker = 1) => {
+      for (const [key, val] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}:${key}` : key;
+        if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+          flatten(val, fullKey, lineTracker);
+        } else {
+          symbols.push({
+            id: `${filePath}:${fullKey}`,
+            name: fullKey,
+            kind: 'config_key',
+            filePath,
+            relativePath,
+            projectName,
+            line: lineTracker,
+            column: 1,
+            metadata: {
+              configValue: typeof val === 'string' ? val : JSON.stringify(val)
+            }
+          });
+        }
+      }
+    };
+    if (parsed && typeof parsed === 'object') {
+      flatten(parsed);
+    }
+  } catch {
+    // Ignore malformed json
+  }
+  return symbols;
+}
+
+export class UniversalSymbolIndex {
+  private readonly fileCache = new Map<string, UniversalSymbol[]>();
+  private cachedAllSymbols: UniversalSymbol[] | undefined = undefined;
+  private _isFullScanCompleted: boolean = false;
+
+  public get isFullScanCompleted(): boolean {
+    return this._isFullScanCompleted;
+  }
+
+  public markFullScanCompleted(): void {
+    this._isFullScanCompleted = true;
+  }
+
+  public scanFileContent(
+    filePath: string,
+    content: string,
+    projectName: string,
+    relativePath: string
+  ): UniversalSymbol[] {
+    let symbols: UniversalSymbol[] = [];
+    if (filePath.endsWith('.cs')) {
+      symbols = parseSymbolsFromCSharp(content, filePath, projectName, relativePath);
+    } else if (path.basename(filePath).startsWith('appsettings') && filePath.endsWith('.json')) {
+      symbols = parseSymbolsFromAppSettings(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.csproj')) {
+      const projName = path.basename(filePath, '.csproj');
+      symbols = [
+        {
+          id: `${filePath}:project:${projName}`,
+          name: `${projName}.csproj`,
+          kind: 'project',
+          filePath,
+          relativePath,
+          projectName: projName,
+          line: 1,
+          column: 1
+        }
+      ];
+    }
+
+    this.fileCache.set(filePath, symbols);
+    this.cachedAllSymbols = undefined;
+    return symbols;
+  }
+
+  public async scanFile(filePath: string, projectName: string, relativePath: string): Promise<UniversalSymbol[]> {
+    try {
+      if (isIgnoredSearchFile(filePath) || !fs.existsSync(filePath)) {
+        this.invalidateFile(filePath);
+        return [];
+      }
+      const content = await fs.promises.readFile(filePath, 'utf8');
+      return this.scanFileContent(filePath, content, projectName, relativePath);
+    } catch {
+      this.invalidateFile(filePath);
+      return [];
+    }
+  }
+
+  public invalidateFile(filePath: string): void {
+    if (this.fileCache.delete(filePath)) {
+      this.cachedAllSymbols = undefined;
+    }
+  }
+
+  public clear(): void {
+    this.fileCache.clear();
+    this.cachedAllSymbols = undefined;
+    this._isFullScanCompleted = false;
+  }
+
+  public hasFile(filePath: string): boolean {
+    return this.fileCache.has(filePath);
+  }
+
+  public get fileCount(): number {
+    return this.fileCache.size;
+  }
+
+  public getAllSymbols(): UniversalSymbol[] {
+    if (this.cachedAllSymbols === undefined) {
+      const all: UniversalSymbol[] = [];
+      for (const list of this.fileCache.values()) {
+        all.push(...list);
+      }
+      this.cachedAllSymbols = all;
+    }
+    return this.cachedAllSymbols;
+  }
+
+  public get count(): number {
+    let sum = 0;
+    for (const list of this.fileCache.values()) {
+      sum += list.length;
+    }
+    return sum;
+  }
+}
