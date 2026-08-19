@@ -3,6 +3,13 @@ import * as path from 'path';
 import { UniversalSymbol, UniversalSymbolKind } from './searchModel';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
+const CSHARP_RESERVED_KEYWORDS = new Set([
+  'if', 'else', 'for', 'foreach', 'while', 'switch', 'using', 'catch', 'lock', 'fixed',
+  'nameof', 'typeof', 'sizeof', 'default', 'new', 'return', 'throw', 'await', 'async',
+  'get', 'set', 'init', 'add', 'remove', 'value', 'var', 'class', 'struct', 'record',
+  'interface', 'enum', 'delegate', 'namespace', 'public', 'private', 'protected', 'internal'
+]);
+
 export function isIgnoredSearchFile(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/');
   if (/\/(bin|obj|node_modules|\.vs|\.git|\.idea)\//i.test(normalized)) {
@@ -192,23 +199,26 @@ export function parseSymbolsFromCSharp(
     }
   }
 
-  // 5. Parse Public Methods (high-value business functions)
-  const methodRegex = /^\s*public\s+(?:virtual|override|async|static|sealed)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*(?:where[^{]+)?(?:\{|=>)/gm;
+  // 5. Parse Methods (public, private, protected, internal, static, async, virtual)
+  const methodRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|new|readonly|unsafe)\s+)+([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*(?:where[^{;=>]+)?\s*(?:\{|=>|;)/gm;
   let methodMatch: RegExpExecArray | null;
 
   while ((methodMatch = methodRegex.exec(code)) !== null) {
-    const returnType = methodMatch[1];
-    const methodName = methodMatch[2];
-    const params = methodMatch[3];
+    const returnType = methodMatch[1].trim();
+    const methodName = methodMatch[2].trim();
+    const params = methodMatch[3].trim();
     const lineIndex = code.substring(0, methodMatch.index).split(/\r?\n/).length;
 
-    // Filter out common boilerplate / constructors / getters
+    // Filter out language keywords and boilerplate
+    if (CSHARP_RESERVED_KEYWORDS.has(methodName) || CSHARP_RESERVED_KEYWORDS.has(returnType)) {
+      continue;
+    }
     if (
       methodName === 'ToString' ||
       methodName === 'Dispose' ||
       methodName === 'GetHashCode' ||
       methodName === 'Equals' ||
-      returnType === 'void' && methodName.startsWith('get_') ||
+      methodName.startsWith('get_') ||
       methodName.startsWith('set_')
     ) {
       continue;
@@ -216,7 +226,7 @@ export function parseSymbolsFromCSharp(
 
     symbols.push({
       id: `${filePath}:${lineIndex}:method:${methodName}`,
-      name: `${methodName}(${params.split(',').length > 1 ? '...' : params.trim()})`,
+      name: `${methodName}(${params.split(',').length > 1 ? '...' : (params.length > 25 ? '...' : params)})`,
       kind: 'method',
       filePath,
       relativePath,
@@ -225,7 +235,38 @@ export function parseSymbolsFromCSharp(
       column: 1,
       metadata: {
         returnType,
-        parameterSummary: params.trim()
+        parameterSummary: params.replace(/\s+/g, ' ').trim()
+      }
+    });
+  }
+
+  // 6. Parse Properties (public, internal, protected)
+  const propRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected)\s+(?:virtual|override|static|sealed|readonly|new)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*\{\s*(?:get|set|init)/gm;
+  let propMatch: RegExpExecArray | null;
+
+  while ((propMatch = propRegex.exec(code)) !== null) {
+    const propType = propMatch[1].trim();
+    const propName = propMatch[2].trim();
+    const lineIndex = code.substring(0, propMatch.index).split(/\r?\n/).length;
+
+    if (CSHARP_RESERVED_KEYWORDS.has(propName) || CSHARP_RESERVED_KEYWORDS.has(propType)) {
+      continue;
+    }
+    if (propType === 'DbSet' || propType.startsWith('DbSet<')) {
+      continue; // already captured as ef_dbset
+    }
+
+    symbols.push({
+      id: `${filePath}:${lineIndex}:property:${propName}`,
+      name: `${propName} : ${propType}`,
+      kind: 'property',
+      filePath,
+      relativePath,
+      projectName,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        returnType: propType
       }
     });
   }

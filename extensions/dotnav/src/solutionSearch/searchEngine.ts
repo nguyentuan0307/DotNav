@@ -142,7 +142,7 @@ export function isKindMatchingMode(kind: UniversalSymbolKind, mode: SearchFilter
     case 'types':
       return kind === 'class' || kind === 'interface' || kind === 'record' || kind === 'enum' || kind === 'enum_member';
     case 'methods':
-      return kind === 'method';
+      return kind === 'method' || kind === 'property';
     case 'files':
       return kind === 'file' || kind === 'project' || kind === 'config_key';
     default:
@@ -175,14 +175,21 @@ export function scoreSymbol(
   }
 
   const symbolNameLower = symbol.name.toLowerCase();
+  const bareSymbolName = symbol.name.split('(')[0].trim().toLowerCase();
   const rawQueryLower = query.cleanQuery.toLowerCase();
   let baseScore = 0;
   let matchReason = '';
 
-  // 3. Exact full match
-  if (symbolNameLower === rawQueryLower) {
+  // 3. Exact full match or bare name match
+  if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower) {
     baseScore = 100;
     matchReason = 'Exact name match';
+  } else if (bareSymbolName.startsWith(rawQueryLower) && rawQueryLower.length >= 3) {
+    baseScore = 98;
+    matchReason = 'Name prefix match';
+  } else if (bareSymbolName.includes(rawQueryLower) && rawQueryLower.length >= 3) {
+    baseScore = 95;
+    matchReason = 'Name substring match';
   } else if (symbol.metadata?.routeTemplate && symbol.metadata.routeTemplate.toLowerCase() === rawQueryLower) {
     baseScore = 100;
     matchReason = 'Exact route template match';
@@ -190,7 +197,7 @@ export function scoreSymbol(
 
   // 4. CamelCase Acronym match (e.g. CIVC -> CreateInterfaceViewCommand)
   if (baseScore === 0 && query.cleanQuery.length >= 2) {
-    if (isCamelCaseAcronymMatch(query.cleanQuery, symbol.name)) {
+    if (isCamelCaseAcronymMatch(query.cleanQuery, bareSymbolName || symbol.name)) {
       baseScore = 92;
       matchReason = 'CamelCase acronym match';
     }

@@ -13,6 +13,7 @@ export type UniversalSymbolKind =
   | 'enum'
   | 'enum_member'
   | 'method'
+  | 'property'
   | 'config_key'
   | 'project'
   | 'file';

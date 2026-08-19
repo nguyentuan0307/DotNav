@@ -88,6 +88,8 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
       return `$(symbol-enum-member) ${symbol.name}`;
     case 'method':
       return `$(symbol-method) ${symbol.name}`;
+    case 'property':
+      return `$(symbol-property) ${symbol.name}`;
     case 'config_key':
       return `$(settings) ${symbol.name}`;
     case 'project':
@@ -130,7 +132,8 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
     case 'enum_member':
       return 'C# Types & Interfaces';
     case 'method':
-      return 'Methods & Functions';
+    case 'property':
+      return 'Methods & Properties';
     case 'config_key':
       return 'Configuration Keys';
     default:
