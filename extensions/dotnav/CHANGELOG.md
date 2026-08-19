@@ -4,6 +4,15 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.21.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.20.0...dotnav-v0.21.0) (2026-08-19)
+
+
+### Features
+
+* **dotnav:** fix symbol search candidate retrieval to include prefix and substring matches ([8638485](https://github.com/nguyentuan0307/DotNav/commit/8638485bc3d128d7492d3dd61275515aeac81b0b))
+* **dotnav:** fix search candidate bucketing and sync package contributions ([2769e88](https://github.com/nguyentuan0307/DotNav/commit/2769e88a275db043055434af58788ea4f635921d))
+
+
 ## [0.20.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.19.0...dotnav-v0.20.0) (2026-08-19)
 
 
