@@ -28,7 +28,7 @@ export async function showFeatureAnnouncements(context: vscode.ExtensionContext)
 
   // Announce Universal Solution Search Everywhere on update
   const lastSearchAnnounced = context.globalState.get<string>(lastSearchAnnouncementVersionKey);
-  if (!lastSearchAnnounced || compareVersions('0.12.0', lastSearchAnnounced) > 0) {
+  if (!lastSearchAnnounced || compareVersions('0.15.0', lastSearchAnnounced) > 0) {
     await context.globalState.update(lastSearchAnnouncementVersionKey, currentVersion);
     void vscode.window.showInformationMessage(
       '⚡ New in DotNav: Universal Search Everywhere! Instantly search C# Classes, Methods, Endpoints (/), CQRS ($), and Database (%) across your entire solution with sub-millisecond speed.',
