@@ -57,6 +57,7 @@
     "onCommand:dotnav.addProjectReference",
     "onCommand:dotnav.removeProjectReference",
     "onCommand:dotnav.searchSolutionTree",
+    "onCommand:dotnav.clearSolutionTreeFilter",
     "onCommand:dotnav.buildSolution",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
@@ -154,6 +155,11 @@
         "command": "dotnav.searchSolutionTree",
         "title": "Filter Solution Tree",
         "icon": "$(filter)"
+      },
+      {
+        "command": "dotnav.clearSolutionTreeFilter",
+        "title": "Clear Solution Filter",
+        "icon": "$(clear-all)"
       },
       {
         "command": "dotnav.formatSelection",
@@ -300,8 +306,29 @@
         "title": "Record"
       },
       {
+        "command": "dotnav.addController",
+        "title": "API Controller"
+      },
+      {
         "command": "dotnav.addEnum",
         "title": "Enum"
+      },
+      {
+        "command": "dotnav.addStruct",
+        "title": "Struct"
+      },
+      {
+        "command": "dotnav.addRecordStruct",
+        "title": "Record Struct"
+      },
+      {
+        "command": "dotnav.addException",
+        "title": "Exception"
+      },
+      {
+        "command": "dotnav.addNewItem",
+        "title": "Add New Item...",
+        "icon": "$(add)"
       },
       {
         "command": "dotnav.addFile",
@@ -583,6 +610,17 @@
         "mac": "alt+shift+a"
       },
       {
+        "command": "dotnav.searchSolutionTree",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "focusedView == dotnav"
+      },
+      {
+        "command": "dotnav.clearSolutionTreeFilter",
+        "key": "escape",
+        "when": "focusedView == dotnav && dotnav.hasTreeFilter"
+      },
+      {
         "command": "dotnav.openSymbolActions",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
@@ -593,6 +631,12 @@
         "key": "alt+enter",
         "mac": "alt+enter",
         "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
+      },
+      {
+        "command": "dotnav.addNewItem",
+        "key": "alt+insert",
+        "mac": "alt+cmd+n",
+        "when": "focusedView == dotnav"
       }
     ],
     "menus": {
@@ -639,6 +683,11 @@
           "command": "dotnav.searchSolutionTree",
           "when": "view == dotnav",
           "group": "navigation@0.5"
+        },
+        {
+          "command": "dotnav.clearSolutionTreeFilter",
+          "when": "view == dotnav && dotnav.hasTreeFilter",
+          "group": "navigation@0.55"
         },
         {
           "command": "dotnav.searchEverywhere",
@@ -972,20 +1021,36 @@
           "group": "1_new@3"
         },
         {
-          "command": "dotnav.addEnum",
+          "command": "dotnav.addController",
           "group": "1_new@4"
         },
         {
+          "command": "dotnav.addEnum",
+          "group": "2_type@1"
+        },
+        {
+          "command": "dotnav.addStruct",
+          "group": "2_type@2"
+        },
+        {
+          "command": "dotnav.addRecordStruct",
+          "group": "2_type@3"
+        },
+        {
+          "command": "dotnav.addException",
+          "group": "2_type@4"
+        },
+        {
           "command": "dotnav.addFile",
-          "group": "2_file@1"
+          "group": "3_file@1"
         },
         {
           "command": "dotnav.addFolder",
-          "group": "2_file@2"
+          "group": "3_file@2"
         },
         {
           "command": "dotnav.addExistingItem",
-          "group": "3_existing@1"
+          "group": "4_existing@1"
         }
       ],
       "dotnav.project": [

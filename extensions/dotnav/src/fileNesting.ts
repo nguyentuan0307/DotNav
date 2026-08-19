@@ -1,5 +1,5 @@
 import * as path from 'path';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { TreeNode } from './models';
 
 interface FileNestingRule {
@@ -29,20 +29,91 @@ const defaultRules: FileNestingRule[] = [
 ];
 
 export function nestFiles(fileNodes: TreeNode[]): TreeNode[] {
+  if (fileNodes.length <= 1) {
+    return fileNodes;
+  }
+
   const rules = getRules();
+  const fileMap = new Map<string, TreeNode>();
+  for (const node of fileNodes) {
+    const name = path.basename(node.resourcePath ?? node.label).toLowerCase();
+    fileMap.set(name, node);
+  }
+
   const parentByChild = new Map<string, TreeNode>();
   const childrenByParent = new Map<string, TreeNode[]>();
 
   for (const child of fileNodes) {
-    const parent = findParent(child, fileNodes, rules);
-    if (!parent || parent.resourcePath === child.resourcePath) {
-      continue;
-    }
+    const childName = path.basename(child.resourcePath ?? child.label);
+    const childLower = childName.toLowerCase();
 
-    parentByChild.set(child.resourcePath!, parent);
-    const children = childrenByParent.get(parent.resourcePath!) ?? [];
-    children.push(child);
-    childrenByParent.set(parent.resourcePath!, children);
+    for (const rule of rules) {
+      if (!rule.childPattern.includes('${base}')) {
+        if (rule.childPattern.includes('*')) {
+          const [prefix, suffix] = rule.childPattern.split('*');
+          if (childLower.startsWith(prefix.toLowerCase()) && childLower.endsWith(suffix.toLowerCase())) {
+            const parentNode = fileMap.get(rule.parentPattern.toLowerCase());
+            if (parentNode && parentNode.resourcePath !== child.resourcePath) {
+              parentByChild.set(child.resourcePath!, parentNode);
+              const children = childrenByParent.get(parentNode.resourcePath!) ?? [];
+              children.push(child);
+              childrenByParent.set(parentNode.resourcePath!, children);
+              break;
+            }
+          }
+        } else if (childLower === rule.childPattern.toLowerCase()) {
+          const parentNode = fileMap.get(rule.parentPattern.toLowerCase());
+          if (parentNode && parentNode.resourcePath !== child.resourcePath) {
+            parentByChild.set(child.resourcePath!, parentNode);
+            const children = childrenByParent.get(parentNode.resourcePath!) ?? [];
+            children.push(child);
+            childrenByParent.set(parentNode.resourcePath!, children);
+            break;
+          }
+        }
+        continue;
+      }
+
+      const [childPrefix, childSuffix] = rule.childPattern.split('${base}');
+      if (childPrefix !== undefined && childSuffix !== undefined) {
+        if (childSuffix.includes('*')) {
+          const [starPrefix, starSuffix] = childSuffix.split('*');
+          if (childLower.startsWith(childPrefix.toLowerCase()) && childLower.endsWith(starSuffix.toLowerCase())) {
+            const startIdx = childPrefix.length;
+            const endIdx = childLower.lastIndexOf(starSuffix.toLowerCase());
+            const middle = childLower.slice(startIdx, endIdx);
+            const starPrefixIdx = middle.indexOf(starPrefix.toLowerCase());
+            if (starPrefixIdx >= 0) {
+              const base = childName.slice(startIdx, startIdx + starPrefixIdx);
+              if (base.length > 0) {
+                const parentCandidateName = rule.parentPattern.replace('${base}', base).toLowerCase();
+                const parentNode = fileMap.get(parentCandidateName);
+                if (parentNode && parentNode.resourcePath !== child.resourcePath) {
+                  parentByChild.set(child.resourcePath!, parentNode);
+                  const children = childrenByParent.get(parentNode.resourcePath!) ?? [];
+                  children.push(child);
+                  childrenByParent.set(parentNode.resourcePath!, children);
+                  break;
+                }
+              }
+            }
+          }
+        } else if (childLower.startsWith(childPrefix.toLowerCase()) && childLower.endsWith(childSuffix.toLowerCase())) {
+          const base = childName.slice(childPrefix.length, childName.length - childSuffix.length);
+          if (base.length > 0) {
+            const parentCandidateName = rule.parentPattern.replace('${base}', base).toLowerCase();
+            const parentNode = fileMap.get(parentCandidateName);
+            if (parentNode && parentNode.resourcePath !== child.resourcePath) {
+              parentByChild.set(child.resourcePath!, parentNode);
+              const children = childrenByParent.get(parentNode.resourcePath!) ?? [];
+              children.push(child);
+              childrenByParent.set(parentNode.resourcePath!, children);
+              break;
+            }
+          }
+        }
+      }
+    }
   }
 
   return fileNodes
@@ -56,88 +127,19 @@ export function nestFiles(fileNodes: TreeNode[]): TreeNode[] {
       return {
         ...node,
         children: children.sort(compareByLabel),
-        collapsibleState: vscode.TreeItemCollapsibleState.Collapsed
+        collapsibleState: 1 // Collapsed
       };
     });
 }
 
-function findParent(child: TreeNode, candidates: TreeNode[], rules: FileNestingRule[]): TreeNode | undefined {
-  const childName = path.basename(child.resourcePath ?? child.label);
-  const matches: TreeNode[] = [];
-
-  for (const parent of candidates) {
-    const parentName = path.basename(parent.resourcePath ?? parent.label);
-    if (parentName === childName) {
-      continue;
-    }
-
-    if (rules.some(rule => matchesRule(parentName, childName, rule))) {
-      matches.push(parent);
-    }
-  }
-
-  if (matches.length === 0) {
-    return undefined;
-  }
-
-  return matches.sort((a, b) => {
-    const aName = path.basename(a.resourcePath ?? a.label);
-    const bName = path.basename(b.resourcePath ?? b.label);
-    return specificityScore(bName) - specificityScore(aName) || aName.length - bName.length;
-  })[0];
-}
-
-function matchesRule(parentName: string, childName: string, rule: FileNestingRule): boolean {
-  const base = extractBase(parentName, rule.parentPattern);
-  if (base === undefined) {
-    return false;
-  }
-
-  return childMatches(childName, rule.childPattern, base);
-}
-
-function extractBase(parentName: string, parentPattern: string): string | undefined {
-  if (!parentPattern.includes('${base}')) {
-    return parentName === parentPattern ? '' : undefined;
-  }
-
-  const [prefix, suffix] = parentPattern.split('${base}');
-  if (!parentName.startsWith(prefix) || !parentName.endsWith(suffix)) {
-    return undefined;
-  }
-
-  return parentName.slice(prefix.length, parentName.length - suffix.length);
-}
-
-function childMatches(childName: string, childPattern: string, base: string): boolean {
-  const resolvedPattern = childPattern.replace(/\$\{base\}/g, base);
-  return globLikeMatch(childName, resolvedPattern);
-}
-
-function globLikeMatch(fileName: string, pattern: string): boolean {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i').test(fileName);
-}
-
-function specificityScore(parentName: string): number {
-  if (parentName === 'appsettings.json') {
-    return 1000;
-  }
-
-  if (parentName === 'package.json') {
-    return 900;
-  }
-
-  return parentName.split('.').length;
-}
-
 function getRules(): FileNestingRule[] {
-  const customRules = vscode.workspace
-    .getConfiguration('dotnav')
-    .get<FileNestingRule[]>('fileNestingRules', []);
+  let customRules: FileNestingRule[] = [];
+  try {
+    const vscodeModule = require('vscode') as typeof import('vscode') | undefined;
+    customRules = vscodeModule?.workspace?.getConfiguration('dotnav')?.get<FileNestingRule[]>('fileNestingRules', []) ?? [];
+  } catch {
+    customRules = [];
+  }
 
   return [...defaultRules, ...customRules.filter(isValidRule)];
 }

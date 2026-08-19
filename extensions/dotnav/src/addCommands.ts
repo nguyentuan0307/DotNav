@@ -51,7 +51,7 @@ export async function addCodeItem(provider: DotnetTreeProvider, node: TreeNode, 
 
   await fs.writeFile(filePath, content, 'utf8');
   await openFile(filePath);
-  await provider.refresh();
+  provider.invalidateDirectory(target.dir);
 }
 
 export async function addFile(provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
@@ -78,7 +78,7 @@ export async function addFile(provider: DotnetTreeProvider, node: TreeNode): Pro
 
   await fs.writeFile(filePath, '', 'utf8');
   await openFile(filePath);
-  await provider.refresh();
+  provider.invalidateDirectory(target.dir);
 }
 
 export async function addFolder(provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
@@ -104,7 +104,7 @@ export async function addFolder(provider: DotnetTreeProvider, node: TreeNode): P
   }
 
   await fs.mkdir(folderPath, { recursive: true });
-  await provider.refresh();
+  provider.invalidateDirectory(target.dir);
 }
 
 export async function addExistingItem(provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
@@ -140,7 +140,56 @@ export async function addExistingItem(provider: DotnetTreeProvider, node: TreeNo
     await openFile(copied[0]);
   }
 
-  await provider.refresh();
+  provider.invalidateDirectory(target.dir);
+}
+
+interface TemplateQuickPickItem extends vscode.QuickPickItem {
+  readonly itemKind?: CodeItemKind | 'file' | 'folder' | 'existing';
+}
+
+export async function addNewItemInteractive(provider: DotnetTreeProvider, node?: TreeNode): Promise<void> {
+  if (!node) {
+    return;
+  }
+
+  const target = targetContextFor(node);
+  if (!target) {
+    return;
+  }
+
+  const items: TemplateQuickPickItem[] = [
+    { label: '$(symbol-class) Class', description: 'C# class with namespace', itemKind: 'class' },
+    { label: '$(symbol-interface) Interface', description: 'C# interface (public interface I...)', itemKind: 'interface' },
+    { label: '$(symbol-structure) Record', description: 'C# positional record', itemKind: 'record' },
+    { label: '$(server-process) API Controller', description: 'ASP.NET Core ApiController', itemKind: 'controller' },
+    { label: '$(symbol-enum) Enum', description: 'C# enumeration', itemKind: 'enum' },
+    { label: '$(symbol-struct) Struct', description: 'C# value struct', itemKind: 'struct' },
+    { label: '$(symbol-struct) Record Struct', description: 'C# record struct', itemKind: 'recordStruct' },
+    { label: '$(warning) Exception', description: 'C# custom Exception class', itemKind: 'exception' },
+    { label: '$(file) New File...', description: 'Empty file with custom extension', itemKind: 'file' },
+    { label: '$(folder) New Folder...', description: 'Subdirectory', itemKind: 'folder' },
+    { label: '$(file-symlink-file) Existing Item...', description: 'Add existing file to folder', itemKind: 'existing' }
+  ];
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `Add New Item to ${path.basename(target.dir)}`,
+    placeHolder: 'Select template or item type to create'
+  });
+
+  if (!picked || !picked.itemKind) {
+    return;
+  }
+
+  switch (picked.itemKind) {
+    case 'file':
+      return addFile(provider, node);
+    case 'folder':
+      return addFolder(provider, node);
+    case 'existing':
+      return addExistingItem(provider, node);
+    default:
+      return addCodeItem(provider, node, picked.itemKind);
+  }
 }
 
 function targetContextFor(node: TreeNode): TargetContext | undefined {
@@ -163,8 +212,16 @@ function addTitle(kind: CodeItemKind): string {
       return 'Add New Interface';
     case 'record':
       return 'Add New Record';
+    case 'recordStruct':
+      return 'Add New Record Struct';
+    case 'struct':
+      return 'Add New Struct';
     case 'enum':
       return 'Add New Enum';
+    case 'controller':
+      return 'Add New API Controller';
+    case 'exception':
+      return 'Add New Exception';
   }
 }
 
