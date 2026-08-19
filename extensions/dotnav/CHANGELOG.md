@@ -4,6 +4,21 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.22.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.21.0...dotnav-v0.22.0) (2026-08-19)
+
+
+### Features
+
+* **dotnav:** implement in-place solution tree filtering and tree view enhancements ([1ab99b4](https://github.com/nguyentuan0307/DotNav/commit/1ab99b4d8c006ca0629e68325ee5c312c3f15532))
+* **dotnav:** expand smart C# templates, optimize folder invalidation, and add Alt+Insert shortcut ([ad3c87b](https://github.com/nguyentuan0307/DotNav/commit/ad3c87b26ec02fad12d5913d6d05067c93fb182a))
+
+### Performance Improvements
+
+* **dotnav:** optimize file nesting with O(N) map-based lookup ([0b61375](https://github.com/nguyentuan0307/DotNav/commit/0b61375fcc00431c12539d1fac78d4aa0522ec4d))
+* **dotnav:** prevent full tree refreshes on individual project metadata load ([944ca5e](https://github.com/nguyentuan0307/DotNav/commit/944ca5e3652ef228aed5a54f56948ebe5a13afdc))
+* **dotnav:** implement hybrid background warm-up for project metadata ([4fa9eb8](https://github.com/nguyentuan0307/DotNav/commit/4fa9eb8b83e9ddcc4a48af40432f7e67878b2f66))
+
+
 ## [0.21.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.20.0...dotnav-v0.21.0) (2026-08-19)
 
 
