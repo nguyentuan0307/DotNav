@@ -4,7 +4,7 @@ import { DotnetTreeProvider } from '../treeProvider';
 import { ApiEndpoint, HttpMethod } from '../endpoints/endpointModel';
 import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
-import { searchUniversalSymbols } from './searchEngine';
+import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
 import { SearchFilterMode, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
 import { UniversalSymbolIndex } from './searchScanner';
 
@@ -141,12 +141,16 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
   }
 }
 
-async function openSymbolInEditor(symbol: UniversalSymbol): Promise<void> {
+let mruSymbolIds: string[] = [];
+
+async function openSymbolInEditor(symbol: UniversalSymbol, targetLine?: number, targetColumn?: number): Promise<void> {
   try {
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(symbol.filePath));
     const editor = await vscode.window.showTextDocument(doc);
-    const lineIndex = Math.max(0, symbol.line - 1);
-    const position = new vscode.Position(lineIndex, Math.max(0, symbol.column - 1));
+    const targetL = targetLine !== undefined && targetLine > 0 ? targetLine : symbol.line;
+    const targetC = targetColumn !== undefined && targetColumn > 0 ? targetColumn : symbol.column;
+    const lineIndex = Math.max(0, targetL - 1);
+    const position = new vscode.Position(lineIndex, Math.max(0, targetC - 1));
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
   } catch (err) {
@@ -158,6 +162,27 @@ async function openSymbolInEditor(symbol: UniversalSymbol): Promise<void> {
 
 interface SymbolActionPickItem extends vscode.QuickPickItem {
   action: 'open' | 'copyName' | 'copyPath' | 'copyRoute' | 'copyUrl' | 'copyHttp' | 'copyCurl';
+}
+
+async function getGitModifiedFiles(): Promise<string[]> {
+  try {
+    const gitExt = vscode.extensions.getExtension('vscode.git')?.exports;
+    const gitApi = gitExt?.getAPI?.(1);
+    if (gitApi && gitApi.repositories && gitApi.repositories.length > 0) {
+      const repo = gitApi.repositories[0];
+      const changes = [
+        ...(repo.state.workingTreeChanges || []),
+        ...(repo.state.indexChanges || []),
+        ...(repo.state.untrackedChanges || [])
+      ];
+      return changes
+        .map((c: any) => c.uri?.fsPath)
+        .filter((p: string | undefined): p is string => Boolean(p && (p.endsWith('.cs') || p.endsWith('.json') || p.endsWith('.csproj'))));
+    }
+  } catch {
+    // ignore git extension error
+  }
+  return [];
 }
 
 async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
@@ -241,6 +266,20 @@ export async function populateUniversalIndexFromSolution(
 ): Promise<void> {
   const solution = provider.getSolution();
   const projects = solution?.projects;
+
+  // Phase 1: Git-modified Priority Warming (< 50ms)
+  try {
+    const dirtyFiles = await getGitModifiedFiles();
+    for (const fsPath of dirtyFiles) {
+      const projectName = resolveProjectForFile(fsPath, projects);
+      const relPath = vscode.workspace.asRelativePath(fsPath);
+      await index.scanFile(fsPath, projectName, relPath);
+    }
+  } catch {
+    // Ignore git error
+  }
+
+  // Phase 2: Full Solution Scan
   const files = await vscode.workspace.findFiles(
     '**/*.{cs,json,csproj}',
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**}'
@@ -252,9 +291,11 @@ export async function populateUniversalIndexFromSolution(
     await Promise.all(
       chunk.map(async file => {
         const fsPath = file.fsPath;
-        const projectName = resolveProjectForFile(fsPath, projects);
-        const relPath = vscode.workspace.asRelativePath(fsPath);
-        await index.scanFile(fsPath, projectName, relPath);
+        if (!index.hasFile(fsPath)) {
+          const projectName = resolveProjectForFile(fsPath, projects);
+          const relPath = vscode.workspace.asRelativePath(fsPath);
+          await index.scanFile(fsPath, projectName, relPath);
+        }
       })
     );
   }
@@ -385,9 +426,18 @@ export async function searchEverywhereInteractive(
     }
   });
 
+  const activeEditor = vscode.window.activeTextEditor;
+  const activeFilePath = activeEditor ? activeEditor.document.uri.fsPath : undefined;
+  const solution = provider.getSolution();
+  const activeProjectName = activeFilePath ? resolveProjectForFile(activeFilePath, solution?.projects) : undefined;
+  const rankingContext = {
+    activeProjectName,
+    activeFilePath,
+    mruSymbolIds
+  };
+
   const updateItems = (query: string) => {
-    const symbols = index.getAllSymbols();
-    const results = searchUniversalSymbols(symbols, query, 120);
+    const results = searchUniversalSymbols(index, query, 120, rankingContext);
 
     if (results.length === 0 && query.trim().length > 0) {
       quickPick.items = [
@@ -454,8 +504,15 @@ export async function searchEverywhereInteractive(
   quickPick.onDidAccept(async () => {
     const selected = quickPick.selectedItems[0];
     if (!selected || !selected.symbol || selected.isAction) return;
+    const sym = selected.symbol;
+
+    // Track MRU
+    mruSymbolIds = [sym.id, ...mruSymbolIds.filter(id => id !== sym.id)].slice(0, 50);
+
+    // Line Jump support (e.g. Symbol:762 or Symbol@762)
+    const parsed = parseUniversalSearchQuery(quickPick.value);
     quickPick.hide();
-    await openSymbolInEditor(selected.symbol);
+    await openSymbolInEditor(sym, parsed.targetLine, parsed.targetColumn);
   });
 
   quickPick.onDidHide(async () => {

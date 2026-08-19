@@ -62,4 +62,13 @@ export interface ParsedSearchQuery {
   readonly tokens: string[];
   readonly explicitHttpMethod?: string;
   readonly projectNameFilter?: string;
+  readonly targetLine?: number;
+  readonly targetColumn?: number;
 }
+
+export interface SearchRankingContext {
+  readonly activeProjectName?: string;
+  readonly activeFilePath?: string;
+  readonly mruSymbolIds?: readonly string[];
+}
+

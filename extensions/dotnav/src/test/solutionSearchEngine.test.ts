@@ -106,3 +106,41 @@ test('searchUniversalSymbols ranks exact matches and acronyms correctly', () => 
   assert.equal(results4.length, 1);
   assert.equal(results4[0].symbol.kind, 'ef_dbset');
 });
+
+test('parseUniversalSearchQuery parses line jump and column syntax', () => {
+  const q1 = parseUniversalSearchQuery('SubmitFormService:762');
+  assert.equal(q1.cleanQuery, 'SubmitFormService');
+  assert.equal(q1.targetLine, 762);
+  assert.equal(q1.targetColumn, 1);
+
+  const q2 = parseUniversalSearchQuery('SubmitFormService:762:15');
+  assert.equal(q2.cleanQuery, 'SubmitFormService');
+  assert.equal(q2.targetLine, 762);
+  assert.equal(q2.targetColumn, 15);
+
+  const q3 = parseUniversalSearchQuery('@ValidateField@45');
+  assert.equal(q3.filterMode, 'methods');
+  assert.equal(q3.cleanQuery, 'ValidateField');
+  assert.equal(q3.targetLine, 45);
+});
+
+test('searchUniversalSymbols applies active project and MRU affinity boost', () => {
+  // Without context
+  const resNoContext = searchUniversalSymbols(sampleSymbols, 'InterfaceView');
+  const topNoContext = resNoContext[0].symbol.projectName;
+
+  // With active project affinity for Cleeksy.Interface
+  const resProjectAffinity = searchUniversalSymbols(sampleSymbols, 'InterfaceView', 10, {
+    activeProjectName: 'Cleeksy.Interface'
+  });
+  assert.equal(resProjectAffinity[0].symbol.projectName, 'Cleeksy.Interface');
+  assert.ok(resProjectAffinity[0].matchReason.includes('Active Project'));
+
+  // With MRU boost
+  const resMRU = searchUniversalSymbols(sampleSymbols, 'InterfaceView', 10, {
+    mruSymbolIds: ['3'] // CreateInterfaceViewCommandHandler
+  });
+  assert.equal(resMRU[0].symbol.id, '3');
+  assert.ok(resMRU[0].matchReason.includes('Recent'));
+});
+

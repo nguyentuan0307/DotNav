@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import { SearchFilterMode, UniversalSymbol, UniversalSymbolKind } from './searchModel';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 const CSHARP_RESERVED_KEYWORDS = new Set([
@@ -9,6 +9,65 @@ const CSHARP_RESERVED_KEYWORDS = new Set([
   'get', 'set', 'init', 'add', 'remove', 'value', 'var', 'class', 'struct', 'record',
   'interface', 'enum', 'delegate', 'namespace', 'public', 'private', 'protected', 'internal'
 ]);
+
+const stringPool = new Map<string, string>();
+export function internString(str: string | undefined): string | undefined {
+  if (!str) return str;
+  const existing = stringPool.get(str);
+  if (existing !== undefined) return existing;
+  if (stringPool.size < 60000) {
+    stringPool.set(str, str);
+  }
+  return str;
+}
+
+export function extractIndexTokens(symbol: UniversalSymbol): string[] {
+  const tokens = new Set<string>();
+  const originalBareName = symbol.name.split('(')[0].trim();
+  const bareLower = originalBareName.toLowerCase();
+  if (bareLower) {
+    tokens.add(bareLower);
+    if (bareLower.length >= 2) {
+      tokens.add(bareLower.slice(0, 2));
+      tokens.add(bareLower.slice(0, 3));
+    }
+  }
+
+  // CamelCase word segments (e.g. UpdateRecordFieldValueAsync -> update, record, field, value, async)
+  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+  for (const seg of segments) {
+    const segLower = seg.toLowerCase();
+    if (segLower.length >= 2) {
+      tokens.add(segLower);
+      tokens.add(segLower.slice(0, 2));
+    }
+  }
+
+  // Acronym and acronym prefixes (e.g. CIVC, URFA, CI, CIV)
+  const uppercase = originalBareName.replace(/[^A-Z]/g, '').toLowerCase();
+  if (uppercase.length >= 2) {
+    for (let l = 2; l <= uppercase.length; l++) {
+      tokens.add(uppercase.slice(0, l));
+    }
+  }
+
+  // Endpoint route template tokens
+  if (symbol.metadata?.routeTemplate) {
+    const routeSegments = symbol.metadata.routeTemplate.toLowerCase().split(/[\/\\{}:]+/).filter(Boolean);
+    for (const rSeg of routeSegments) {
+      if (rSeg.length >= 2) {
+        tokens.add(rSeg);
+        tokens.add(rSeg.slice(0, 2));
+      }
+    }
+  }
+
+  if (symbol.containerName) {
+    tokens.add(symbol.containerName.toLowerCase());
+  }
+
+  return Array.from(tokens);
+}
 
 export function isIgnoredSearchFile(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/');
@@ -227,14 +286,14 @@ export function parseSymbolsFromCSharp(
     symbols.push({
       id: `${filePath}:${lineIndex}:method:${methodName}`,
       name: `${methodName}(${params.split(',').length > 1 ? '...' : (params.length > 25 ? '...' : params)})`,
-      kind: 'method',
+      kind: internString('method') as UniversalSymbolKind,
       filePath,
       relativePath,
-      projectName,
+      projectName: internString(projectName)!,
       line: lineIndex,
       column: 1,
       metadata: {
-        returnType,
+        returnType: internString(returnType),
         parameterSummary: params.replace(/\s+/g, ' ').trim()
       }
     });
@@ -259,14 +318,14 @@ export function parseSymbolsFromCSharp(
     symbols.push({
       id: `${filePath}:${lineIndex}:property:${propName}`,
       name: `${propName} : ${propType}`,
-      kind: 'property',
+      kind: internString('property') as UniversalSymbolKind,
       filePath,
       relativePath,
-      projectName,
+      projectName: internString(projectName)!,
       line: lineIndex,
       column: 1,
       metadata: {
-        returnType: propType
+        returnType: internString(propType)
       }
     });
   }
@@ -283,6 +342,7 @@ export function parseSymbolsFromAppSettings(
   const symbols: UniversalSymbol[] = [];
   try {
     const parsed = JSON.parse(content);
+    const internedProj = internString(projectName)!;
     const flatten = (obj: Record<string, any>, prefix = '', lineTracker = 1) => {
       for (const [key, val] of Object.entries(obj)) {
         const fullKey = prefix ? `${prefix}:${key}` : key;
@@ -295,7 +355,7 @@ export function parseSymbolsFromAppSettings(
             kind: 'config_key',
             filePath,
             relativePath,
-            projectName,
+            projectName: internedProj,
             line: lineTracker,
             column: 1,
             metadata: {
@@ -316,6 +376,9 @@ export function parseSymbolsFromAppSettings(
 
 export class UniversalSymbolIndex {
   private readonly fileCache = new Map<string, UniversalSymbol[]>();
+  private readonly kindBuckets = new Map<UniversalSymbolKind, Set<UniversalSymbol>>();
+  private readonly tokenBuckets = new Map<string, Set<UniversalSymbol>>();
+  private readonly projectBuckets = new Map<string, Set<UniversalSymbol>>();
   private cachedAllSymbols: UniversalSymbol[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
 
@@ -327,19 +390,70 @@ export class UniversalSymbolIndex {
     this._isFullScanCompleted = true;
   }
 
+  private addSymbolToBuckets(sym: UniversalSymbol): void {
+    // Kind bucket
+    let kb = this.kindBuckets.get(sym.kind);
+    if (!kb) {
+      kb = new Set<UniversalSymbol>();
+      this.kindBuckets.set(sym.kind, kb);
+    }
+    kb.add(sym);
+
+    // Project bucket
+    const projLower = sym.projectName.toLowerCase();
+    let pb = this.projectBuckets.get(projLower);
+    if (!pb) {
+      pb = new Set<UniversalSymbol>();
+      this.projectBuckets.set(projLower, pb);
+    }
+    pb.add(sym);
+
+    // Token buckets
+    const tokens = extractIndexTokens(sym);
+    for (const tok of tokens) {
+      let tb = this.tokenBuckets.get(tok);
+      if (!tb) {
+        tb = new Set<UniversalSymbol>();
+        this.tokenBuckets.set(tok, tb);
+      }
+      tb.add(sym);
+    }
+  }
+
+  private removeSymbolFromBuckets(sym: UniversalSymbol): void {
+    const kb = this.kindBuckets.get(sym.kind);
+    if (kb) kb.delete(sym);
+
+    const pb = this.projectBuckets.get(sym.projectName.toLowerCase());
+    if (pb) pb.delete(sym);
+
+    const tokens = extractIndexTokens(sym);
+    for (const tok of tokens) {
+      const tb = this.tokenBuckets.get(tok);
+      if (tb) tb.delete(sym);
+    }
+  }
+
   public scanFileContent(
     filePath: string,
     content: string,
     projectName: string,
     relativePath: string
   ): UniversalSymbol[] {
+    const oldSymbols = this.fileCache.get(filePath);
+    if (oldSymbols) {
+      for (const s of oldSymbols) {
+        this.removeSymbolFromBuckets(s);
+      }
+    }
+
     let symbols: UniversalSymbol[] = [];
     if (filePath.endsWith('.cs')) {
       symbols = parseSymbolsFromCSharp(content, filePath, projectName, relativePath);
     } else if (path.basename(filePath).startsWith('appsettings') && filePath.endsWith('.json')) {
       symbols = parseSymbolsFromAppSettings(content, filePath, projectName, relativePath);
     } else if (filePath.endsWith('.csproj')) {
-      const projName = path.basename(filePath, '.csproj');
+      const projName = internString(path.basename(filePath, '.csproj'))!;
       symbols = [
         {
           id: `${filePath}:project:${projName}`,
@@ -352,6 +466,10 @@ export class UniversalSymbolIndex {
           column: 1
         }
       ];
+    }
+
+    for (const s of symbols) {
+      this.addSymbolToBuckets(s);
     }
 
     this.fileCache.set(filePath, symbols);
@@ -374,13 +492,21 @@ export class UniversalSymbolIndex {
   }
 
   public invalidateFile(filePath: string): void {
-    if (this.fileCache.delete(filePath)) {
+    const old = this.fileCache.get(filePath);
+    if (old) {
+      for (const s of old) {
+        this.removeSymbolFromBuckets(s);
+      }
+      this.fileCache.delete(filePath);
       this.cachedAllSymbols = undefined;
     }
   }
 
   public clear(): void {
     this.fileCache.clear();
+    this.kindBuckets.clear();
+    this.tokenBuckets.clear();
+    this.projectBuckets.clear();
     this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = false;
   }
@@ -402,6 +528,102 @@ export class UniversalSymbolIndex {
       this.cachedAllSymbols = all;
     }
     return this.cachedAllSymbols;
+  }
+
+  public getSymbolsForMode(mode: SearchFilterMode): UniversalSymbol[] {
+    switch (mode) {
+      case 'endpoints':
+        return Array.from(this.kindBuckets.get('endpoint') || []);
+      case 'cqrs':
+        return [
+          ...Array.from(this.kindBuckets.get('cqrs_command') || []),
+          ...Array.from(this.kindBuckets.get('cqrs_query') || []),
+          ...Array.from(this.kindBuckets.get('cqrs_handler') || []),
+          ...Array.from(this.kindBuckets.get('cqrs_event') || [])
+        ];
+      case 'database':
+        return [
+          ...Array.from(this.kindBuckets.get('ef_entity') || []),
+          ...Array.from(this.kindBuckets.get('ef_dbset') || []),
+          ...Array.from(this.kindBuckets.get('ef_migration') || [])
+        ];
+      case 'types':
+        return [
+          ...Array.from(this.kindBuckets.get('class') || []),
+          ...Array.from(this.kindBuckets.get('interface') || []),
+          ...Array.from(this.kindBuckets.get('record') || []),
+          ...Array.from(this.kindBuckets.get('enum') || []),
+          ...Array.from(this.kindBuckets.get('enum_member') || [])
+        ];
+      case 'methods':
+        return [
+          ...Array.from(this.kindBuckets.get('method') || []),
+          ...Array.from(this.kindBuckets.get('property') || [])
+        ];
+      case 'files':
+        return [
+          ...Array.from(this.kindBuckets.get('file') || []),
+          ...Array.from(this.kindBuckets.get('project') || []),
+          ...Array.from(this.kindBuckets.get('config_key') || [])
+        ];
+      default:
+        return this.getAllSymbols();
+    }
+  }
+
+  public getCandidates(
+    filterMode: SearchFilterMode,
+    tokens: string[],
+    projectNameFilter?: string
+  ): UniversalSymbol[] {
+    const all = this.getAllSymbols();
+    if (all.length <= 200) {
+      return all;
+    }
+
+    let pool: UniversalSymbol[] | undefined;
+    if (filterMode && filterMode !== 'all') {
+      pool = this.getSymbolsForMode(filterMode);
+    }
+
+    if (tokens.length === 0) {
+      if (projectNameFilter) {
+        const projList = Array.from(this.projectBuckets.get(projectNameFilter) || []);
+        if (pool) {
+          const poolSet = new Set(pool);
+          return projList.filter(s => poolSet.has(s));
+        }
+        return projList;
+      }
+      return pool || all;
+    }
+
+    const firstTok = tokens[0].toLowerCase();
+    let matchedSet = this.tokenBuckets.get(firstTok);
+    if ((!matchedSet || matchedSet.size === 0) && firstTok.length >= 2) {
+      matchedSet = this.tokenBuckets.get(firstTok.slice(0, 2));
+    }
+
+    if (!matchedSet || matchedSet.size === 0) {
+      return pool || all;
+    }
+
+    let candidates = Array.from(matchedSet);
+    if (pool) {
+      const poolSet = new Set(pool);
+      candidates = candidates.filter(s => poolSet.has(s));
+    }
+
+    if (projectNameFilter) {
+      candidates = candidates.filter(s => s.projectName.toLowerCase().includes(projectNameFilter));
+    }
+
+    const isDirectMatch = this.tokenBuckets.has(firstTok);
+    if (!isDirectMatch && candidates.length < 20 && tokens.length === 1 && firstTok.length <= 3) {
+      return pool || all;
+    }
+
+    return candidates;
   }
 
   public get count(): number {

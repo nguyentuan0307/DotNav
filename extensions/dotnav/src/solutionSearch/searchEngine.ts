@@ -98,7 +98,17 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
 
   clean = clean.trim();
 
-  // 2. Extract explicit HTTP method
+  // 2. Extract line jump syntax at the end: e.g. "SubmitFormService:762", "SubmitFormService:762:15", "SubmitFormService@762"
+  let targetLine: number | undefined;
+  let targetColumn: number | undefined;
+  const lineMatch = /(?::(\d+)(?::(\d+))?|@(\d+))$/.exec(clean);
+  if (lineMatch) {
+    targetLine = parseInt(lineMatch[1] || lineMatch[3], 10);
+    targetColumn = lineMatch[2] ? parseInt(lineMatch[2], 10) : 1;
+    clean = clean.substring(0, lineMatch.index).trim();
+  }
+
+  // 3. Extract explicit HTTP method
   let explicitHttpMethod: string | undefined;
   const methodMatch = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/i.exec(clean);
   if (methodMatch) {
@@ -106,7 +116,7 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = clean.substring(methodMatch[0].length).trim();
   }
 
-  // 3. Extract project name filter (e.g. "WebApp: users" or "CustomApp: orders")
+  // 4. Extract project name filter (e.g. "WebApp: users" or "CustomApp: orders")
   let projectNameFilter: string | undefined;
   const projectMatch = /^([a-zA-Z0-9_.-]+):\s+(.*)$/.exec(clean);
   if (projectMatch && !projectMatch[1].includes('/')) {
@@ -114,7 +124,7 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = projectMatch[2].trim();
   }
 
-  // 4. Tokenize
+  // 5. Tokenize
   const rawSegments = clean
     .split(/[\/\\\*\s]+/)
     .map(s => s.trim())
@@ -126,7 +136,9 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     cleanQuery: clean,
     tokens: rawSegments,
     explicitHttpMethod,
-    projectNameFilter
+    projectNameFilter,
+    targetLine,
+    targetColumn
   };
 }
 
@@ -152,7 +164,8 @@ export function isKindMatchingMode(kind: UniversalSymbolKind, mode: SearchFilter
 
 export function scoreSymbol(
   symbol: UniversalSymbol,
-  query: ParsedSearchQuery
+  query: ParsedSearchQuery,
+  rankingContext?: import('./searchModel').SearchRankingContext
 ): { score: number; matchReason: string } {
   // 1. Filter Mode Guard
   if (!isKindMatchingMode(symbol.kind, query.filterMode)) {
@@ -170,6 +183,13 @@ export function scoreSymbol(
         return { score: 100, matchReason: 'Explicit HTTP method match' };
       }
       return { score: 0, matchReason: '' };
+    }
+    // If MRU symbol, score based on recency
+    if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.length > 0) {
+      const mruIdx = rankingContext.mruSymbolIds.indexOf(symbol.id);
+      if (mruIdx !== -1) {
+        return { score: Math.max(60, 95 - mruIdx), matchReason: 'Recently visited' };
+      }
     }
     return { score: 50, matchReason: 'Recent symbol' };
   }
@@ -261,19 +281,52 @@ export function scoreSymbol(
     baseScore = Math.min(100, baseScore + 2);
   }
 
+  // 8. Active Project / Active File Affinity Bonus
+  if (rankingContext?.activeFilePath && symbol.filePath === rankingContext.activeFilePath) {
+    baseScore = Math.min(100, baseScore + 8);
+    matchReason = `${matchReason} (Current File)`;
+  } else if (
+    rankingContext?.activeProjectName &&
+    symbol.projectName.toLowerCase() === rankingContext.activeProjectName.toLowerCase()
+  ) {
+    baseScore = Math.min(100, baseScore + 5);
+    matchReason = `${matchReason} (Active Project)`;
+  }
+
+  // 9. MRU Recency Bonus
+  if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.includes(symbol.id)) {
+    baseScore = Math.min(100, baseScore + 10);
+    matchReason = `${matchReason} (Recent)`;
+  }
+
   return { score: baseScore, matchReason };
 }
 
 export function searchUniversalSymbols(
-  symbols: readonly UniversalSymbol[],
+  symbolsOrIndex: readonly UniversalSymbol[] | { getCandidates: (mode: SearchFilterMode, tokens: string[], proj?: string) => UniversalSymbol[]; getAllSymbols: () => UniversalSymbol[] },
   rawQuery: string,
-  limit = 100
+  limit = 100,
+  rankingContext?: import('./searchModel').SearchRankingContext
 ): UniversalSearchResult[] {
   const parsed = parseUniversalSearchQuery(rawQuery);
+  let candidateSymbols: readonly UniversalSymbol[];
+
+  if (symbolsOrIndex && typeof (symbolsOrIndex as any).getCandidates === 'function') {
+    candidateSymbols = (symbolsOrIndex as any).getCandidates(
+      parsed.filterMode,
+      parsed.tokens,
+      parsed.projectNameFilter
+    );
+  } else if (Array.isArray(symbolsOrIndex)) {
+    candidateSymbols = symbolsOrIndex;
+  } else {
+    candidateSymbols = [];
+  }
+
   const results: UniversalSearchResult[] = [];
 
-  for (const sym of symbols) {
-    const { score, matchReason } = scoreSymbol(sym, parsed);
+  for (const sym of candidateSymbols) {
+    const { score, matchReason } = scoreSymbol(sym, parsed, rankingContext);
     if (score >= 40) {
       results.push({ symbol: sym, score, matchReason });
     }

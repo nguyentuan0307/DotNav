@@ -112,3 +112,42 @@ test('UniversalSymbolIndex handles incremental updates and full scan tracking', 
   index.clear();
   assert.equal(index.isFullScanCompleted, false);
 });
+
+test('extractIndexTokens and internString optimize candidate lookups and memory', () => {
+  const { extractIndexTokens, internString } = require('../solutionSearch/searchScanner');
+  
+  const s1 = internString('ELDesk.CustomApp');
+  const s2 = internString('ELDesk.CustomApp');
+  assert.strictEqual(s1, s2); // Reuses exact string reference
+
+  const sym = {
+    id: '1',
+    name: 'UpdateRecordFieldValueAsync(...)',
+    kind: 'method',
+    filePath: '/src/Service.cs',
+    relativePath: 'Service.cs',
+    projectName: 'ELDesk.CustomApp',
+    line: 10,
+    column: 1
+  };
+
+  const tokens = extractIndexTokens(sym);
+  assert.ok(tokens.includes('update'));
+  assert.ok(tokens.includes('record'));
+  assert.ok(tokens.includes('field'));
+  assert.ok(tokens.includes('value'));
+  assert.ok(tokens.includes('async'));
+  assert.ok(tokens.includes('urfva')); // Acronym U-R-F-V-A
+
+  const index = new UniversalSymbolIndex();
+  index.scanFileContent(
+    '/src/Service.cs',
+    'public class WebService {\n    private async Task UpdateRecordFieldValueAsync() {}\n}',
+    'ELDesk.CustomApp',
+    'Service.cs'
+  );
+  
+  const candidates = index.getCandidates('all', ['updaterecordfieldvalueasync']);
+  assert.ok(candidates.length >= 1);
+  assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
+});
