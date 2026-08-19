@@ -230,7 +230,8 @@ export function scoreSymbol(
       symbol.name + ' ' +
       (symbol.metadata?.routeTemplate || '') + ' ' +
       (symbol.containerName || '') + ' ' +
-      (symbol.metadata?.baseType || '')
+      (symbol.metadata?.baseType || '') + ' ' +
+      (symbol.metadata?.returnType || '')
     ).toLowerCase();
 
     let matchedTokens = 0;

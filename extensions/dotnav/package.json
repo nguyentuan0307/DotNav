@@ -153,17 +153,16 @@
       {
         "command": "dotnav.searchSolutionTree",
         "title": "Filter Solution Tree",
-        "icon": "$(search)"
+        "icon": "$(filter)"
       },
       {
         "command": "dotnav.formatSelection",
         "title": "Reformat Code",
-        "icon": "$(symbol-method)"
+        "icon": "$(wand)"
       },
       {
         "command": "dotnav.formatDocument",
-        "title": "Reformat Document",
-        "icon": "$(file-code)"
+        "title": "Format Document"
       },
       {
         "command": "dotnav.localHistory.show",
@@ -176,9 +175,17 @@
         "icon": "$(history)"
       },
       {
+        "command": "dotnav.searchEverywhere",
+        "title": "Search Everywhere (Global Search)",
+        "icon": "$(search-fuzzy)"
+      },
+      {
         "command": "dotnav.searchApiEndpoints",
-        "title": "Search ASP.NET Core Endpoints",
-        "icon": "$(globe)"
+        "title": "Search ASP.NET Core Endpoints"
+      },
+      {
+        "command": "dotnav.openSymbolActions",
+        "title": "DotNav: Open Actions for Selected Symbol"
       },
       {
         "command": "dotnav.refreshApiEndpoints",
@@ -550,6 +557,22 @@
         "when": "editorTextFocus && editorLangId == csharp"
       },
       {
+        "command": "dotnav.searchEverywhere",
+        "key": "ctrl+alt+f",
+        "mac": "cmd+alt+f"
+      },
+      {
+        "command": "dotnav.searchEverywhere",
+        "key": "alt+shift+f",
+        "mac": "alt+shift+f"
+      },
+      {
+        "command": "dotnav.searchEverywhere",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "focusedView == dotnav"
+      },
+      {
         "command": "dotnav.searchApiEndpoints",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a"
@@ -560,16 +583,16 @@
         "mac": "alt+shift+a"
       },
       {
-        "command": "dotnav.openEndpointActions",
+        "command": "dotnav.openSymbolActions",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
-        "when": "dotnav.endpointSearchOpen"
+        "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
       },
       {
-        "command": "dotnav.openEndpointActions",
+        "command": "dotnav.openSymbolActions",
         "key": "alt+enter",
         "mac": "alt+enter",
-        "when": "dotnav.endpointSearchOpen"
+        "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
       }
     ],
     "menus": {
@@ -618,6 +641,11 @@
           "group": "navigation@0.5"
         },
         {
+          "command": "dotnav.searchEverywhere",
+          "when": "view == dotnav",
+          "group": "navigation@0.8"
+        },
+        {
           "command": "dotnav.runActiveConfig",
           "when": "view == dotnav.runConfigurations && !dotnav.activeConfigBusy",
           "group": "navigation@1"
@@ -636,11 +664,6 @@
           "command": "dotnav.stopAll",
           "when": "view == dotnav && dotnav.hasRunningProcesses",
           "group": "navigation@3"
-        },
-        {
-          "command": "dotnav.searchApiEndpoints",
-          "when": "view == dotnav",
-          "group": "navigation@1"
         },
         {
           "command": "dotnav.refresh",

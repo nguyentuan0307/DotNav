@@ -67,8 +67,9 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   }
 
   // BaseType / Return Type metadata and segments (e.g. RecordAppearanceLayoutType)
-  if (symbol.metadata?.baseType) {
-    const baseTokens = symbol.metadata.baseType.split(/<|>|\s|,|\[|\]/).filter(Boolean);
+  const typeMeta = symbol.metadata?.baseType || symbol.metadata?.returnType;
+  if (typeMeta) {
+    const baseTokens = typeMeta.split(/<|>|\s|,|\[|\]|:/).filter(Boolean);
     for (const b of baseTokens) {
       const bLower = b.toLowerCase();
       if (bLower.length >= 2) {
@@ -268,20 +269,25 @@ export function parseSymbolsFromCSharp(
             currentEnumLine++;
             const trimmed = rawLine.replace(/\/\/.*$/, '').trim();
             if (!trimmed || trimmed.startsWith('[')) continue;
-            const memberMatch = /^([a-zA-Z0-9_]+)/.exec(trimmed);
-            if (memberMatch && memberMatch[1] && memberMatch[1] !== typeName) {
-              const memberName = memberMatch[1];
-              symbols.push({
-                id: `${filePath}:${currentEnumLine}:enum_member:${typeName}.${memberName}`,
-                name: `${typeName}.${memberName}`,
-                kind: 'enum_member',
-                filePath,
-                relativePath,
-                projectName,
-                line: currentEnumLine,
-                column: 1,
-                containerName: typeName
-              });
+            const lineMembers = trimmed.split(',');
+            for (const item of lineMembers) {
+              const itemTrimmed = item.trim();
+              if (!itemTrimmed || itemTrimmed.startsWith('[')) continue;
+              const memberMatch = /^([a-zA-Z0-9_]+)/.exec(itemTrimmed);
+              if (memberMatch && memberMatch[1] && memberMatch[1] !== typeName) {
+                const memberName = memberMatch[1];
+                symbols.push({
+                  id: `${filePath}:${currentEnumLine}:enum_member:${typeName}.${memberName}`,
+                  name: `${typeName}.${memberName}`,
+                  kind: 'enum_member',
+                  filePath,
+                  relativePath,
+                  projectName,
+                  line: currentEnumLine,
+                  column: 1,
+                  containerName: typeName
+                });
+              }
             }
           }
         }
