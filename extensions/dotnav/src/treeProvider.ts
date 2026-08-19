@@ -34,6 +34,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private outdatedPackages: OutdatedPackages = new Map();
   private efProjectPaths = new Set<string>();
   private treeFilterText?: string;
+  private warmUpMetadataTimer?: NodeJS.Timeout;
 
   setTreeFilter(filterText?: string): void {
     const next = filterText?.trim().toLowerCase();
@@ -83,6 +84,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private async loadWorkspaceSolution(): Promise<void> {
+    if (this.warmUpMetadataTimer) {
+      clearTimeout(this.warmUpMetadataTimer);
+      this.warmUpMetadataTimer = undefined;
+    }
+
     this.outdatedPackages.clear();
     this.solutionTree = undefined;
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -98,6 +104,17 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     this.onDidChangeTreeDataEmitter.fire();
+
+    // Hybrid background warm-up: Asynchronously pre-load all project metadata into RAM
+    // without delaying the initial instant tree view render.
+    if (this.solution && this.solution.projects.length > 0) {
+      this.warmUpMetadataTimer = setTimeout(() => {
+        this.warmUpMetadataTimer = undefined;
+        void this.ensureAllProjectMetadata().catch(error => {
+          console.warn(`DotNav background metadata warm-up error: ${error}`);
+        });
+      }, 50);
+    }
   }
 
   getSolution(): SolutionModel | undefined {
