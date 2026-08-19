@@ -19,7 +19,6 @@ export interface UniversalQuickPickItem extends vscode.QuickPickItem {
 let lastSearchQuery = '';
 let activeFullScanPromise: Promise<void> | undefined;
 let currentUniversalQuickPick: vscode.QuickPick<UniversalQuickPickItem> | undefined;
-let isLivePreviewEnabled = true;
 
 export function resolveProjectForFile(
   fsPath: string,
@@ -104,37 +103,7 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
   }
 }
 
-const snippetCache = new Map<string, string>();
-
-export function getCodeSnippetForSymbol(symbol: UniversalSymbol, contextBefore = 1, contextAfter = 3): string {
-  const cacheKey = `${symbol.filePath}:${symbol.line}`;
-  if (snippetCache.has(cacheKey)) {
-    return snippetCache.get(cacheKey)!;
-  }
-
-  try {
-    if (!fs.existsSync(symbol.filePath)) return '';
-    const content = fs.readFileSync(symbol.filePath, 'utf8');
-    const lines = content.split(/\r?\n/);
-    const start = Math.max(0, symbol.line - 1 - contextBefore);
-    const end = Math.min(lines.length, symbol.line + contextAfter);
-    const slice = lines.slice(start, end);
-
-    const formatted = slice.map((l, idx) => {
-      const lineNum = start + idx + 1;
-      const isTarget = lineNum === symbol.line;
-      const marker = isTarget ? '►' : '│';
-      return `  ${lineNum.toString().padStart(4, ' ')} ${marker} ${l.replace(/\t/g, '  ')}`;
-    }).join('\n');
-
-    snippetCache.set(cacheKey, formatted);
-    return formatted;
-  } catch {
-    return '';
-  }
-}
-
-export function formatSymbolDetail(symbol: UniversalSymbol, showSnippet = true): string {
+export function formatSymbolDetail(symbol: UniversalSymbol): string {
   const fileInfo = symbol.relativePath
     ? `${symbol.relativePath}:${symbol.line}`
     : `${path.basename(symbol.filePath)}:${symbol.line}`;
@@ -142,16 +111,7 @@ export function formatSymbolDetail(symbol: UniversalSymbol, showSnippet = true):
   const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
   const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
 
-  const header = `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${configVal}`;
-  if (!showSnippet) {
-    return header;
-  }
-
-  const snippet = getCodeSnippetForSymbol(symbol);
-  if (snippet) {
-    return `${header}\n${snippet}`;
-  }
-  return header;
+  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${configVal}`;
 }
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
@@ -552,43 +512,31 @@ export async function searchEverywhereInteractive(
   quickPick.matchOnDescription = false;
   quickPick.matchOnDetail = false;
 
-  const updateButtons = () => {
-    quickPick.buttons = [
-      {
-        iconPath: new vscode.ThemeIcon(isLivePreviewEnabled ? 'eye' : 'eye-closed'),
-        tooltip: isLivePreviewEnabled ? 'Live Code Preview: On (Click to toggle)' : 'Live Code Preview: Off (Click to toggle)'
-      },
-      {
-        iconPath: new vscode.ThemeIcon('globe'),
-        tooltip: 'Filter Endpoints (/)'
-      },
-      {
-        iconPath: new vscode.ThemeIcon('zap'),
-        tooltip: 'Filter CQRS ($)'
-      },
-      {
-        iconPath: new vscode.ThemeIcon('database'),
-        tooltip: 'Filter Database & EF (%)'
-      },
-      {
-        iconPath: new vscode.ThemeIcon('symbol-class'),
-        tooltip: 'Filter Types (#)'
-      },
-      {
-        iconPath: new vscode.ThemeIcon('symbol-method'),
-        tooltip: 'Filter Methods (@)'
-      }
-    ];
-  };
-
-  updateButtons();
+  quickPick.buttons = [
+    {
+      iconPath: new vscode.ThemeIcon('globe'),
+      tooltip: 'Filter Endpoints (/)'
+    },
+    {
+      iconPath: new vscode.ThemeIcon('zap'),
+      tooltip: 'Filter CQRS ($)'
+    },
+    {
+      iconPath: new vscode.ThemeIcon('database'),
+      tooltip: 'Filter Database & EF (%)'
+    },
+    {
+      iconPath: new vscode.ThemeIcon('symbol-class'),
+      tooltip: 'Filter Types (#)'
+    },
+    {
+      iconPath: new vscode.ThemeIcon('symbol-method'),
+      tooltip: 'Filter Methods (@)'
+    }
+  ];
 
   quickPick.onDidTriggerButton(button => {
-    if (button.tooltip?.includes('Live Code Preview')) {
-      isLivePreviewEnabled = !isLivePreviewEnabled;
-      updateButtons();
-      updateItems(quickPick.value);
-    } else if (button.tooltip?.includes('Endpoints')) {
+    if (button.tooltip?.includes('Endpoints')) {
       quickPick.value = '/' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('CQRS')) {
       quickPick.value = '$' + quickPick.value.replace(/^[/%$#@!]/, '');
@@ -643,7 +591,7 @@ export async function searchEverywhereInteractive(
 
       items.push({
         label: formatSymbolLabel(sym),
-        detail: formatSymbolDetail(sym, isLivePreviewEnabled),
+        detail: formatSymbolDetail(sym),
         alwaysShow: true,
         symbol: sym,
         searchResult: res,

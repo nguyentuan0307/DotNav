@@ -181,10 +181,6 @@
         "icon": "$(search-fuzzy)"
       },
       {
-        "command": "dotnav.searchEverywhereWebview",
-        "title": "Search Everywhere (Full Webview Center)"
-      },
-      {
         "command": "dotnav.searchApiEndpoints",
         "title": "Search ASP.NET Core Endpoints"
       },
