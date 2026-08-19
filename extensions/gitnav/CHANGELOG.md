@@ -2,6 +2,97 @@
 
 ## Unreleased
 
+## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.18.0...gitnav-v0.19.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive Git Worktree Status Bar controller with rich tooltip and quick switcher ([4be03cd](https://github.com/nguyentuan0307/DotNav/commit/4be03cd58eefe201f14b0f53168c6ae1bebfff23))
+
+
+## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.17.0...gitnav-v0.18.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive git worktree manager and user guide ([b2447f7](https://github.com/nguyentuan0307/DotNav/commit/b2447f71fc68aa2f6c208e1f4a2285cc12270045))
+
+
+## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.16.0...gitnav-v0.17.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** prioritize inline blame and remove external extension suppression ([8845c2a](https://github.com/nguyentuan0307/DotNav/commit/8845c2aa0e5a5dfdb7300cf2648a2e07aada5dd9))
+
+
+## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.15.0...gitnav-v0.16.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** enable side-by-side and inline diff for files in branch compare mode ([213807c](https://github.com/nguyentuan0307/DotNav/commit/213807c6227b6916d8573734eee5160bbbb7a52d))
+
+
+## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.14.0...gitnav-v0.15.0) (2026-08-17)
+
+
+### Features
+
+* **gitnav:** add inline git blame ghost text and status bar integration ([47ec08b](https://github.com/nguyentuan0307/DotNav/commit/47ec08b727648d137b180ba238c93358a1c537c2))
+* **gitnav:** optimize Git Log with quick diff preview, branch tracing, and instant search ([5c2fff0](https://github.com/nguyentuan0307/DotNav/commit/5c2fff07ee2524c3e9c7536276a9ccb467cae661))
+* **gitnav:** copy full commit information directly without quickpick selection ([b8797a6](https://github.com/nguyentuan0307/DotNav/commit/b8797a61e6894844c45b1b30bd291be78036837a))
+* **gitnav:** format copy commit info with exact sha and commit message format ([d122d07](https://github.com/nguyentuan0307/DotNav/commit/d122d07021bb80c9f78734b65896d983dd9ee85b))
+
+### Bug Fixes
+
+* **gitnav:** fix header button alignment and compact icon preview toggle in changed files ([3a4f4b2](https://github.com/nguyentuan0307/DotNav/commit/3a4f4b269eedac470f910ccf5c4ac0d53294c596))
+* **gitnav:** fix diff patch retrieval for merge commits and parent selections ([2f29b5c](https://github.com/nguyentuan0307/DotNav/commit/2f29b5c0512279076ac84be9e198d5338391c7d3))
+
+### Performance Improvements
+
+* **gitnav:** add viewport blame pre-warming and instant 0ms cached blame rendering ([323c6f2](https://github.com/nguyentuan0307/DotNav/commit/323c6f265fb81f5afb2d909a515df6a64054e9cd))
+
+### Changes
+
+* style(gitnav): synchronize diff preview eye icon with column visibility icon ([80807a5](https://github.com/nguyentuan0307/DotNav/commit/80807a51581f5afa82c9a4a25ff2858967e44908))
+* test(gitnav): add regression tests for real git diff on merge commits and additions ([3f24379](https://github.com/nguyentuan0307/DotNav/commit/3f243793de59324b7b7f6c35e7f1e247e66939c4))
+
+
+## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.1...gitnav-v0.14.0) (2026-08-17)
+
+
+### Features
+
+* **gitnav:** add quick copy formatted commit info workflow ([654c831](https://github.com/nguyentuan0307/DotNav/commit/654c8315d174ce6799cc152fac8ad7e10fa63ec2))
+* **gitnav:** add quick stash single file workflow ([437899e](https://github.com/nguyentuan0307/DotNav/commit/437899e56cb38fe5ec598d29f3aa314f94c91989))
+
+
+## [0.13.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.13.0...gitnav-v0.13.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **gitnav:** fix commit filter dropdown and calendar picker interaction ([25cd1c9](https://github.com/nguyentuan0307/DotNav/commit/25cd1c94f62bba1b333f7fa1b8c1f36b184653d0))
+
+
+## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.1...gitnav-v0.13.0) (2026-08-15)
+
+
+### Features
+
+* **gitnav:** add edit commit message and amend commit workflows ([95b3935](https://github.com/nguyentuan0307/DotNav/commit/95b39350fa156d8d25cf5138f321cf05c2cfb1e6))
+* **gitnav:** support multi-branch selection and batch deletion ([45579b5](https://github.com/nguyentuan0307/DotNav/commit/45579b52f1c2367bd4259927c152df2e9b6a6744))
+
+
+## [0.12.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.12.0...gitnav-v0.12.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **gitnav:** streamline branch controls ([fdddc78](https://github.com/nguyentuan0307/DotNav/commit/fdddc78eff47a7bbc4c740f78f4c4645ae6e7d35))
+
+
 ## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.11.2...gitnav-v0.12.0) (2026-07-31)
 
 

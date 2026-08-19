@@ -4,19 +4,150 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.20.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.19.0...dotnav-v0.20.0) (2026-08-19)
+
+
 ### Features
 
-* add separate Build and opt-in Smart Build (Preview) actions for project, folder, and solution scopes
-* introduce one version-aware What's New picker for enabling new opt-in preview features without consecutive popups
-* add an out-of-process MSBuild graph host, persistent content fingerprints, dependency-wave execution, smart restore, verified artifact copies, explain-plan diagnostics, and shadow rollout mode
-* conservatively fall back to MSBuild for custom or unsupported build logic and to standard Build on planning failures
-* add Standard, Smart, and None build-before-run modes for Run, Debug, compound configurations, and Test
-* add phase timings, execution counters, searchable plan explanations, and opt-in MSBuild binary logs
-* add differential mutation coverage for shared build properties, default-glob source additions, missing outputs, dependency implementation changes, and clean-build artifact equivalence
-* split Smart Build into reference-aware phases so implementation-only dependency edits skip dependent compilation while still propagating runtime outputs
-* add client-only file and selection Local History with filtered revision timelines and inline diffs
-* coalesce automatic snapshots and add indexed, bounded Local History retention
-* make Local History opt-in through Settings and an upgrade introduction prompt
+* **dotnav:** bump to v0.15.0 with full keybindings for Search Everywhere ([a7b73e7](https://github.com/nguyentuan0307/DotNav/commit/a7b73e783adc1297951b820554da32259017c328))
+* **dotnav:** release v0.20.0 with Search Everywhere ([0089de1](https://github.com/nguyentuan0307/DotNav/commit/0089de18ee287c5c3729ab2900d88a3689940a02))
+
+
+## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.18.0...dotnav-v0.19.0) (2026-08-19)
+
+
+### Features
+
+* **dotnav:** implement high-performance Universal Solution Search Everywhere across all 8 enterprise .NET layers ([48c732c](https://github.com/nguyentuan0307/DotNav/commit/48c732cb4cf9b6eea12aef8d250a1c2e170238f9))
+* **dotnav:** enhance EF Core DbSet and domain entity recognition heuristics in universal search ([22ef67b](https://github.com/nguyentuan0307/DotNav/commit/22ef67b64501604f3c0845cc930a7b7b54379260))
+* **dotnav:** expand universal search coverage to 82,000+ symbols including all method modifiers and entity properties ([f8a2185](https://github.com/nguyentuan0307/DotNav/commit/f8a21856d95fd2dc030937d9655a28c58efac933))
+* **dotnav:** implement 4 deep optimizations for universal search (sub-3ms latency, interning, smart ranking, git warming) ([21951f7](https://github.com/nguyentuan0307/DotNav/commit/21951f7de35cba05ff2eee813f84b20b32e6e30b))
+* **dotnav:** implement persistent disk cache with SWR sync and live code definition preview ([2c0df5c](https://github.com/nguyentuan0307/DotNav/commit/2c0df5c440750c07da292e572565626cc120877a))
+* **dotnav:** implement JetBrains Rider Search Everywhere webview with side-by-side code preview pane ([86cd9e2](https://github.com/nguyentuan0307/DotNav/commit/86cd9e232c88d90e2e7efcda29e6da7d2dbc2c9e))
+* **dotnav:** refactor Search Everywhere to 2-row popup modal with draggable resizer divider ([bb6b788](https://github.com/nguyentuan0307/DotNav/commit/bb6b7887b19b2bf11afc2b3f96049168a5ddf4fe))
+* **dotnav:** set Search Everywhere to native floating popup with embedded multi-line code preview ([5ab67d9](https://github.com/nguyentuan0307/DotNav/commit/5ab67d9b41bc732dbdaa7543ef7fdca7a48c8f0f))
+* **dotnav:** bump to v0.12.0 and add Search Everywhere feature announcement popup on update ([7ad03af](https://github.com/nguyentuan0307/DotNav/commit/7ad03afc54cf69921a590a48c321150f3bfc6850))
+
+### Bug Fixes
+
+* **dotnav:** fix inheritance parsing boundary and acronym case preservation in universal search ([8e304d0](https://github.com/nguyentuan0307/DotNav/commit/8e304d0d93dce9defc964dadc364ec5ae2b594a8))
+* **dotnav:** remove search endpoints toolbar icon and distinguish search everywhere icon from solution filter ([9990fd5](https://github.com/nguyentuan0307/DotNav/commit/9990fd584d7f3f002cda5e1afc29f8f1a1dc3d29))
+* **dotnav:** route searchEverywhere to Rider 2-row modal and restore focus on dismiss ([4aa27da](https://github.com/nguyentuan0307/DotNav/commit/4aa27daf6ee5732676b341153e7d0cb672215a7f))
+
+### Changes
+
+* refactor(dotnav): restore clean, ultra-fast native QuickPick Search Everywhere without webview tabs ([613c5da](https://github.com/nguyentuan0307/DotNav/commit/613c5daccdf1fbfbebe3d79196c1ebb4a0333c16))
+
+
+## [0.18.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.17.0...dotnav-v0.18.0) (2026-08-18)
+
+
+### Features
+
+* **gitnav:** add interactive Git Worktree Status Bar controller with rich tooltip and quick switcher ([4be03cd](https://github.com/nguyentuan0307/DotNav/commit/4be03cd58eefe201f14b0f53168c6ae1bebfff23))
+
+### Bug Fixes
+
+* **dotnav:** ensure full solution scan completion lifecycle before returning endpoint search results ([faee559](https://github.com/nguyentuan0307/DotNav/commit/faee559e15537be410866e23c69a7eb936c90dc1))
+
+
+## [0.17.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.16.0...dotnav-v0.17.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add ASP.NET Core endpoint explorer with flexible route search ([e0ad67c](https://github.com/nguyentuan0307/DotNav/commit/e0ad67c86efd94de7000696d10b67ec33e89891d))
+* **dotnav:** add cURL command formatting and pure formatter test separation ([a3ebe86](https://github.com/nguyentuan0307/DotNav/commit/a3ebe8638935cd125c38eaf25460f9e4b954dc4a))
+* **dotnav:** implement 5-tier ultra-smart ASP.NET Core endpoint search engine ([8dad3de](https://github.com/nguyentuan0307/DotNav/commit/8dad3de221e0acf4745a6e3e9a2ba32a42c2971d))
+* **dotnav:** support project-filtered endpoint search and workspace standalone project scanning ([ab6cf18](https://github.com/nguyentuan0307/DotNav/commit/ab6cf18d9fb6d52f3707e60d9e9274ea9ecaca10))
+* **dotnav:** contribute default keybindings ctrl+alt+a and alt+shift+a for endpoint search ([bfe85f2](https://github.com/nguyentuan0307/DotNav/commit/bfe85f289e0268664a09cd9075f04601e918667d))
+* **dotnav:** add rock-solid incremental cache, background warmup, and keyboard-first actions for endpoint explorer ([195d8cc](https://github.com/nguyentuan0307/DotNav/commit/195d8cc759f88d8cc39417bc7e6f94b833e2b28f))
+
+### Bug Fixes
+
+* **dotnav:** set alwaysShow true on QuickPick search results to prevent VS Code client-side filter suppression ([1c54619](https://github.com/nguyentuan0307/DotNav/commit/1c54619239ea5240e2f667d29b615b3e0f15a2d7))
+
+### Performance Improvements
+
+* **dotnav:** optimize typo matcher with zero-allocation isNearMatch ([10f80f7](https://github.com/nguyentuan0307/DotNav/commit/10f80f75dd4e256e9e167f826de740fbdb33b7f4))
+
+### Changes
+
+* test(dotnav): add tests for api/fields/{fieldId:int}/validation route matching ([bc1e687](https://github.com/nguyentuan0307/DotNav/commit/bc1e6873cc7eaacc30310025ec84eaf3eab747a7))
+
+
+## [0.16.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.15.0...dotnav-v0.16.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add smart formatting for collection expressions, switch expressions, and multiline operators ([d7a2008](https://github.com/nguyentuan0307/DotNav/commit/d7a20080684d10732005767cb633dfd485df4a57))
+
+
+## [0.15.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.14.0...dotnav-v0.15.0) (2026-08-18)
+
+
+### Features
+
+* **dotnav:** add empty migration generator, visual timeline & connection ping to EF Core Center ([d2bd05f](https://github.com/nguyentuan0307/DotNav/commit/d2bd05f19dedf181cb80f2b55f9fed8fcdad1dd0))
+
+
+## [0.14.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.13.0...dotnav-v0.14.0) (2026-08-17)
+
+
+### Features
+
+* **dotnav:** optimize build and debug with zero-config startup, 1-click process attach, and build diagnostics ([4837e78](https://github.com/nguyentuan0307/DotNav/commit/4837e78e8d94de43e872d68f7837ff32cc14b5b2))
+
+### Bug Fixes
+
+* **ci:** fix cross-platform path handling in processDiscovery and test suite on Linux/macOS ([f45f054](https://github.com/nguyentuan0307/DotNav/commit/f45f054a94ea617e629580e08ece7d380b9e81ec))
+
+### Performance Improvements
+
+* **dotnav:** optimize smart build with pre-warming, fast-path check, and targeted scoping ([29f5513](https://github.com/nguyentuan0307/DotNav/commit/29f5513cd016f6963698af7257fc6468c3d14e47))
+* **dotnav:** optimize standard MSBuild with parallel multi-core flags and streamline build commands ([86e734d](https://github.com/nguyentuan0307/DotNav/commit/86e734d1de5ba637bcf86833736e8c851d2e6d8b))
+* **dotnav:** add smart --no-restore auto-fallback and MSBuild acceleration flags with full .NET 6.0+ backward compatibility ([c6ee106](https://github.com/nguyentuan0307/DotNav/commit/c6ee106317cb831d9027ccf2635e1475a5636756))
+
+
+## [0.13.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.12.0...dotnav-v0.13.0) (2026-08-13)
+
+
+### Features
+
+* **dotnav:** add correctness-first smart build ([f745201](https://github.com/nguyentuan0307/DotNav/commit/f745201196ea26095bc1a9e370d379711a6aebcc))
+* **dotnav:** complete smart build rollout phases ([fdb6c5b](https://github.com/nguyentuan0307/DotNav/commit/fdb6c5b9cb1b741fb118b673aba901c8e2149fd1))
+* **dotnav:** ship opt-in smart build preview ([af6c64a](https://github.com/nguyentuan0307/DotNav/commit/af6c64ae1a426549cffd628cdfa06a8bd7096f08))
+
+### Bug Fixes
+
+* **dotnav:** isolate smart build host requests ([4a89d1b](https://github.com/nguyentuan0307/DotNav/commit/4a89d1b1f4ec477672cdc3610c6009e41478b269))
+* **ci:** use a compatible MSBuild SDK ([878118b](https://github.com/nguyentuan0307/DotNav/commit/878118b93e77f2158b3b8fd48e91d7f7f533f9ef))
+* **ci:** serialize DotNav integration tests ([77bb1d5](https://github.com/nguyentuan0307/DotNav/commit/77bb1d519bed34ae00de97b6944bc4bbe77e68c5))
+* **dotnav:** await Build Host shutdown ([0655cf4](https://github.com/nguyentuan0307/DotNav/commit/0655cf47ddc0a0861538638b0f9d2e92b59483bf))
+* **dotnav:** wait for Build Host streams to close ([f0926a9](https://github.com/nguyentuan0307/DotNav/commit/f0926a9e654ec75c673caa00ccf005badcafb379))
+
+### Performance Improvements
+
+* **dotnav:** refine smart build dependencies ([5fd5376](https://github.com/nguyentuan0307/DotNav/commit/5fd53767315d096ed5feb4f8d3b37ae04aced281))
+
+### Changes
+
+* test(dotnav): retry Windows Build Host cleanup ([7445f4c](https://github.com/nguyentuan0307/DotNav/commit/7445f4c31e561a6d2b582a9377bd7760a4ab9312))
+* test(dotnav): allow Windows Build Host cleanup lag ([c06dacb](https://github.com/nguyentuan0307/DotNav/commit/c06dacb0dfc94a9abdcbae9d5cbf07132604e91f))
+
+
+## [0.12.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.11.0...dotnav-v0.12.0) (2026-08-11)
+
+
+### Features
+
+* **dotnav:** add opt-in local history ([a8092b0](https://github.com/nguyentuan0307/DotNav/commit/a8092b0b024aab33116a17b39441fba82a1b6e6d))
+
+### Bug Fixes
+
+* **dotnav:** keep EF Core Center actions reusable ([7ae91a6](https://github.com/nguyentuan0307/DotNav/commit/7ae91a6af1ecf022110c0d47ae38af6cfa980c0e))
+
 
 ## [0.11.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.10.0...dotnav-v0.11.0) (2026-07-31)
 

@@ -66,9 +66,9 @@
     "onCommand:dotnav.formatDocument",
     "onCommand:dotnav.localHistory.show",
     "onCommand:dotnav.localHistory.showSelection",
-    "onCommand:dotnav.searchEverywhere",
     "onCommand:dotnav.searchApiEndpoints",
-    "onCommand:dotnav.openSymbolActions"
+    "onCommand:dotnav.refreshApiEndpoints",
+    "onCommand:dotnav.openEndpointActions"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -153,7 +153,7 @@
       {
         "command": "dotnav.searchSolutionTree",
         "title": "Filter Solution Tree",
-        "icon": "$(filter)"
+        "icon": "$(search)"
       },
       {
         "command": "dotnav.formatSelection",
@@ -176,17 +176,18 @@
         "icon": "$(history)"
       },
       {
-        "command": "dotnav.searchEverywhere",
-        "title": "Search Everywhere (Global Search)",
-        "icon": "$(search-fuzzy)"
-      },
-      {
         "command": "dotnav.searchApiEndpoints",
-        "title": "Search ASP.NET Core Endpoints"
+        "title": "Search ASP.NET Core Endpoints",
+        "icon": "$(globe)"
       },
       {
-        "command": "dotnav.openSymbolActions",
-        "title": "DotNav: Open Actions for Selected Symbol"
+        "command": "dotnav.refreshApiEndpoints",
+        "title": "DotNav: Refresh ASP.NET Core Endpoints",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dotnav.openEndpointActions",
+        "title": "DotNav: Open Actions for Selected Endpoint"
       },
       {
         "command": "dotnav.openItem",
@@ -549,22 +550,6 @@
         "when": "editorTextFocus && editorLangId == csharp"
       },
       {
-        "command": "dotnav.searchEverywhere",
-        "key": "ctrl+alt+f",
-        "mac": "cmd+alt+f"
-      },
-      {
-        "command": "dotnav.searchEverywhere",
-        "key": "alt+shift+f",
-        "mac": "alt+shift+f"
-      },
-      {
-        "command": "dotnav.searchEverywhere",
-        "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f",
-        "when": "focusedView == dotnav"
-      },
-      {
         "command": "dotnav.searchApiEndpoints",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a"
@@ -575,16 +560,16 @@
         "mac": "alt+shift+a"
       },
       {
-        "command": "dotnav.openSymbolActions",
+        "command": "dotnav.openEndpointActions",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
-        "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
+        "when": "dotnav.endpointSearchOpen"
       },
       {
-        "command": "dotnav.openSymbolActions",
+        "command": "dotnav.openEndpointActions",
         "key": "alt+enter",
         "mac": "alt+enter",
-        "when": "dotnav.solutionSearchOpen || dotnav.endpointSearchOpen"
+        "when": "dotnav.endpointSearchOpen"
       }
     ],
     "menus": {
@@ -633,11 +618,6 @@
           "group": "navigation@0.5"
         },
         {
-          "command": "dotnav.searchEverywhere",
-          "when": "view == dotnav",
-          "group": "navigation@0.8"
-        },
-        {
           "command": "dotnav.runActiveConfig",
           "when": "view == dotnav.runConfigurations && !dotnav.activeConfigBusy",
           "group": "navigation@1"
@@ -656,6 +636,11 @@
           "command": "dotnav.stopAll",
           "when": "view == dotnav && dotnav.hasRunningProcesses",
           "group": "navigation@3"
+        },
+        {
+          "command": "dotnav.searchApiEndpoints",
+          "when": "view == dotnav",
+          "group": "navigation@1"
         },
         {
           "command": "dotnav.refresh",
@@ -1092,9 +1077,25 @@
         "dotnav.localHistory.trackedExtensions": {
           "type": "array",
           "default": [
-            ".cs", ".fs", ".vb", ".csproj", ".fsproj", ".vbproj", ".dcproj",
-            ".props", ".targets", ".json", ".jsonc", ".xml", ".config", ".sln",
-            ".slnx", ".editorconfig", ".md", ".razor", ".cshtml"
+            ".cs",
+            ".fs",
+            ".vb",
+            ".csproj",
+            ".fsproj",
+            ".vbproj",
+            ".dcproj",
+            ".props",
+            ".targets",
+            ".json",
+            ".jsonc",
+            ".xml",
+            ".config",
+            ".sln",
+            ".slnx",
+            ".editorconfig",
+            ".md",
+            ".razor",
+            ".cshtml"
           ],
           "items": {
             "type": "string"
