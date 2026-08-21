@@ -27,6 +27,7 @@ import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 import {
   openActiveSymbolActions,
+  rescanUniversalSearchIndex,
   resolveProjectForFile,
   searchEverywhereInteractive,
   UniversalSymbolIndex,
@@ -102,6 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.clearSolutionTreeFilter', () => clearSolutionTreeFilter(provider)),
     vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
+    vscode.commands.registerCommand('dotnav.rescanSolutionSymbols', () => rescanUniversalSearchIndex(provider, symbolIndex, context, true)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
@@ -589,12 +591,14 @@ function registerWorkspaceFileWatcher(
     if (changes.some(item => item.kind === 'solution')) {
       symbolIndex.clear();
       await provider.refresh();
+      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
       return;
     }
 
     // Process file changes for UniversalSymbolIndex
     if (csChanges.length > 25) {
       symbolIndex.clear();
+      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
     } else if (csChanges.length > 0) {
       const solution = provider.getSolution();
       const projects = solution?.projects;
@@ -654,6 +658,57 @@ function registerWorkspaceFileWatcher(
       void flush().catch(error => console.error(`DotNav workspace refresh failed: ${error}`));
     }, 250);
   };
+
+  // Git branch checkout / switch watcher
+  const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/heads/**,index}');
+  let gitDebounceTimer: NodeJS.Timeout | undefined;
+  const onGitStateChanged = () => {
+    if (gitDebounceTimer) {
+      clearTimeout(gitDebounceTimer);
+    }
+    gitDebounceTimer = setTimeout(() => {
+      gitDebounceTimer = undefined;
+      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true).catch(err =>
+        console.warn(`[DotNav] Auto re-scan on git event failed: ${err}`)
+      );
+    }, 350);
+  };
+
+  context.subscriptions.push(
+    gitWatcher,
+    gitWatcher.onDidChange(onGitStateChanged),
+    gitWatcher.onDidCreate(onGitStateChanged),
+    gitWatcher.onDidDelete(onGitStateChanged),
+    { dispose: () => gitDebounceTimer && clearTimeout(gitDebounceTimer) }
+  );
+
+  try {
+    const gitExt = vscode.extensions.getExtension('vscode.git')?.exports;
+    const gitApi = gitExt?.getAPI?.(1);
+    if (gitApi) {
+      if (typeof gitApi.onDidChangeState === 'function') {
+        context.subscriptions.push(gitApi.onDidChangeState(() => onGitStateChanged()));
+      }
+      if (gitApi.repositories) {
+        for (const repo of gitApi.repositories) {
+          if (repo.state && typeof repo.state.onDidChange === 'function') {
+            context.subscriptions.push(repo.state.onDidChange(() => onGitStateChanged()));
+          }
+        }
+      }
+      if (typeof gitApi.onDidOpenRepository === 'function') {
+        context.subscriptions.push(
+          gitApi.onDidOpenRepository((repo: any) => {
+            if (repo?.state && typeof repo.state.onDidChange === 'function') {
+              context.subscriptions.push(repo.state.onDidChange(() => onGitStateChanged()));
+            }
+          })
+        );
+      }
+    }
+  } catch {
+    // Ignore if git extension is unavailable
+  }
 
   context.subscriptions.push(
     watcher,
