@@ -4,6 +4,15 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.22.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.0...dotnav-v0.22.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **dotnav:** register dotnav.selectOpenedFile command ([b7643aa](https://github.com/nguyentuan0307/DotNav/commit/b7643aa34bdf9f9d1916403f1167f95f4bb461d4))
+* **dotnav:** automatically rescan search everywhere on git checkout and workspace changes ([b40f635](https://github.com/nguyentuan0307/DotNav/commit/b40f635de167f74366dbe271995e8eb0862a4648))
+
+
 ## [0.22.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.21.0...dotnav-v0.22.0) (2026-08-19)
 
 
