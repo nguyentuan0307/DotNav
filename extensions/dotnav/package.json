@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -188,6 +188,11 @@
       {
         "command": "dotnav.searchApiEndpoints",
         "title": "Search ASP.NET Core Endpoints"
+      },
+      {
+        "command": "dotnav.rescanSolutionSymbols",
+        "title": "Re-scan Solution Symbols",
+        "icon": "$(sync)"
       },
       {
         "command": "dotnav.openSymbolActions",

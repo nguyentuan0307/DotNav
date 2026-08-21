@@ -419,9 +419,13 @@ export async function populateUniversalIndexFromSolution(
 export async function warmUpUniversalSearchIndex(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  context?: vscode.ExtensionContext
+  context?: vscode.ExtensionContext,
+  force = false
 ): Promise<void> {
-  if (index.isFullScanCompleted || activeFullScanPromise) {
+  if (!force && (index.isFullScanCompleted || activeFullScanPromise)) {
+    return activeFullScanPromise;
+  }
+  if (activeFullScanPromise) {
     return activeFullScanPromise;
   }
   activeFullScanPromise = (async () => {
@@ -435,6 +439,40 @@ export async function warmUpUniversalSearchIndex(
     }
   })();
   return activeFullScanPromise;
+}
+
+export async function rescanUniversalSearchIndex(
+  provider: DotnetTreeProvider,
+  index: UniversalSymbolIndex,
+  context?: vscode.ExtensionContext,
+  showNotification = false
+): Promise<void> {
+  const task = async () => {
+    try {
+      await populateUniversalIndexFromSolution(provider, index, context);
+      index.markFullScanCompleted();
+      if (showNotification) {
+        vscode.window.showInformationMessage(`DotNav: Re-scanned ${index.count} symbols and endpoints.`);
+      }
+    } catch (err) {
+      console.error(`DotNav symbol rescan failed: ${err}`);
+      if (showNotification) {
+        vscode.window.showErrorMessage(`DotNav symbol rescan failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  };
+
+  if (showNotification) {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'DotNav: Scanning Solution Symbols & Endpoints...'
+      },
+      task
+    );
+  } else {
+    await task();
+  }
 }
 
 export async function ensureUniversalIndexReady(
@@ -532,10 +570,14 @@ export async function searchEverywhereInteractive(
     {
       iconPath: new vscode.ThemeIcon('symbol-method'),
       tooltip: 'Filter Methods (@)'
+    },
+    {
+      iconPath: new vscode.ThemeIcon('sync'),
+      tooltip: 'Re-scan / Refresh Solution Symbols'
     }
   ];
 
-  quickPick.onDidTriggerButton(button => {
+  quickPick.onDidTriggerButton(async button => {
     if (button.tooltip?.includes('Endpoints')) {
       quickPick.value = '/' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('CQRS')) {
@@ -546,6 +588,14 @@ export async function searchEverywhereInteractive(
       quickPick.value = '#' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('Methods')) {
       quickPick.value = '@' + quickPick.value.replace(/^[/%$#@!]/, '');
+    } else if (button.tooltip?.includes('Re-scan') || button.tooltip?.includes('Refresh')) {
+      quickPick.busy = true;
+      try {
+        await rescanUniversalSearchIndex(provider, index, context, false);
+        updateItems(quickPick.value);
+      } finally {
+        quickPick.busy = false;
+      }
     }
   });
 
