@@ -32,3 +32,25 @@ test('UniversalSymbolIndex finds exact, prefix, and substring symbols simultaneo
   assert.ok(resultNames.some(n => n.startsWith('HandleRecordAppearanceLayoutAsync')));
   assert.ok(resultNames.some(n => n.startsWith('DefaultType')));
 });
+
+test('UniversalSymbolIndex supports clear and rescan lifecycle', () => {
+  const index = new UniversalSymbolIndex();
+  index.scanFileContent('/App.cs', 'public class AppService { }', 'App', 'App.cs');
+  index.markFullScanCompleted();
+
+  assert.equal(index.count, 1);
+  assert.equal(index.isFullScanCompleted, true);
+
+  // Clear on branch switch
+  index.clear();
+  assert.equal(index.count, 0);
+  assert.equal(index.isFullScanCompleted, false);
+
+  // Rescan new branch content
+  index.scanFileContent('/NewApp.cs', 'public class NewAppService { }', 'NewApp', 'NewApp.cs');
+  index.markFullScanCompleted();
+  assert.equal(index.count, 1);
+  assert.equal(index.isFullScanCompleted, true);
+  assert.equal(index.getAllSymbols()[0].name, 'NewAppService');
+});
+

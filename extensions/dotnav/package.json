@@ -190,6 +190,11 @@
         "title": "Search ASP.NET Core Endpoints"
       },
       {
+        "command": "dotnav.rescanSolutionSymbols",
+        "title": "Re-scan Solution Symbols",
+        "icon": "$(sync)"
+      },
+      {
         "command": "dotnav.openSymbolActions",
         "title": "DotNav: Open Actions for Selected Symbol"
       },
