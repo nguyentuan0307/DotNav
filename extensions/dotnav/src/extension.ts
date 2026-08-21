@@ -97,6 +97,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.removeProjectReference', (node: TreeNode) =>
       removeProjectReference(provider, node)),
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
+    vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
     vscode.commands.registerCommand('dotnav.searchSolutionTree', () => filterSolutionTree(provider)),
     vscode.commands.registerCommand('dotnav.clearSolutionTreeFilter', () => clearSolutionTreeFilter(provider)),
     vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),

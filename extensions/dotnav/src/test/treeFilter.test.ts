@@ -69,4 +69,12 @@ test('package.json contributes filter and clear filter commands with keybindings
     (k: any) => k.command === 'dotnav.clearSolutionTreeFilter'
   );
   assert.ok(escapeKey, 'escape keybinding must be contributed for clear filter');
+
+  const selectOpenedCmd = manifest.contributes.commands.find((c: any) => c.command === 'dotnav.selectOpenedFile');
+  assert.ok(selectOpenedCmd, 'dotnav.selectOpenedFile must be contributed in commands');
+  assert.strictEqual(selectOpenedCmd.icon, '$(target)');
+  const selectOpenedMenu = manifest.contributes.menus['view/title'].find(
+    (m: any) => m.command === 'dotnav.selectOpenedFile'
+  );
+  assert.ok(selectOpenedMenu, 'dotnav.selectOpenedFile must be in view/title');
 });
