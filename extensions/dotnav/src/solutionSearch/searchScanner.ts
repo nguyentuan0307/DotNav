@@ -994,7 +994,92 @@ export function extractDomainNoun(name: string): string {
     .replace(/(CommandHandler|QueryHandler|DomainEventHandler|EventHandler|Consumer|Handler)$/, '')
     .replace(/(Command|Query|DomainEvent|Event)$/, '')
     .replace(/^(Add|Update|Delete|Create|Remove|Get|Fetch|Clone|Copy|Sync|Process|On|Execute)/, '')
-    .replace(/(Added|Updated|Deleted|Created|Removed|Synchronized)$/, '');
+    .replace(/(Added|Updated|Deleted|Created|Removed|Synchronized)$/, '')
+    .replace(/(Added|Updated|Deleted|Created|Removed|Synchronized)/, '');
+}
+
+export function detectActiveCqrsContext(
+  targetQueryOrSymbol?: string | UniversalSymbol | { fsPath: string } | any,
+  activeEditor?: {
+    document?: {
+      fileName: string;
+      getText: (range?: any) => string;
+      getWordRangeAtPosition?: (pos: any) => any;
+    };
+    selection?: {
+      isEmpty: boolean;
+      active: any;
+    };
+  }
+): string {
+  // 1. Explicit string query
+  if (typeof targetQueryOrSymbol === 'string' && targetQueryOrSymbol.trim().length > 0) {
+    return targetQueryOrSymbol.trim();
+  }
+
+  // 2. UniversalSymbol object
+  if (
+    targetQueryOrSymbol &&
+    typeof targetQueryOrSymbol === 'object' &&
+    'name' in targetQueryOrSymbol &&
+    typeof targetQueryOrSymbol.name === 'string' &&
+    targetQueryOrSymbol.name.trim().length > 0
+  ) {
+    return targetQueryOrSymbol.name.trim();
+  }
+
+  // 3. Inspect active text editor if open
+  if (activeEditor && activeEditor.document) {
+    const doc = activeEditor.document;
+    const selection = activeEditor.selection;
+
+    // Check highlighted text
+    if (selection && !selection.isEmpty) {
+      const selectedText = doc.getText(selection).trim();
+      if (selectedText.length >= 2 && !selectedText.includes('\n')) {
+        return selectedText;
+      }
+    }
+
+    // Check word under cursor
+    if (selection && doc.getWordRangeAtPosition) {
+      const wordRange = doc.getWordRangeAtPosition(selection.active);
+      if (wordRange) {
+        const word = doc.getText(wordRange).trim();
+        if (word.length >= 3 && /^[A-Z][A-Za-z0-9_]*$/.test(word)) {
+          return word;
+        }
+      }
+    }
+
+    // Check primary class/record/interface name in document
+    const text = doc.getText();
+    const classMatch = text.match(
+      /(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(?:record\s+struct|record\s+class|class|interface|record|enum|struct)\s+([A-Za-z0-9_]+)/
+    );
+    if (classMatch && classMatch[1]) {
+      return classMatch[1];
+    }
+
+    // Fall back to filename without .cs
+    if (doc.fileName) {
+      const base = path.basename(doc.fileName, path.extname(doc.fileName));
+      if (base && !base.startsWith('.')) {
+        return base;
+      }
+    }
+  }
+
+  // 4. vscode.Uri (passed from context menu)
+  if (targetQueryOrSymbol && typeof targetQueryOrSymbol === 'object' && 'fsPath' in targetQueryOrSymbol) {
+    const fsPath = (targetQueryOrSymbol as { fsPath: string }).fsPath;
+    const base = path.basename(fsPath, path.extname(fsPath));
+    if (base && !base.startsWith('.')) {
+      return base;
+    }
+  }
+
+  return '';
 }
 
 export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex): CqrsFlowResult {
@@ -1012,7 +1097,9 @@ export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex):
     const matches =
       s.name.toLowerCase().includes(cleanName.toLowerCase()) ||
       (rootNoun.length >= 3 && sNoun.toLowerCase().includes(rootNoun.toLowerCase())) ||
-      (s.metadata?.handledType && s.metadata.handledType.toLowerCase().includes(cleanName.toLowerCase()));
+      (s.metadata?.handledType &&
+        (s.metadata.handledType.toLowerCase().includes(cleanName.toLowerCase()) ||
+          s.metadata.handledType.toLowerCase().includes(rootNoun.toLowerCase())));
 
     if (!matches) continue;
 
@@ -1032,6 +1119,26 @@ export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex):
       events.push(s);
     }
   }
+
+  // Sort items so exact matches appear at the top
+  const rankByRelevance = (list: UniversalSymbol[]) => {
+    return list.sort((a, b) => {
+      const aExact =
+        a.name.toLowerCase() === cleanName.toLowerCase() ||
+        a.metadata?.handledType?.toLowerCase() === cleanName.toLowerCase();
+      const bExact =
+        b.name.toLowerCase() === cleanName.toLowerCase() ||
+        b.metadata?.handledType?.toLowerCase() === cleanName.toLowerCase();
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  };
+
+  rankByRelevance(commands);
+  rankByRelevance(handlers);
+  rankByRelevance(events);
+  rankByRelevance(eventHandlers);
 
   const nodes: CqrsFlowNode[] = [];
 

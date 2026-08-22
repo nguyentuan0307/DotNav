@@ -253,4 +253,28 @@ namespace ELDesk.CustomApp.DomainEventHandlers
   assert.equal(flow.nodes[3].symbol.metadata.handledType, 'AppFieldAddedDomainEvent');
 });
 
+test('detectActiveCqrsContext correctly extracts symbol from URI or Mock Editor', () => {
+  const { detectActiveCqrsContext } = require('../solutionSearch/searchScanner');
+
+  // Test 1: From Uri object
+  const mockUri = { fsPath: '/path/to/DataEntityCreatedDomainEvent.cs' };
+  assert.equal(detectActiveCqrsContext(mockUri), 'DataEntityCreatedDomainEvent');
+
+  // Test 2: From Mock Active Editor with class definition
+  const mockEditor = {
+    document: {
+      fileName: '/src/SomeFile.cs',
+      getText: (range?: any) => range ? '' : 'public class DataEntityCreatedDomainEvent : INotification {}',
+      getWordRangeAtPosition: () => undefined
+    },
+    selection: { isEmpty: true, active: {} }
+  };
+  assert.equal(detectActiveCqrsContext(undefined, mockEditor as any), 'DataEntityCreatedDomainEvent');
+
+  // Test 3: From UniversalSymbol
+  const mockSym = { name: 'AddAppFieldCommandHandler', kind: 'cqrs_handler' };
+  assert.equal(detectActiveCqrsContext(mockSym), 'AddAppFieldCommandHandler');
+});
+
+
 

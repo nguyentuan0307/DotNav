@@ -8,7 +8,7 @@ import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
 import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
 import { SearchFilterMode, SearchIndexSnapshot, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
-import { UniversalSymbolIndex, buildCqrsFlow } from './searchScanner';
+import { UniversalSymbolIndex, buildCqrsFlow, detectActiveCqrsContext } from './searchScanner';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
@@ -746,7 +746,7 @@ export async function searchEverywhereInteractive(
 export async function traceCqrsFlowInteractive(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  targetQueryOrSymbol?: string | UniversalSymbol,
+  targetQueryOrSymbol?: string | UniversalSymbol | vscode.Uri | any,
   context?: vscode.ExtensionContext
 ): Promise<void> {
   globalActiveTreeProvider = provider;
@@ -754,32 +754,7 @@ export async function traceCqrsFlowInteractive(
 
   await ensureUniversalIndexReady(provider, index, context);
 
-  let initialQuery = '';
-  if (typeof targetQueryOrSymbol === 'string') {
-    initialQuery = targetQueryOrSymbol;
-  } else if (targetQueryOrSymbol && typeof targetQueryOrSymbol === 'object') {
-    initialQuery = targetQueryOrSymbol.name;
-  } else {
-    // Check if active editor has word under cursor or file name
-    const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) {
-      const doc = activeEditor.document;
-      const selection = activeEditor.selection;
-      const wordRange = doc.getWordRangeAtPosition(selection.active);
-      if (wordRange) {
-        const word = doc.getText(wordRange);
-        if (word && word.length >= 3) {
-          initialQuery = word;
-        }
-      }
-      if (!initialQuery) {
-        const base = path.basename(doc.fileName, '.cs');
-        if (base && !base.startsWith('.')) {
-          initialQuery = base;
-        }
-      }
-    }
-  }
+  let initialQuery = detectActiveCqrsContext(targetQueryOrSymbol, vscode.window.activeTextEditor);
 
   if (!initialQuery) {
     const input = await vscode.window.showInputBox({
