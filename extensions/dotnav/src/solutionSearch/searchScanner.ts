@@ -10,12 +10,23 @@ const CSHARP_RESERVED_KEYWORDS = new Set([
   'interface', 'enum', 'delegate', 'namespace', 'public', 'private', 'protected', 'internal'
 ]);
 
+export function pluralize(word: string): string {
+  if (!word) return word;
+  if (word.endsWith('y') && !/[aeiou]y$/i.test(word)) {
+    return word.slice(0, -1) + 'ies';
+  }
+  if (word.endsWith('s') || word.endsWith('x') || word.endsWith('z') || word.endsWith('ch') || word.endsWith('sh')) {
+    return word + 'es';
+  }
+  return word + 's';
+}
+
 const stringPool = new Map<string, string>();
 export function internString(str: string | undefined): string | undefined {
   if (!str) return str;
   const existing = stringPool.get(str);
   if (existing !== undefined) return existing;
-  if (stringPool.size < 60000) {
+  if (stringPool.size < 200000) {
     stringPool.set(str, str);
   }
   return str;
@@ -34,12 +45,13 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   }
 
   // CamelCase word segments (e.g. UpdateRecordFieldValueAsync -> update, record, field, value, async)
-  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
   for (const seg of segments) {
     const segLower = seg.toLowerCase();
     if (segLower.length >= 2) {
       tokens.add(segLower);
       tokens.add(segLower.slice(0, 2));
+      tokens.add(pluralize(segLower));
     }
   }
 
@@ -51,17 +63,21 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
     }
   }
 
-  // Container name and segments
+  // Container name and segments (both singular and plural forms)
   if (symbol.containerName) {
     const cLower = symbol.containerName.toLowerCase();
     tokens.add(cLower);
+    const bareContainer = symbol.containerName.replace(/Controller$/i, '').toLowerCase();
+    tokens.add(bareContainer);
+    tokens.add(pluralize(bareContainer));
     if (cLower.length >= 2) tokens.add(cLower.slice(0, 2));
-    const cSegments = symbol.containerName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+    const cSegments = symbol.containerName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
     for (const cSeg of cSegments) {
       const cSegLower = cSeg.toLowerCase();
       if (cSegLower.length >= 2) {
         tokens.add(cSegLower);
         tokens.add(cSegLower.slice(0, 2));
+        tokens.add(pluralize(cSegLower));
       }
     }
   }
@@ -87,6 +103,20 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
     }
   }
 
+  // Action name
+  if (symbol.metadata?.actionName) {
+    const actLower = symbol.metadata.actionName.toLowerCase();
+    tokens.add(actLower);
+    const actSegments = symbol.metadata.actionName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
+    for (const a of actSegments) {
+      const aLower = a.toLowerCase();
+      if (aLower.length >= 2) {
+        tokens.add(aLower);
+        tokens.add(pluralize(aLower));
+      }
+    }
+  }
+
   // Endpoint route template tokens
   if (symbol.metadata?.routeTemplate) {
     const routeSegments = symbol.metadata.routeTemplate.toLowerCase().split(/[\/\\{}:]+/).filter(Boolean);
@@ -94,6 +124,7 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
       if (rSeg.length >= 2) {
         tokens.add(rSeg);
         tokens.add(rSeg.slice(0, 2));
+        tokens.add(pluralize(rSeg));
       }
     }
   }
@@ -180,22 +211,25 @@ export function parseSymbolsFromCSharp(
   }
 
   // 3. Parse Types & CQRS & Domain Patterns
-  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*\([^)]*\))?(?:\s*:\s*([^{;\r\n]+))?/gm;
+  const typeRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(record\s+struct|record\s+class|class|interface|record|enum|struct)\s+([a-zA-Z0-9_]+)(?:<[^>]+>)?(?:\s*\(([^)]*)\))?(?:\s*:\s*([^{;\r\n]+))?/gm;
   let typeMatch: RegExpExecArray | null;
 
   while ((typeMatch = typeRegex.exec(code)) !== null) {
-    const typeKeyword = typeMatch[1]; // class, interface, record, enum, struct
+    const rawTypeKeyword = typeMatch[1]; // class, interface, record, enum, struct, record struct, record class
     const typeName = typeMatch[2];
-    const inheritanceList = typeMatch[3] ? typeMatch[3].trim() : '';
+    const primaryCtorParams = typeMatch[3];
+    const inheritanceList = typeMatch[4] ? typeMatch[4].trim() : '';
     const lineIndex = code.substring(0, typeMatch.index).split(/\r?\n/).length;
 
     let kind: UniversalSymbolKind = 'class';
-    if (typeKeyword === 'interface') {
+    if (rawTypeKeyword === 'interface') {
       kind = 'interface';
-    } else if (typeKeyword === 'record') {
+    } else if (rawTypeKeyword.startsWith('record')) {
       kind = 'record';
-    } else if (typeKeyword === 'enum') {
+    } else if (rawTypeKeyword === 'enum') {
       kind = 'enum';
+    } else if (rawTypeKeyword === 'struct') {
+      kind = 'class';
     }
 
     // CQRS, EF Core & Domain classifications
@@ -235,18 +269,13 @@ export function parseSymbolsFromCSharp(
       }
     }
 
-    // Ignore Controller classes from types list if already parsed as endpoints
-    if (typeName.endsWith('Controller') && kind === 'class') {
-      // Still include Controller as a Class symbol so user can search by class name
-    }
-
     symbols.push({
       id: `${filePath}:${lineIndex}:${kind}:${typeName}`,
       name: typeName,
       kind,
       filePath,
       relativePath,
-      projectName,
+      projectName: internString(projectName)!,
       line: lineIndex,
       column: 1,
       metadata: {
@@ -254,8 +283,83 @@ export function parseSymbolsFromCSharp(
       }
     });
 
+    // Parse Record Primary Constructor Properties
+    if (rawTypeKeyword.startsWith('record') && primaryCtorParams) {
+      const paramList = primaryCtorParams.split(',').map(p => p.trim()).filter(Boolean);
+      for (const p of paramList) {
+        const parts = p.split(/\s+/);
+        if (parts.length >= 2) {
+          const propType = parts.slice(0, -1).join(' ');
+          const propName = parts[parts.length - 1].replace(/[=;].*$/, '').trim();
+          if (propName && !CSHARP_RESERVED_KEYWORDS.has(propName)) {
+            symbols.push({
+              id: `${filePath}:${lineIndex}:property:${typeName}.${propName}`,
+              name: `${propName} : ${propType}`,
+              kind: internString('property') as UniversalSymbolKind,
+              filePath,
+              relativePath,
+              projectName: internString(projectName)!,
+              line: lineIndex,
+              column: 1,
+              containerName: typeName,
+              metadata: {
+                returnType: internString(propType)
+              }
+            });
+          }
+        }
+      }
+    }
+
+    // Parse Interface Method Signatures
+    if (rawTypeKeyword === 'interface') {
+      const ifaceBodyStart = code.indexOf('{', typeMatch.index);
+      if (ifaceBodyStart !== -1) {
+        let braceCount = 1;
+        let ifaceBodyEnd = code.length;
+        for (let i = ifaceBodyStart + 1; i < code.length; i++) {
+          if (code[i] === '{') braceCount++;
+          else if (code[i] === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              ifaceBodyEnd = i;
+              break;
+            }
+          }
+        }
+        const ifaceBody = code.substring(ifaceBodyStart + 1, ifaceBodyEnd);
+        const ifaceMethodRegex = /^\s*(?:\[[^\]]+\]\s*)*([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*;/gm;
+        let m: RegExpExecArray | null;
+        while ((m = ifaceMethodRegex.exec(ifaceBody)) !== null) {
+          const retType = m[1].trim();
+          const methodName = m[2].trim();
+          const params = m[3].trim();
+          if (!CSHARP_RESERVED_KEYWORDS.has(methodName) && !CSHARP_RESERVED_KEYWORDS.has(retType)) {
+            const mOffset = ifaceBodyStart + 1 + m.index;
+            const mLine = code.substring(0, mOffset).split(/\r?\n/).length;
+
+            symbols.push({
+              id: `${filePath}:${mLine}:method:${typeName}.${methodName}`,
+              name: `${methodName}(${params.split(',').length > 1 ? '...' : (params.length > 25 ? '...' : params)})`,
+              kind: internString('method') as UniversalSymbolKind,
+              filePath,
+              relativePath,
+              projectName: internString(projectName)!,
+              line: mLine,
+              column: 1,
+              containerName: typeName,
+              metadata: {
+                returnType: internString(retType),
+                parameterSummary: params.replace(/\s+/g, ' ').trim()
+              }
+            });
+          }
+        }
+      }
+    }
+
     // 4. If Enum, parse enum values
-    if (typeKeyword === 'enum') {
+    if (rawTypeKeyword === 'enum') {
       const enumBodyStartIndex = typeMatch.index + typeMatch[0].length;
       const openBrace = code.indexOf('{', enumBodyStartIndex);
       if (openBrace !== -1) {
@@ -282,7 +386,7 @@ export function parseSymbolsFromCSharp(
                   kind: 'enum_member',
                   filePath,
                   relativePath,
-                  projectName,
+                  projectName: internString(projectName)!,
                   line: currentEnumLine,
                   column: 1,
                   containerName: typeName
@@ -295,7 +399,34 @@ export function parseSymbolsFromCSharp(
     }
   }
 
-  // 5. Parse Methods (public, private, protected, internal, static, async, virtual)
+  // 5. Parse Constants and Static Readonly Fields
+  const constRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)?\s*(?:(?:static\s+readonly|const))\s+([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*(?:=\s*([^;]+))?;/gm;
+  let constMatch: RegExpExecArray | null;
+  while ((constMatch = constRegex.exec(code)) !== null) {
+    const fType = constMatch[1].trim();
+    const fName = constMatch[2].trim();
+    const fVal = constMatch[3] ? constMatch[3].trim().replace(/^["']|["']$/g, '') : undefined;
+    const lineIndex = code.substring(0, constMatch.index).split(/\r?\n/).length;
+
+    if (!CSHARP_RESERVED_KEYWORDS.has(fName) && !CSHARP_RESERVED_KEYWORDS.has(fType)) {
+      symbols.push({
+        id: `${filePath}:${lineIndex}:const:${fName}`,
+        name: fVal ? `${fName} = ${fVal}` : `${fName} : ${fType}`,
+        kind: internString('property') as UniversalSymbolKind,
+        filePath,
+        relativePath,
+        projectName: internString(projectName)!,
+        line: lineIndex,
+        column: 1,
+        metadata: {
+          returnType: internString(fType),
+          configValue: fVal ? internString(fVal) : undefined
+        }
+      });
+    }
+  }
+
+  // 6. Parse Methods (public, private, protected, internal, static, async, virtual)
   const methodRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|new|readonly|unsafe)\s+)+([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*(?:where[^{;=>]+)?\s*(?:\{|=>|;)/gm;
   let methodMatch: RegExpExecArray | null;
 
@@ -336,8 +467,8 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // 6. Parse Properties (public, internal, protected)
-  const propRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected)\s+(?:virtual|override|static|sealed|readonly|new)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*\{\s*(?:get|set|init)/gm;
+  // 7. Parse Properties (Auto, Required, Init, Expression-bodied)
+  const propRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected)\s+(?:virtual|override|static|sealed|readonly|new|required)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*(?:\{\s*(?:get|set|init)|=>)/gm;
   let propMatch: RegExpExecArray | null;
 
   while ((propMatch = propRegex.exec(code)) !== null) {
