@@ -437,8 +437,14 @@ public class OrderService
   assert.ok(reloadedMatches.length > 0);
   assert.ok(reloadedMatches.some((s: any) => s.name.startsWith('CalculateTax')));
 
+  // Test purgeDiskCache
+  await store.purgeDiskCache();
+  assert.strictEqual(store.count, 0);
+  assert.strictEqual(fs.existsSync(store.storagePath), false);
+
   // Clean up
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
 });
+

@@ -27,6 +27,7 @@ import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 import {
   DiskSymbolStore,
+  isSolutionSearchEnabled,
   openActiveSymbolActions,
   rescanUniversalSearchIndex,
   resolveProjectForFile,
@@ -41,11 +42,30 @@ let activeProcessManager: ProcessManager | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
-  const cacheDir = context.globalStorageUri?.fsPath || context.storageUri?.fsPath || path.join(context.extensionPath, '.cache');
+  const cacheDir = context.storageUri?.fsPath || context.globalStorageUri?.fsPath || path.join(context.extensionPath, '.cache');
   const diskStore = new DiskSymbolStore(cacheDir);
-  diskStore.initialize().catch(() => {});
+  if (isSolutionSearchEnabled()) {
+    diskStore.initialize().catch(() => {});
+  }
   const symbolIndex = new UniversalSymbolIndex();
   symbolIndex.setDiskStore(diskStore);
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async e => {
+      if (e.affectsConfiguration('dotnav.solutionSearch.enabled')) {
+        const enabled = isSolutionSearchEnabled();
+        if (!enabled) {
+          symbolIndex.clear();
+          await diskStore.purgeDiskCache();
+          vscode.window.showInformationMessage('DotNav: Search Everywhere indexing disabled. Cache and memory cleared.');
+        } else {
+          await diskStore.initialize();
+          void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+          vscode.window.showInformationMessage('DotNav: Search Everywhere indexing enabled.');
+        }
+      }
+    })
+  );
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
     configId => {
@@ -597,31 +617,37 @@ function registerWorkspaceFileWatcher(
     refreshTimer = undefined;
 
     if (changes.some(item => item.kind === 'solution')) {
-      symbolIndex.clear();
+      if (isSolutionSearchEnabled()) {
+        symbolIndex.clear();
+      }
       await provider.refresh();
-      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+      if (isSolutionSearchEnabled()) {
+        void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+      }
       return;
     }
 
     // Process file changes for UniversalSymbolIndex
-    if (csChanges.length > 25) {
-      symbolIndex.clear();
-      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
-    } else if (csChanges.length > 0) {
-      const solution = provider.getSolution();
-      const projects = solution?.projects;
+    if (isSolutionSearchEnabled()) {
+      if (csChanges.length > 25) {
+        symbolIndex.clear();
+        void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+      } else if (csChanges.length > 0) {
+        const solution = provider.getSolution();
+        const projects = solution?.projects;
 
-      await Promise.all(
-        csChanges.map(async ([fsPath, eventKind]) => {
-          if (eventKind === 'delete') {
-            symbolIndex.invalidateFile(fsPath);
-          } else {
-            const projectName = resolveProjectForFile(fsPath, projects);
-            const relPath = vscode.workspace.asRelativePath(fsPath);
-            await symbolIndex.scanFile(fsPath, projectName, relPath);
-          }
-        })
-      );
+        await Promise.all(
+          csChanges.map(async ([fsPath, eventKind]) => {
+            if (eventKind === 'delete') {
+              symbolIndex.invalidateFile(fsPath);
+            } else {
+              const projectName = resolveProjectForFile(fsPath, projects);
+              const relPath = vscode.workspace.asRelativePath(fsPath);
+              await symbolIndex.scanFile(fsPath, projectName, relPath);
+            }
+          })
+        );
+      }
     }
 
     for (const item of changes.filter(candidate => candidate.kind === 'projectMetadata')) {

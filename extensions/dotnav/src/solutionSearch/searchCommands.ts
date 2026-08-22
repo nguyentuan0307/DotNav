@@ -314,8 +314,8 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
 }
 
 export function getCacheFilePath(context?: vscode.ExtensionContext): string | undefined {
-  if (context?.storageUri?.fsPath) {
-    const dir = context.storageUri.fsPath;
+  const dir = context?.storageUri?.fsPath || context?.globalStorageUri?.fsPath;
+  if (dir) {
     if (!fs.existsSync(dir)) {
       try {
         fs.mkdirSync(dir, { recursive: true });
@@ -324,18 +324,6 @@ export function getCacheFilePath(context?: vscode.ExtensionContext): string | un
       }
     }
     return path.join(dir, 'dotnav_search_cache.json.gz');
-  }
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (root) {
-    const vsCodeDir = path.join(root, '.vscode');
-    if (!fs.existsSync(vsCodeDir)) {
-      try {
-        fs.mkdirSync(vsCodeDir, { recursive: true });
-      } catch {
-        // ignore
-      }
-    }
-    return path.join(vsCodeDir, 'dotnav_search_cache.json.gz');
   }
   return undefined;
 }
@@ -401,8 +389,22 @@ export async function populateUniversalIndexFromSolution(
   index: UniversalSymbolIndex,
   context?: vscode.ExtensionContext
 ): Promise<void> {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) {
+    return;
+  }
+
   const solution = provider.getSolution();
   const projects = solution?.projects;
+
+  // Fast guard: If no solution loaded, check if workspace has ANY .sln, .csproj or .fsproj
+  if (!solution) {
+    const dotnetFiles = await vscode.workspace.findFiles('**/*.{sln,csproj,fsproj}', '{**/node_modules/**,**/bin/**,**/obj/**}', 1);
+    if (dotnetFiles.length === 0) {
+      // Non-.NET workspace: Do NOT scan, do NOT allocate memory or disk cache
+      return;
+    }
+  }
 
   // Phase 1: Zero-Delay Startup Load (< 50ms)
   let loadedFromCache = false;
@@ -424,8 +426,8 @@ export async function populateUniversalIndexFromSolution(
 
   // Phase 3: Stale-While-Revalidate Background Sync (check mtime diff)
   const files = await vscode.workspace.findFiles(
-    '**/*.{cs,json,csproj,resx,sql,yaml,yml,proto,graphql,md,sh,ps1,xml,config}',
-    '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**}'
+    '**/*.{cs,json,csproj,resx,sql,yaml,yml,proto}',
+    '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**,**/.cache/**,**/dist/**}'
   );
 
   let hasChanges = false;
@@ -468,12 +470,19 @@ export async function populateUniversalIndexFromSolution(
   }
 }
 
+export function isSolutionSearchEnabled(): boolean {
+  return vscode.workspace.getConfiguration('dotnav').get<boolean>('solutionSearch.enabled', true);
+}
+
 export async function warmUpUniversalSearchIndex(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
   context?: vscode.ExtensionContext,
   force = false
 ): Promise<void> {
+  if (!isSolutionSearchEnabled()) {
+    return;
+  }
   if (!force && (index.isFullScanCompleted || activeFullScanPromise)) {
     return activeFullScanPromise;
   }
@@ -579,6 +588,22 @@ export async function searchEverywhereInteractive(
   initialPrefix = '',
   context?: vscode.ExtensionContext
 ): Promise<void> {
+  if (!isSolutionSearchEnabled()) {
+    const choice = await vscode.window.showInformationMessage(
+      'DotNav Search Everywhere is currently disabled in Settings.',
+      'Enable & Search',
+      'Open Settings'
+    );
+    if (choice === 'Enable & Search') {
+      await vscode.workspace.getConfiguration('dotnav').update('solutionSearch.enabled', true, vscode.ConfigurationTarget.Global);
+    } else if (choice === 'Open Settings') {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.solutionSearch.enabled');
+      return;
+    } else {
+      return;
+    }
+  }
+
   globalActiveTreeProvider = provider;
   globalActiveSymbolIndex = index;
   await ensureUniversalIndexReady(provider, index, context);
