@@ -30,6 +30,7 @@ import {
   rescanUniversalSearchIndex,
   resolveProjectForFile,
   searchEverywhereInteractive,
+  traceCqrsFlowInteractive,
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex
 } from './solutionSearch';
@@ -103,6 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.clearSolutionTreeFilter', () => clearSolutionTreeFilter(provider)),
     vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
+    vscode.commands.registerCommand('dotnav.traceCqrsFlow', (symbolOrQuery?: any) => traceCqrsFlowInteractive(provider, symbolIndex, symbolOrQuery, context)),
     vscode.commands.registerCommand('dotnav.rescanSolutionSymbols', () => rescanUniversalSearchIndex(provider, symbolIndex, context, true)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
@@ -576,6 +578,7 @@ function registerWorkspaceFileWatcher(
   const isRelevantSymbolFile = (fsPath: string) => {
     return (
       (fsPath.endsWith('.cs') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
+      (fsPath.endsWith('.resx') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
       path.basename(fsPath).startsWith('appsettings') ||
       fsPath.endsWith('.csproj')
     );

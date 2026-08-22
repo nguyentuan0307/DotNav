@@ -47,7 +47,22 @@ export interface UniversalSymbol {
     readonly parameterSummary?: string;
     readonly configValue?: string;
     readonly docSummary?: string;
+    readonly handledType?: string;
+    readonly emittedEvents?: readonly string[];
   };
+}
+
+export interface CqrsFlowNode {
+  readonly category: string;
+  readonly icon: string;
+  readonly symbol: UniversalSymbol;
+  readonly label: string;
+  readonly detail: string;
+}
+
+export interface CqrsFlowResult {
+  readonly rootNoun: string;
+  readonly nodes: readonly CqrsFlowNode[];
 }
 
 export interface UniversalSearchResult {

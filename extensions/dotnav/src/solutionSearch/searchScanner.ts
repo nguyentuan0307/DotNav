@@ -1,6 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SearchFilterMode, SearchIndexSnapshot, UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import {
+  CqrsFlowNode,
+  CqrsFlowResult,
+  SearchFilterMode,
+  SearchIndexSnapshot,
+  UniversalSymbol,
+  UniversalSymbolKind
+} from './searchModel';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 const CSHARP_RESERVED_KEYWORDS = new Set([
@@ -21,6 +28,15 @@ export function pluralize(word: string): string {
   return word + 's';
 }
 
+export function stripAccents(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 const stringPool = new Map<string, string>();
 export function internString(str: string | undefined): string | undefined {
   if (!str) return str;
@@ -34,24 +50,39 @@ export function internString(str: string | undefined): string | undefined {
 
 export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   const tokens = new Set<string>();
-  const originalBareName = symbol.name.split('(')[0].trim();
-  const bareLower = originalBareName.toLowerCase();
-  if (bareLower) {
-    tokens.add(bareLower);
-    if (bareLower.length >= 2) {
-      tokens.add(bareLower.slice(0, 2));
-      tokens.add(bareLower.slice(0, 3));
+
+  const addTerm = (term: string) => {
+    if (!term) return;
+    const cleaned = term.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase();
+    if (!cleaned) return;
+    tokens.add(cleaned);
+    const unaccented = stripAccents(cleaned);
+    tokens.add(unaccented);
+    if (cleaned.length >= 2) {
+      tokens.add(cleaned.slice(0, 2));
+      tokens.add(cleaned.slice(0, 3));
+      tokens.add(unaccented.slice(0, 2));
+      tokens.add(unaccented.slice(0, 3));
+      tokens.add(pluralize(cleaned));
+      tokens.add(pluralize(unaccented));
     }
-  }
+  };
+
+  const originalBareName = symbol.name.split('(')[0].trim();
+  addTerm(originalBareName);
 
   // CamelCase word segments (e.g. UpdateRecordFieldValueAsync -> update, record, field, value, async)
-  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
+  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',]+/).filter(Boolean);
   for (const seg of segments) {
-    const segLower = seg.toLowerCase();
-    if (segLower.length >= 2) {
-      tokens.add(segLower);
-      tokens.add(segLower.slice(0, 2));
-      tokens.add(pluralize(segLower));
+    addTerm(seg);
+  }
+
+  // Config value / Error message text tokens
+  if (symbol.metadata?.configValue) {
+    addTerm(symbol.metadata.configValue);
+    const valWords = symbol.metadata.configValue.split(/[-_\s/.:{}="',;!?()<>\[\]]+/).filter(Boolean);
+    for (const vw of valWords) {
+      addTerm(vw);
     }
   }
 
@@ -65,20 +96,12 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
 
   // Container name and segments (both singular and plural forms)
   if (symbol.containerName) {
-    const cLower = symbol.containerName.toLowerCase();
-    tokens.add(cLower);
-    const bareContainer = symbol.containerName.replace(/Controller$/i, '').toLowerCase();
-    tokens.add(bareContainer);
-    tokens.add(pluralize(bareContainer));
-    if (cLower.length >= 2) tokens.add(cLower.slice(0, 2));
+    addTerm(symbol.containerName);
+    const bareContainer = symbol.containerName.replace(/Controller$/i, '');
+    addTerm(bareContainer);
     const cSegments = symbol.containerName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
     for (const cSeg of cSegments) {
-      const cSegLower = cSeg.toLowerCase();
-      if (cSegLower.length >= 2) {
-        tokens.add(cSegLower);
-        tokens.add(cSegLower.slice(0, 2));
-        tokens.add(pluralize(cSegLower));
-      }
+      addTerm(cSeg);
     }
   }
 
@@ -87,33 +110,20 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   if (typeMeta) {
     const baseTokens = typeMeta.split(/<|>|\s|,|\[|\]|:/).filter(Boolean);
     for (const b of baseTokens) {
-      const bLower = b.toLowerCase();
-      if (bLower.length >= 2) {
-        tokens.add(bLower);
-        tokens.add(bLower.slice(0, 2));
-      }
+      addTerm(b);
       const bSegs = b.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
       for (const bs of bSegs) {
-        const bsLower = bs.toLowerCase();
-        if (bsLower.length >= 2) {
-          tokens.add(bsLower);
-          tokens.add(bsLower.slice(0, 2));
-        }
+        addTerm(bs);
       }
     }
   }
 
   // Action name
   if (symbol.metadata?.actionName) {
-    const actLower = symbol.metadata.actionName.toLowerCase();
-    tokens.add(actLower);
+    addTerm(symbol.metadata.actionName);
     const actSegments = symbol.metadata.actionName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
     for (const a of actSegments) {
-      const aLower = a.toLowerCase();
-      if (aLower.length >= 2) {
-        tokens.add(aLower);
-        tokens.add(pluralize(aLower));
-      }
+      addTerm(a);
     }
   }
 
@@ -121,11 +131,7 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   if (symbol.metadata?.routeTemplate) {
     const routeSegments = symbol.metadata.routeTemplate.toLowerCase().split(/[\/\\{}:]+/).filter(Boolean);
     for (const rSeg of routeSegments) {
-      if (rSeg.length >= 2) {
-        tokens.add(rSeg);
-        tokens.add(rSeg.slice(0, 2));
-        tokens.add(pluralize(rSeg));
-      }
+      addTerm(rSeg);
     }
   }
 
@@ -232,17 +238,31 @@ export function parseSymbolsFromCSharp(
       kind = 'class';
     }
 
+    let handledType: string | undefined = undefined;
+    let emittedEvents: string[] | undefined = undefined;
+
     // CQRS, EF Core & Domain classifications
     if (inheritanceList) {
+      const handlerMatch = inheritanceList.match(
+        /(?:INotificationHandler|IRequestHandler|IDomainEventHandler|ICommandHandler|IQueryHandler|IConsumer)<([A-Za-z0-9_]+)/
+      );
+      if (handlerMatch) {
+        handledType = handlerMatch[1];
+      }
+
       if (/\bMigration\b/.test(inheritanceList)) {
         kind = 'ef_migration';
-      } else if (/\bIRequestHandler\b/.test(inheritanceList)) {
+      } else if (
+        /\b(INotificationHandler|IRequestHandler|IDomainEventHandler|ICommandHandler|IQueryHandler|IConsumer)\b/.test(
+          inheritanceList
+        )
+      ) {
         kind = 'cqrs_handler';
       } else if (/\b(IRequest|ICommand)\b/.test(inheritanceList) && !typeName.endsWith('Query')) {
         kind = 'cqrs_command';
       } else if (/\b(IRequest|IQuery)\b/.test(inheritanceList) || typeName.endsWith('Query')) {
         kind = 'cqrs_query';
-      } else if (/\b(INotification|IDomainEvent)\b/.test(inheritanceList)) {
+      } else if (/\b(INotification|IDomainEvent|IEvent)\b/.test(inheritanceList)) {
         kind = 'cqrs_event';
       } else if (
         /\b(IEntityTypeConfiguration|TenantEntity|BaseEntity|AuditableEntity|AggregateRoot|DbContext|AuditlogDBContext)\b/.test(
@@ -256,8 +276,15 @@ export function parseSymbolsFromCSharp(
     } else {
       if (typeName.endsWith('Command') && !typeName.endsWith('CommandHandler')) {
         kind = 'cqrs_command';
-      } else if (typeName.endsWith('CommandHandler') || typeName.endsWith('Handler')) {
+      } else if (
+        typeName.endsWith('CommandHandler') ||
+        typeName.endsWith('DomainEventHandler') ||
+        typeName.endsWith('EventHandler') ||
+        typeName.endsWith('Handler')
+      ) {
         kind = 'cqrs_handler';
+      } else if (typeName.endsWith('DomainEvent') || (typeName.endsWith('Event') && !typeName.endsWith('Handler'))) {
+        kind = 'cqrs_event';
       } else if (typeName.endsWith('Query') && !typeName.endsWith('QueryHandler')) {
         kind = 'cqrs_query';
       } else if (
@@ -266,6 +293,30 @@ export function parseSymbolsFromCSharp(
         relativePath.includes('/Domain/Entities/')
       ) {
         kind = 'ef_entity';
+      }
+    }
+
+    if (kind === 'cqrs_handler' && !handledType) {
+      if (typeName.endsWith('CommandHandler')) {
+        handledType = typeName.slice(0, -7);
+      } else if (typeName.endsWith('QueryHandler')) {
+        handledType = typeName.slice(0, -7);
+      } else if (typeName.endsWith('DomainEventHandler')) {
+        handledType = typeName.slice(0, -7);
+      }
+    }
+
+    // Scan for emitted events in class body
+    if (kind === 'cqrs_handler' || kind === 'cqrs_command') {
+      const eventInstMatch = code.matchAll(/new\s+([A-Za-z0-9_]+(?:DomainEvent|Event))\s*\(/g);
+      const eventsFound: string[] = [];
+      for (const m of eventInstMatch) {
+        if (!eventsFound.includes(m[1])) {
+          eventsFound.push(m[1]);
+        }
+      }
+      if (eventsFound.length > 0) {
+        emittedEvents = eventsFound;
       }
     }
 
@@ -279,7 +330,9 @@ export function parseSymbolsFromCSharp(
       line: lineIndex,
       column: 1,
       metadata: {
-        baseType: inheritanceList || undefined
+        baseType: inheritanceList || undefined,
+        handledType: internString(handledType),
+        emittedEvents
       }
     });
 
@@ -498,6 +551,64 @@ export function parseSymbolsFromCSharp(
     });
   }
 
+  // 8. Parse Inline Error Messages (throw new ...Exception("..."))
+  const throwRegex = /throw\s+new\s+([A-Za-z0-9_]*Exception)\s*\(\s*(?:\$|@)?"([^"\r\n]+)"/g;
+  let throwMatch: RegExpExecArray | null;
+  while ((throwMatch = throwRegex.exec(code)) !== null) {
+    const exType = throwMatch[1];
+    const message = throwMatch[2].trim();
+    if (message.length >= 3) {
+      const lineIndex = code.substring(0, throwMatch.index).split(/\r?\n/).length;
+      symbols.push({
+        id: `${filePath}:${lineIndex}:error:${message.slice(0, 40)}`,
+        name: `${exType}: "${message}"`,
+        kind: internString('config_key') as UniversalSymbolKind,
+        filePath,
+        relativePath,
+        projectName: internString(projectName)!,
+        line: lineIndex,
+        column: 1,
+        metadata: {
+          configValue: internString(message),
+          baseType: internString(exType)
+        }
+      });
+    }
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromResx(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const regex = /<data\s+name="([^"]+)"[^>]*>[\s\S]*?<value>([\s\S]*?)<\/value>/g;
+  let match: RegExpExecArray | null;
+  const internedProj = internString(projectName)!;
+
+  while ((match = regex.exec(content)) !== null) {
+    const key = match[1];
+    const val = match[2].trim();
+    const line = content.substring(0, match.index).split(/\r?\n/).length;
+
+    symbols.push({
+      id: `${filePath}:${line}:resx:${key}`,
+      name: `${key} = "${val}"`,
+      kind: internString('config_key') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internedProj,
+      line,
+      column: 1,
+      metadata: {
+        configValue: internString(val)
+      }
+    });
+  }
   return symbols;
 }
 
@@ -574,7 +685,7 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 1,
+      version: 3,
       timestamp: Date.now(),
       fileTimestamps,
       symbolsByFile
@@ -662,6 +773,8 @@ export class UniversalSymbolIndex {
     let symbols: UniversalSymbol[] = [];
     if (filePath.endsWith('.cs')) {
       symbols = parseSymbolsFromCSharp(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.resx')) {
+      symbols = parseSymbolsFromResx(content, filePath, projectName, relativePath);
     } else if (path.basename(filePath).startsWith('appsettings') && filePath.endsWith('.json')) {
       symbols = parseSymbolsFromAppSettings(content, filePath, projectName, relativePath);
     } else if (filePath.endsWith('.csproj')) {
@@ -874,3 +987,99 @@ export class UniversalSymbolIndex {
     return sum;
   }
 }
+
+export function extractDomainNoun(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/(CommandHandler|QueryHandler|DomainEventHandler|EventHandler|Consumer|Handler)$/, '')
+    .replace(/(Command|Query|DomainEvent|Event)$/, '')
+    .replace(/^(Add|Update|Delete|Create|Remove|Get|Fetch|Clone|Copy|Sync|Process|On|Execute)/, '')
+    .replace(/(Added|Updated|Deleted|Created|Removed|Synchronized)$/, '');
+}
+
+export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex): CqrsFlowResult {
+  const cleanName = queryOrName.replace(/^[\$#@&/!:]*/, '').trim();
+  const rootNoun = extractDomainNoun(cleanName) || cleanName;
+  const allSymbols = index.getAllSymbols();
+
+  const commands: UniversalSymbol[] = [];
+  const handlers: UniversalSymbol[] = [];
+  const events: UniversalSymbol[] = [];
+  const eventHandlers: UniversalSymbol[] = [];
+
+  for (const s of allSymbols) {
+    const sNoun = extractDomainNoun(s.name);
+    const matches =
+      s.name.toLowerCase().includes(cleanName.toLowerCase()) ||
+      (rootNoun.length >= 3 && sNoun.toLowerCase().includes(rootNoun.toLowerCase())) ||
+      (s.metadata?.handledType && s.metadata.handledType.toLowerCase().includes(cleanName.toLowerCase()));
+
+    if (!matches) continue;
+
+    if (s.kind === 'cqrs_command' || s.kind === 'cqrs_query') {
+      commands.push(s);
+    } else if (s.kind === 'cqrs_handler') {
+      if (
+        s.name.endsWith('DomainEventHandler') ||
+        s.name.endsWith('EventHandler') ||
+        s.metadata?.handledType?.endsWith('Event')
+      ) {
+        eventHandlers.push(s);
+      } else {
+        handlers.push(s);
+      }
+    } else if (s.kind === 'cqrs_event') {
+      events.push(s);
+    }
+  }
+
+  const nodes: CqrsFlowNode[] = [];
+
+  for (const cmd of commands) {
+    nodes.push({
+      category: '1. Request / Command',
+      icon: '$(symbol-event)',
+      symbol: cmd,
+      label: `📥 ${cmd.name}`,
+      detail: `[${cmd.projectName}] ${cmd.relativePath}:${cmd.line}`
+    });
+  }
+
+  for (const h of handlers) {
+    const handledText = h.metadata?.handledType ? ` (Handles: ${h.metadata.handledType})` : '';
+    nodes.push({
+      category: '2. Command Handler',
+      icon: '$(zap)',
+      symbol: h,
+      label: `⚡ ${h.name}`,
+      detail: `[${h.projectName}] ${h.relativePath}:${h.line}${handledText}`
+    });
+  }
+
+  for (const e of events) {
+    nodes.push({
+      category: '3. Domain Event',
+      icon: '$(megaphone)',
+      symbol: e,
+      label: `📢 ${e.name}`,
+      detail: `[${e.projectName}] ${e.relativePath}:${e.line}`
+    });
+  }
+
+  for (const eh of eventHandlers) {
+    const listensText = eh.metadata?.handledType ? ` (Listens to: ${eh.metadata.handledType})` : '';
+    nodes.push({
+      category: '4. Event Listener',
+      icon: '$(radio-tower)',
+      symbol: eh,
+      label: `👂 ${eh.name}`,
+      detail: `[${eh.projectName}] ${eh.relativePath}:${eh.line}${listensText}`
+    });
+  }
+
+  return {
+    rootNoun,
+    nodes
+  };
+}
+
