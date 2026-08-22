@@ -8,7 +8,7 @@ import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
 import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
 import { SearchFilterMode, SearchIndexSnapshot, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
-import { UniversalSymbolIndex } from './searchScanner';
+import { UniversalSymbolIndex, buildCqrsFlow } from './searchScanner';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
@@ -19,6 +19,8 @@ export interface UniversalQuickPickItem extends vscode.QuickPickItem {
 let lastSearchQuery = '';
 let activeFullScanPromise: Promise<void> | undefined;
 let currentUniversalQuickPick: vscode.QuickPick<UniversalQuickPickItem> | undefined;
+let globalActiveTreeProvider: DotnetTreeProvider | undefined;
+let globalActiveSymbolIndex: UniversalSymbolIndex | undefined;
 
 export function resolveProjectForFile(
   fsPath: string,
@@ -110,8 +112,13 @@ export function formatSymbolDetail(symbol: UniversalSymbol): string {
   const container = symbol.containerName ? ` • Container: ${symbol.containerName}` : '';
   const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
   const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
+  const handled = symbol.metadata?.handledType ? ` • Handles: ${symbol.metadata.handledType}` : '';
+  const emits =
+    symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
+      ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
+      : '';
 
-  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${configVal}`;
+  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${handled}${emits}${configVal}`;
 }
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
@@ -163,7 +170,7 @@ export async function openSymbolInEditor(symbol: UniversalSymbol, targetLine?: n
 }
 
 interface SymbolActionPickItem extends vscode.QuickPickItem {
-  action: 'open' | 'copyName' | 'copyPath' | 'copyRoute' | 'copyUrl' | 'copyHttp' | 'copyCurl';
+  action: 'open' | 'copyName' | 'copyPath' | 'copyRoute' | 'copyUrl' | 'copyHttp' | 'copyCurl' | 'traceFlow';
 }
 
 async function getGitModifiedFiles(): Promise<string[]> {
@@ -193,7 +200,23 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
       label: '$(go-to-file) Open Source Code',
       description: `${path.basename(symbol.filePath)}:${symbol.line}`,
       action: 'open'
-    },
+    }
+  ];
+
+  if (
+    symbol.kind === 'cqrs_command' ||
+    symbol.kind === 'cqrs_handler' ||
+    symbol.kind === 'cqrs_event' ||
+    symbol.kind === 'cqrs_query'
+  ) {
+    actions.push({
+      label: '$(workflow) Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)',
+      description: `Trace execution pipeline for ${symbol.name}`,
+      action: 'traceFlow'
+    });
+  }
+
+  actions.push(
     {
       label: '$(copy) Copy Symbol Name',
       description: symbol.name,
@@ -204,7 +227,7 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
       description: `${symbol.relativePath}:${symbol.line}`,
       action: 'copyPath'
     }
-  ];
+  );
 
   if (symbol.kind === 'endpoint') {
     const epMock = buildApiEndpointFromSymbol(symbol);
@@ -237,6 +260,10 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
 
   if (picked.action === 'open') {
     await openSymbolInEditor(symbol);
+  } else if (picked.action === 'traceFlow') {
+    if (globalActiveTreeProvider && globalActiveSymbolIndex) {
+      await traceCqrsFlowInteractive(globalActiveTreeProvider, globalActiveSymbolIndex, symbol);
+    }
   } else if (picked.action === 'copyName') {
     await vscode.env.clipboard.writeText(symbol.name);
     vscode.window.showInformationMessage(`Copied: ${symbol.name}`);
@@ -527,6 +554,8 @@ export async function searchEverywhereInteractive(
   initialPrefix = '',
   context?: vscode.ExtensionContext
 ): Promise<void> {
+  globalActiveTreeProvider = provider;
+  globalActiveSymbolIndex = index;
   await ensureUniversalIndexReady(provider, index, context);
 
   const allSymbols = index.getAllSymbols();
@@ -709,6 +738,130 @@ export async function searchEverywhereInteractive(
         // Ignore restore failure
       }
     }
+  });
+
+  quickPick.show();
+}
+
+export async function traceCqrsFlowInteractive(
+  provider: DotnetTreeProvider,
+  index: UniversalSymbolIndex,
+  targetQueryOrSymbol?: string | UniversalSymbol,
+  context?: vscode.ExtensionContext
+): Promise<void> {
+  globalActiveTreeProvider = provider;
+  globalActiveSymbolIndex = index;
+
+  await ensureUniversalIndexReady(provider, index, context);
+
+  let initialQuery = '';
+  if (typeof targetQueryOrSymbol === 'string') {
+    initialQuery = targetQueryOrSymbol;
+  } else if (targetQueryOrSymbol && typeof targetQueryOrSymbol === 'object') {
+    initialQuery = targetQueryOrSymbol.name;
+  } else {
+    // Check if active editor has word under cursor or file name
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const doc = activeEditor.document;
+      const selection = activeEditor.selection;
+      const wordRange = doc.getWordRangeAtPosition(selection.active);
+      if (wordRange) {
+        const word = doc.getText(wordRange);
+        if (word && word.length >= 3) {
+          initialQuery = word;
+        }
+      }
+      if (!initialQuery) {
+        const base = path.basename(doc.fileName, '.cs');
+        if (base && !base.startsWith('.')) {
+          initialQuery = base;
+        }
+      }
+    }
+  }
+
+  if (!initialQuery) {
+    const input = await vscode.window.showInputBox({
+      title: 'DotNav: Trace CQRS Flow',
+      prompt: 'Enter Command, Query, Handler, or Event name to trace (e.g. AddAppField, CopyFunction, AppFieldDeleted)...',
+      placeHolder: 'AddAppField'
+    });
+    if (!input || !input.trim()) return;
+    initialQuery = input.trim();
+  }
+
+  const quickPick = vscode.window.createQuickPick<UniversalQuickPickItem>();
+  quickPick.title = 'DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)';
+  quickPick.placeholder = 'Search CQRS pipelines by name (e.g. AddAppField, CopyFunction, AppFieldDeleted)...';
+  quickPick.matchOnDescription = true;
+  quickPick.matchOnDetail = true;
+
+  const updateFlowItems = (query: string) => {
+    const flow = buildCqrsFlow(query, index);
+    if (!flow || flow.nodes.length === 0) {
+      quickPick.items = [
+        {
+          label: `$(info) No CQRS pipeline found matching "${query}"`,
+          description: 'Try entering an entity or action name, e.g. AddAppField, CopyFunction, AppFieldDeleted',
+          alwaysShow: true,
+          isAction: true
+        }
+      ];
+      return;
+    }
+
+    quickPick.title = `DotNav: CQRS Flow ➔ [${flow.rootNoun}] (${flow.nodes.length} components connected)`;
+
+    const items: UniversalQuickPickItem[] = [];
+    let currentCategory = '';
+
+    for (const node of flow.nodes) {
+      if (node.category !== currentCategory) {
+        currentCategory = node.category;
+        items.push({
+          label: currentCategory,
+          kind: vscode.QuickPickItemKind.Separator
+        });
+      }
+
+      items.push({
+        label: node.label,
+        detail: node.detail,
+        alwaysShow: true,
+        symbol: node.symbol,
+        buttons: [
+          {
+            iconPath: new vscode.ThemeIcon('ellipsis'),
+            tooltip: 'More Actions (Ctrl+Enter)'
+          }
+        ]
+      });
+    }
+
+    quickPick.items = items;
+  };
+
+  quickPick.value = initialQuery;
+  updateFlowItems(initialQuery);
+
+  quickPick.onDidChangeValue(val => {
+    if (val.trim()) {
+      updateFlowItems(val.trim());
+    }
+  });
+
+  quickPick.onDidTriggerItemButton(async event => {
+    const sym = event.item.symbol;
+    if (!sym) return;
+    await showSymbolActions(sym);
+  });
+
+  quickPick.onDidAccept(async () => {
+    const selected = quickPick.selectedItems[0];
+    if (!selected || !selected.symbol || selected.isAction) return;
+    quickPick.hide();
+    await openSymbolInEditor(selected.symbol);
   });
 
   quickPick.show();

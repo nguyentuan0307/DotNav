@@ -1,6 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { SearchFilterMode, SearchIndexSnapshot, UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import {
+  CqrsFlowNode,
+  CqrsFlowResult,
+  SearchFilterMode,
+  SearchIndexSnapshot,
+  UniversalSymbol,
+  UniversalSymbolKind
+} from './searchModel';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 const CSHARP_RESERVED_KEYWORDS = new Set([
@@ -231,17 +238,31 @@ export function parseSymbolsFromCSharp(
       kind = 'class';
     }
 
+    let handledType: string | undefined = undefined;
+    let emittedEvents: string[] | undefined = undefined;
+
     // CQRS, EF Core & Domain classifications
     if (inheritanceList) {
+      const handlerMatch = inheritanceList.match(
+        /(?:INotificationHandler|IRequestHandler|IDomainEventHandler|ICommandHandler|IQueryHandler|IConsumer)<([A-Za-z0-9_]+)/
+      );
+      if (handlerMatch) {
+        handledType = handlerMatch[1];
+      }
+
       if (/\bMigration\b/.test(inheritanceList)) {
         kind = 'ef_migration';
-      } else if (/\bIRequestHandler\b/.test(inheritanceList)) {
+      } else if (
+        /\b(INotificationHandler|IRequestHandler|IDomainEventHandler|ICommandHandler|IQueryHandler|IConsumer)\b/.test(
+          inheritanceList
+        )
+      ) {
         kind = 'cqrs_handler';
       } else if (/\b(IRequest|ICommand)\b/.test(inheritanceList) && !typeName.endsWith('Query')) {
         kind = 'cqrs_command';
       } else if (/\b(IRequest|IQuery)\b/.test(inheritanceList) || typeName.endsWith('Query')) {
         kind = 'cqrs_query';
-      } else if (/\b(INotification|IDomainEvent)\b/.test(inheritanceList)) {
+      } else if (/\b(INotification|IDomainEvent|IEvent)\b/.test(inheritanceList)) {
         kind = 'cqrs_event';
       } else if (
         /\b(IEntityTypeConfiguration|TenantEntity|BaseEntity|AuditableEntity|AggregateRoot|DbContext|AuditlogDBContext)\b/.test(
@@ -255,8 +276,15 @@ export function parseSymbolsFromCSharp(
     } else {
       if (typeName.endsWith('Command') && !typeName.endsWith('CommandHandler')) {
         kind = 'cqrs_command';
-      } else if (typeName.endsWith('CommandHandler') || typeName.endsWith('Handler')) {
+      } else if (
+        typeName.endsWith('CommandHandler') ||
+        typeName.endsWith('DomainEventHandler') ||
+        typeName.endsWith('EventHandler') ||
+        typeName.endsWith('Handler')
+      ) {
         kind = 'cqrs_handler';
+      } else if (typeName.endsWith('DomainEvent') || (typeName.endsWith('Event') && !typeName.endsWith('Handler'))) {
+        kind = 'cqrs_event';
       } else if (typeName.endsWith('Query') && !typeName.endsWith('QueryHandler')) {
         kind = 'cqrs_query';
       } else if (
@@ -265,6 +293,30 @@ export function parseSymbolsFromCSharp(
         relativePath.includes('/Domain/Entities/')
       ) {
         kind = 'ef_entity';
+      }
+    }
+
+    if (kind === 'cqrs_handler' && !handledType) {
+      if (typeName.endsWith('CommandHandler')) {
+        handledType = typeName.slice(0, -7);
+      } else if (typeName.endsWith('QueryHandler')) {
+        handledType = typeName.slice(0, -7);
+      } else if (typeName.endsWith('DomainEventHandler')) {
+        handledType = typeName.slice(0, -7);
+      }
+    }
+
+    // Scan for emitted events in class body
+    if (kind === 'cqrs_handler' || kind === 'cqrs_command') {
+      const eventInstMatch = code.matchAll(/new\s+([A-Za-z0-9_]+(?:DomainEvent|Event))\s*\(/g);
+      const eventsFound: string[] = [];
+      for (const m of eventInstMatch) {
+        if (!eventsFound.includes(m[1])) {
+          eventsFound.push(m[1]);
+        }
+      }
+      if (eventsFound.length > 0) {
+        emittedEvents = eventsFound;
       }
     }
 
@@ -278,7 +330,9 @@ export function parseSymbolsFromCSharp(
       line: lineIndex,
       column: 1,
       metadata: {
-        baseType: inheritanceList || undefined
+        baseType: inheritanceList || undefined,
+        handledType: internString(handledType),
+        emittedEvents
       }
     });
 
@@ -933,3 +987,99 @@ export class UniversalSymbolIndex {
     return sum;
   }
 }
+
+export function extractDomainNoun(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/(CommandHandler|QueryHandler|DomainEventHandler|EventHandler|Consumer|Handler)$/, '')
+    .replace(/(Command|Query|DomainEvent|Event)$/, '')
+    .replace(/^(Add|Update|Delete|Create|Remove|Get|Fetch|Clone|Copy|Sync|Process|On|Execute)/, '')
+    .replace(/(Added|Updated|Deleted|Created|Removed|Synchronized)$/, '');
+}
+
+export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex): CqrsFlowResult {
+  const cleanName = queryOrName.replace(/^[\$#@&/!:]*/, '').trim();
+  const rootNoun = extractDomainNoun(cleanName) || cleanName;
+  const allSymbols = index.getAllSymbols();
+
+  const commands: UniversalSymbol[] = [];
+  const handlers: UniversalSymbol[] = [];
+  const events: UniversalSymbol[] = [];
+  const eventHandlers: UniversalSymbol[] = [];
+
+  for (const s of allSymbols) {
+    const sNoun = extractDomainNoun(s.name);
+    const matches =
+      s.name.toLowerCase().includes(cleanName.toLowerCase()) ||
+      (rootNoun.length >= 3 && sNoun.toLowerCase().includes(rootNoun.toLowerCase())) ||
+      (s.metadata?.handledType && s.metadata.handledType.toLowerCase().includes(cleanName.toLowerCase()));
+
+    if (!matches) continue;
+
+    if (s.kind === 'cqrs_command' || s.kind === 'cqrs_query') {
+      commands.push(s);
+    } else if (s.kind === 'cqrs_handler') {
+      if (
+        s.name.endsWith('DomainEventHandler') ||
+        s.name.endsWith('EventHandler') ||
+        s.metadata?.handledType?.endsWith('Event')
+      ) {
+        eventHandlers.push(s);
+      } else {
+        handlers.push(s);
+      }
+    } else if (s.kind === 'cqrs_event') {
+      events.push(s);
+    }
+  }
+
+  const nodes: CqrsFlowNode[] = [];
+
+  for (const cmd of commands) {
+    nodes.push({
+      category: '1. Request / Command',
+      icon: '$(symbol-event)',
+      symbol: cmd,
+      label: `📥 ${cmd.name}`,
+      detail: `[${cmd.projectName}] ${cmd.relativePath}:${cmd.line}`
+    });
+  }
+
+  for (const h of handlers) {
+    const handledText = h.metadata?.handledType ? ` (Handles: ${h.metadata.handledType})` : '';
+    nodes.push({
+      category: '2. Command Handler',
+      icon: '$(zap)',
+      symbol: h,
+      label: `⚡ ${h.name}`,
+      detail: `[${h.projectName}] ${h.relativePath}:${h.line}${handledText}`
+    });
+  }
+
+  for (const e of events) {
+    nodes.push({
+      category: '3. Domain Event',
+      icon: '$(megaphone)',
+      symbol: e,
+      label: `📢 ${e.name}`,
+      detail: `[${e.projectName}] ${e.relativePath}:${e.line}`
+    });
+  }
+
+  for (const eh of eventHandlers) {
+    const listensText = eh.metadata?.handledType ? ` (Listens to: ${eh.metadata.handledType})` : '';
+    nodes.push({
+      category: '4. Event Listener',
+      icon: '$(radio-tower)',
+      symbol: eh,
+      label: `👂 ${eh.name}`,
+      detail: `[${eh.projectName}] ${eh.relativePath}:${eh.line}${listensText}`
+    });
+  }
+
+  return {
+    rootNoun,
+    nodes
+  };
+}
+
