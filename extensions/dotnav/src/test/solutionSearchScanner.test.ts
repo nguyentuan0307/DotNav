@@ -166,7 +166,7 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
   assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 3);
+  assert.equal(snapshot.version, 4);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
 

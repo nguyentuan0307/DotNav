@@ -333,7 +333,7 @@ export async function loadSnapshotFromDisk(
       });
     });
     const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
-    if (snapshot && snapshot.version === 3 && snapshot.symbolsByFile) {
+    if (snapshot && snapshot.version === 4 && snapshot.symbolsByFile) {
       index.loadSnapshot(snapshot);
       return true;
     }
@@ -769,8 +769,8 @@ export async function traceCqrsFlowInteractive(
   const quickPick = vscode.window.createQuickPick<UniversalQuickPickItem>();
   quickPick.title = 'DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)';
   quickPick.placeholder = 'Search CQRS pipelines by name (e.g. AddAppField, CopyFunction, AppFieldDeleted)...';
-  quickPick.matchOnDescription = true;
-  quickPick.matchOnDetail = true;
+  quickPick.matchOnDescription = false;
+  quickPick.matchOnDetail = false;
 
   const updateFlowItems = (query: string) => {
     const flow = buildCqrsFlow(query, index);

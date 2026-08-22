@@ -685,7 +685,7 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 3,
+      version: 4,
       timestamp: Date.now(),
       fileTimestamps,
       symbolsByFile
