@@ -113,3 +113,39 @@ namespace MySolution
   assert.ok(symbols.some(s => s.kind === 'property' && s.name.startsWith('Project_Member_Invite')));
 });
 
+test('UniversalSymbolIndex parses .resx localization and inline throw new Exception messages', () => {
+  const index = new UniversalSymbolIndex();
+
+  const resxContent = `<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="ApplicationNotFound" xml:space="preserve">
+    <value>Không tìm thấy ứng dụng</value>
+  </data>
+</root>`;
+
+  const csharpCode = `
+public class ProjectService
+{
+    public void Validate()
+    {
+        throw new BadRequestException("Người dùng đã được mời vào doanh nghiệp");
+    }
+}`;
+
+  index.scanFileContent('/src/ErrorMessages.resx', resxContent, 'ELDesk.CustomApp', 'ErrorMessages.resx');
+  index.scanFileContent('/src/ProjectService.cs', csharpCode, 'ELDesk.Work', 'ProjectService.cs');
+  index.markFullScanCompleted();
+
+  const resxQuery = searchUniversalSymbols(index, 'Không tìm thấy ứng dụng');
+  assert.ok(resxQuery.length > 0, 'Should find resx message by Vietnamese text');
+  assert.equal(resxQuery[0].symbol.metadata?.configValue, 'Không tìm thấy ứng dụng');
+
+  const keyQuery = searchUniversalSymbols(index, 'ApplicationNotFound');
+  assert.ok(keyQuery.length > 0, 'Should find resx by key name');
+
+  const inlineQuery = searchUniversalSymbols(index, 'Người dùng đã được mời vào doanh nghiệp');
+  assert.ok(inlineQuery.length > 0, 'Should find inline throw new Exception message');
+  assert.ok(inlineQuery[0].symbol.name.includes('Người dùng đã được mời vào doanh nghiệp'));
+});
+
+

@@ -498,6 +498,64 @@ export function parseSymbolsFromCSharp(
     });
   }
 
+  // 8. Parse Inline Error Messages (throw new ...Exception("..."))
+  const throwRegex = /throw\s+new\s+([A-Za-z0-9_]*Exception)\s*\(\s*(?:\$|@)?"([^"\r\n]+)"/g;
+  let throwMatch: RegExpExecArray | null;
+  while ((throwMatch = throwRegex.exec(code)) !== null) {
+    const exType = throwMatch[1];
+    const message = throwMatch[2].trim();
+    if (message.length >= 3) {
+      const lineIndex = code.substring(0, throwMatch.index).split(/\r?\n/).length;
+      symbols.push({
+        id: `${filePath}:${lineIndex}:error:${message.slice(0, 40)}`,
+        name: `${exType}: "${message}"`,
+        kind: internString('config_key') as UniversalSymbolKind,
+        filePath,
+        relativePath,
+        projectName: internString(projectName)!,
+        line: lineIndex,
+        column: 1,
+        metadata: {
+          configValue: internString(message),
+          baseType: internString(exType)
+        }
+      });
+    }
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromResx(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const regex = /<data\s+name="([^"]+)"[^>]*>[\s\S]*?<value>([\s\S]*?)<\/value>/g;
+  let match: RegExpExecArray | null;
+  const internedProj = internString(projectName)!;
+
+  while ((match = regex.exec(content)) !== null) {
+    const key = match[1];
+    const val = match[2].trim();
+    const line = content.substring(0, match.index).split(/\r?\n/).length;
+
+    symbols.push({
+      id: `${filePath}:${line}:resx:${key}`,
+      name: `${key} = "${val}"`,
+      kind: internString('config_key') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internedProj,
+      line,
+      column: 1,
+      metadata: {
+        configValue: internString(val)
+      }
+    });
+  }
   return symbols;
 }
 
@@ -662,6 +720,8 @@ export class UniversalSymbolIndex {
     let symbols: UniversalSymbol[] = [];
     if (filePath.endsWith('.cs')) {
       symbols = parseSymbolsFromCSharp(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.resx')) {
+      symbols = parseSymbolsFromResx(content, filePath, projectName, relativePath);
     } else if (path.basename(filePath).startsWith('appsettings') && filePath.endsWith('.json')) {
       symbols = parseSymbolsFromAppSettings(content, filePath, projectName, relativePath);
     } else if (filePath.endsWith('.csproj')) {

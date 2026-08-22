@@ -373,7 +373,7 @@ export async function populateUniversalIndexFromSolution(
 
   // Phase 3: Stale-While-Revalidate Background Sync (check mtime diff)
   const files = await vscode.workspace.findFiles(
-    '**/*.{cs,json,csproj}',
+    '**/*.{cs,json,csproj,resx}',
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**}'
   );
 

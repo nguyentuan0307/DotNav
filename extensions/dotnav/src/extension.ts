@@ -576,6 +576,7 @@ function registerWorkspaceFileWatcher(
   const isRelevantSymbolFile = (fsPath: string) => {
     return (
       (fsPath.endsWith('.cs') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
+      (fsPath.endsWith('.resx') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
       path.basename(fsPath).startsWith('appsettings') ||
       fsPath.endsWith('.csproj')
     );
