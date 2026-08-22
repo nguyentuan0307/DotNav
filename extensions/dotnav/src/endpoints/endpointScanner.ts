@@ -9,6 +9,17 @@ export function toKebabCase(str: string): string {
     .toLowerCase();
 }
 
+export function pluralize(word: string): string {
+  if (!word) return word;
+  if (word.endsWith('y') && !/[aeiou]y$/i.test(word)) {
+    return word.slice(0, -1) + 'ies';
+  }
+  if (word.endsWith('s') || word.endsWith('x') || word.endsWith('z') || word.endsWith('ch') || word.endsWith('sh')) {
+    return word + 'es';
+  }
+  return word + 's';
+}
+
 export function parseRouteSegments(routeTemplate: string): RouteSegmentDescriptor[] {
   if (!routeTemplate) return [];
   const rawSegments = routeTemplate
@@ -172,11 +183,14 @@ export function parseEndpointsFromCSharp(
     }
 
     if (classRoutes.length === 0) {
-      // Check if ApiController attribute exists or inherits ControllerBase without explicit Route
-      if (/\[ApiController\]/i.test(beforeClass) || /ControllerBase|Controller/i.test(classMatch[2] || '')) {
-        classRoutes.push('api/[controller]');
-      } else {
-        classRoutes.push('');
+      // If no explicit [Route], infer standard convention routes for controllers
+      const bare = controllerName.replace(/Controller$/i, '');
+      const plural = pluralize(bare);
+      classRoutes.push('api/[controller]');
+      classRoutes.push('[controller]');
+      if (plural.toLowerCase() !== bare.toLowerCase()) {
+        classRoutes.push(`api/${plural.toLowerCase()}`);
+        classRoutes.push(plural.toLowerCase());
       }
     }
 
@@ -211,8 +225,8 @@ export function parseEndpointsFromCSharp(
 
     const classBody = code.substring(bodyStartIndex, bodyEndIndex);
 
-    // Match action methods with HTTP attributes
-    const methodRegex = /\[(?:(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|HttpOptions|AcceptVerbs|Route)\s*(?:\(\s*(?:\$|@)?"([^"]*)"[^)]*\))?)\]\s*(?:\[[^\]]+\]\s*)*(?:public\s+|async\s+)*(?:Task<[^>]+>|Task|ActionResult<[^>]+>|IActionResult|IResult|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g;
+    // Match action methods with HTTP attributes (supporting prior attributes like [FeatureAccessControl])
+    const methodRegex = /(?:\[[^\]]+\]\s*)*\[(?:(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|HttpOptions|AcceptVerbs|Route)\s*(?:\(\s*(?:\$|@)?"([^"]*)"[^)]*\))?)\]\s*(?:\[[^\]]+\]\s*)*(?:public\s+|protected\s+|internal\s+|private\s+|async\s+|virtual\s+|override\s+|static\s+)*(?:Task<[^>]+>|Task|ActionResult<[^>]+>|IActionResult|IResult|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g;
 
     let methodMatch: RegExpExecArray | null;
     while ((methodMatch = methodRegex.exec(classBody)) !== null) {

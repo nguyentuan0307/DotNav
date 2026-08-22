@@ -226,12 +226,20 @@ export function scoreSymbol(
 
   // 5. Multi-token / Subsequence / Wildcard Matching
   if (baseScore === 0) {
+    const container = symbol.containerName || '';
+    const bareContainer = container.replace(/Controller$/i, '');
+    const pluralContainer = bareContainer ? (bareContainer.endsWith('s') ? bareContainer : bareContainer + 's') : '';
+
     const targetText = (
       symbol.name + ' ' +
       (symbol.metadata?.routeTemplate || '') + ' ' +
-      (symbol.containerName || '') + ' ' +
+      container + ' ' +
+      bareContainer + ' ' +
+      pluralContainer + ' ' +
+      (symbol.metadata?.actionName || '') + ' ' +
       (symbol.metadata?.baseType || '') + ' ' +
-      (symbol.metadata?.returnType || '')
+      (symbol.metadata?.returnType || '') + ' ' +
+      (symbol.relativePath || '')
     ).toLowerCase();
 
     let matchedTokens = 0;
@@ -240,14 +248,17 @@ export function scoreSymbol(
 
     for (const token of query.tokens) {
       const tokLower = token.toLowerCase();
+      const tokSingular = tokLower.endsWith('s') && tokLower.length > 3 ? tokLower.slice(0, -1) : tokLower;
       const idx = targetText.indexOf(tokLower, lastIndex + 1);
 
       if (idx !== -1) {
         matchedTokens++;
         lastIndex = idx;
       } else if (targetText.includes(tokLower)) {
-        matchedTokens += 0.8;
+        matchedTokens += 0.9;
         inOrder = false;
+      } else if (targetText.includes(tokSingular)) {
+        matchedTokens += 0.85;
       } else if (isNearMatch(tokLower, symbolNameLower)) {
         matchedTokens += 0.7;
         matchReason = 'Typo tolerated';
@@ -255,8 +266,8 @@ export function scoreSymbol(
     }
 
     if (matchedTokens >= query.tokens.length * 0.6) {
-      const matchRatio = matchedTokens / query.tokens.length;
-      baseScore = Math.round(matchRatio * 90) - (inOrder ? 0 : 10);
+      const matchRatio = Math.min(1, matchedTokens / query.tokens.length);
+      baseScore = Math.round(matchRatio * 90) - (inOrder ? 0 : 5);
       if (!matchReason) {
         matchReason = query.tokens.length > 1 ? 'Multi-token wildcard match' : 'Subsequence match';
       }
