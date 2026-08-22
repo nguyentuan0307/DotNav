@@ -4,6 +4,15 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.22.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.1...dotnav-v0.22.2) (2026-08-22)
+
+
+### Bug Fixes
+
+* **dotnav:** enhance partial controller endpoint detection, fuzzy route search, and comprehensive symbol scanning ([7e70371](https://github.com/nguyentuan0307/DotNav/commit/7e703719ebfc252e2e844616fc727f6921dc956c))
+* **dotnav:** support separate Http and Route attributes with custom action decorators ([956ef2c](https://github.com/nguyentuan0307/DotNav/commit/956ef2cd1f44fb25b65afd85f54fc82a5a39ebcf))
+
+
 ## [0.22.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.0...dotnav-v0.22.1) (2026-08-21)
 
 
