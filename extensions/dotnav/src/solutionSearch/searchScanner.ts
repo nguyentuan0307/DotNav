@@ -1220,6 +1220,9 @@ export class UniversalSymbolIndex {
         return [];
       }
       const stat = await fs.promises.stat(filePath);
+      if (stat.size > 2 * 1024 * 1024) {
+        return [];
+      }
       const content = await fs.promises.readFile(filePath, 'utf8');
       return this.scanFileContent(filePath, content, projectName, relativePath, stat.mtimeMs);
     } catch {
