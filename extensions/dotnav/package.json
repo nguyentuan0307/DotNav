@@ -191,7 +191,8 @@
       },
       {
         "command": "dotnav.traceCqrsFlow",
-        "title": "DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)",
+        "title": "Trace CQRS Flow",
+        "category": "DotNav",
         "icon": "$(workflow)"
       },
       {
