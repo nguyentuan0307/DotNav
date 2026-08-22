@@ -166,7 +166,7 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
   assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 1);
+  assert.equal(snapshot.version, 3);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
 
@@ -181,4 +181,76 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
   assert.equal(searchResults.length, 1);
   assert.equal(searchResults[0].symbol.name, 'ProcessOrder()');
 });
+
+test('CQRS Flow Builder traces Command -> Handler -> Domain Event -> Listener flow', () => {
+  const index = new UniversalSymbolIndex();
+
+  const commandCode = `
+namespace ELDesk.CustomApp.Commands
+{
+    public class AddAppFieldCommand : IRequest<Guid>
+    {
+        public int AppId { get; set; }
+    }
+}`;
+
+  const handlerCode = `
+namespace ELDesk.CustomApp.Handlers
+{
+    public class AddAppFieldCommandHandler : IRequestHandler<AddAppFieldCommand, Guid>
+    {
+        public async Task<Guid> Handle(AddAppFieldCommand request, CancellationToken ct)
+        {
+            var evt = new AppFieldAddedDomainEvent(request.AppId);
+            return Guid.NewGuid();
+        }
+    }
+}`;
+
+  const eventCode = `
+namespace ELDesk.CustomApp.Events
+{
+    public class AppFieldAddedDomainEvent : INotification
+    {
+        public int AppId { get; set; }
+    }
+}`;
+
+  const listenerCode = `
+namespace ELDesk.CustomApp.DomainEventHandlers
+{
+    public class AppFieldAddedDomainEventHandler : INotificationHandler<AppFieldAddedDomainEvent>
+    {
+        public async Task Handle(AppFieldAddedDomainEvent notification, CancellationToken ct) {}
+    }
+}`;
+
+  index.scanFileContent('/src/AddAppFieldCommand.cs', commandCode, 'ELDesk.CustomApp', 'Commands/AddAppFieldCommand.cs');
+  index.scanFileContent('/src/AddAppFieldCommandHandler.cs', handlerCode, 'ELDesk.CustomApp.AppCore', 'Handlers/AddAppFieldCommandHandler.cs');
+  index.scanFileContent('/src/AppFieldAddedDomainEvent.cs', eventCode, 'ELDesk.CustomApp.SharedDomain', 'Events/AppFieldAddedDomainEvent.cs');
+  index.scanFileContent('/src/AppFieldAddedDomainEventHandler.cs', listenerCode, 'ELDesk.CustomApp.AppCore', 'DomainEventHandlers/AppFieldAddedDomainEventHandler.cs');
+  index.markFullScanCompleted();
+
+  const { buildCqrsFlow } = require('../solutionSearch/searchScanner');
+  const flow = buildCqrsFlow('AddAppField', index);
+
+  assert.ok(flow);
+  assert.equal(flow.rootNoun, 'AppField');
+  assert.equal(flow.nodes.length, 4);
+
+  assert.equal(flow.nodes[0].category, '1. Request / Command');
+  assert.equal(flow.nodes[0].symbol.name, 'AddAppFieldCommand');
+
+  assert.equal(flow.nodes[1].category, '2. Command Handler');
+  assert.equal(flow.nodes[1].symbol.name, 'AddAppFieldCommandHandler');
+  assert.equal(flow.nodes[1].symbol.metadata.handledType, 'AddAppFieldCommand');
+
+  assert.equal(flow.nodes[2].category, '3. Domain Event');
+  assert.equal(flow.nodes[2].symbol.name, 'AppFieldAddedDomainEvent');
+
+  assert.equal(flow.nodes[3].category, '4. Event Listener');
+  assert.equal(flow.nodes[3].symbol.name, 'AppFieldAddedDomainEventHandler');
+  assert.equal(flow.nodes[3].symbol.metadata.handledType, 'AppFieldAddedDomainEvent');
+});
+
 

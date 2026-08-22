@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.22.2",
+  "version": "0.23.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -188,6 +188,11 @@
       {
         "command": "dotnav.searchApiEndpoints",
         "title": "Search ASP.NET Core Endpoints"
+      },
+      {
+        "command": "dotnav.traceCqrsFlow",
+        "title": "DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)",
+        "icon": "$(workflow)"
       },
       {
         "command": "dotnav.rescanSolutionSymbols",
@@ -642,19 +647,29 @@
         "key": "alt+insert",
         "mac": "alt+cmd+n",
         "when": "focusedView == dotnav"
+      },
+      {
+        "command": "dotnav.traceCqrsFlow",
+        "key": "ctrl+alt+q",
+        "mac": "cmd+alt+q"
       }
     ],
     "menus": {
       "editor/context": [
         {
+          "command": "dotnav.traceCqrsFlow",
+          "when": "editorLangId == csharp || resourceExtname == .cs",
+          "group": "6_dotnav@0"
+        },
+        {
           "command": "dotnav.formatSelection",
           "when": "editorLangId == csharp",
-          "group": "6_dotnav@0"
+          "group": "6_dotnav@1"
         },
         {
           "command": "dotnav.formatDocument",
           "when": "editorLangId == csharp",
-          "group": "6_dotnav@1"
+          "group": "6_dotnav@2"
         },
         {
           "submenu": "dotnav.localChanges",

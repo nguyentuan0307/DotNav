@@ -4,6 +4,19 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.23.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.2...dotnav-v0.23.0) (2026-08-22)
+
+
+### Features
+
+* **dotnav:** support searching error messages from .resx localization and inline C# exceptions ([ed86c96](https://github.com/nguyentuan0307/DotNav/commit/ed86c960e3dfa58c453111d8e9d0f9f3a9d3dbaa))
+* **dotnav:** trace CQRS flows connecting commands, handlers, and domain events in search everywhere ([88d0e6f](https://github.com/nguyentuan0307/DotNav/commit/88d0e6f214f17ac2ebdfacd8b474df26c0d9488f))
+
+### Bug Fixes
+
+* **dotnav:** support accent-insensitive Vietnamese error search and auto-refresh disk cache ([c0b8ee0](https://github.com/nguyentuan0307/DotNav/commit/c0b8ee0fdeadb774467d40132907ebee2e842d4e))
+
+
 ## [0.22.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.1...dotnav-v0.22.2) (2026-08-22)
 
 

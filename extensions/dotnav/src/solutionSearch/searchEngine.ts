@@ -5,6 +5,7 @@ import {
   UniversalSymbol,
   UniversalSymbolKind
 } from './searchModel';
+import { stripAccents } from './searchScanner';
 
 export function isNearMatch(a: string, b: string): boolean {
   const al = a.length;
@@ -198,20 +199,24 @@ export function scoreSymbol(
   const originalBareName = symbol.name.split('(')[0].trim();
   const bareSymbolName = originalBareName.toLowerCase();
   const rawQueryLower = query.cleanQuery.toLowerCase();
+  const rawQueryUnaccented = stripAccents(rawQueryLower);
+  const bareUnaccented = stripAccents(bareSymbolName);
+  const nameUnaccented = stripAccents(symbolNameLower);
+
   let baseScore = 0;
   let matchReason = '';
 
-  // 3. Exact full match or bare name match
-  if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower) {
+  // 3. Exact full match or bare name match (accent-tolerant)
+  if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower || bareUnaccented === rawQueryUnaccented || nameUnaccented === rawQueryUnaccented) {
     baseScore = 100;
     matchReason = 'Exact name match';
-  } else if (bareSymbolName.startsWith(rawQueryLower) && rawQueryLower.length >= 3) {
+  } else if ((bareSymbolName.startsWith(rawQueryLower) || bareUnaccented.startsWith(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
     baseScore = 98;
     matchReason = 'Name prefix match';
-  } else if (bareSymbolName.includes(rawQueryLower) && rawQueryLower.length >= 3) {
+  } else if ((bareSymbolName.includes(rawQueryLower) || bareUnaccented.includes(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
     baseScore = 95;
     matchReason = 'Name substring match';
-  } else if (symbol.metadata?.routeTemplate && symbol.metadata.routeTemplate.toLowerCase() === rawQueryLower) {
+  } else if (symbol.metadata?.routeTemplate && (symbol.metadata.routeTemplate.toLowerCase() === rawQueryLower || stripAccents(symbol.metadata.routeTemplate.toLowerCase()) === rawQueryUnaccented)) {
     baseScore = 100;
     matchReason = 'Exact route template match';
   }
@@ -232,6 +237,7 @@ export function scoreSymbol(
 
     const targetText = (
       symbol.name + ' ' +
+      (symbol.metadata?.configValue || '') + ' ' +
       (symbol.metadata?.routeTemplate || '') + ' ' +
       container + ' ' +
       bareContainer + ' ' +
@@ -242,24 +248,33 @@ export function scoreSymbol(
       (symbol.relativePath || '')
     ).toLowerCase();
 
+    const targetUnaccented = stripAccents(targetText);
+
     let matchedTokens = 0;
     let inOrder = true;
     let lastIndex = -1;
 
     for (const token of query.tokens) {
       const tokLower = token.toLowerCase();
+      const tokUnaccented = stripAccents(tokLower);
       const tokSingular = tokLower.endsWith('s') && tokLower.length > 3 ? tokLower.slice(0, -1) : tokLower;
+      const tokSingularUnaccented = stripAccents(tokSingular);
+
       const idx = targetText.indexOf(tokLower, lastIndex + 1);
+      const idxUnaccented = targetUnaccented.indexOf(tokUnaccented, lastIndex + 1);
 
       if (idx !== -1) {
         matchedTokens++;
         lastIndex = idx;
-      } else if (targetText.includes(tokLower)) {
+      } else if (idxUnaccented !== -1) {
+        matchedTokens++;
+        lastIndex = idxUnaccented;
+      } else if (targetText.includes(tokLower) || targetUnaccented.includes(tokUnaccented)) {
         matchedTokens += 0.9;
         inOrder = false;
-      } else if (targetText.includes(tokSingular)) {
+      } else if (targetText.includes(tokSingular) || targetUnaccented.includes(tokSingularUnaccented)) {
         matchedTokens += 0.85;
-      } else if (isNearMatch(tokLower, symbolNameLower)) {
+      } else if (isNearMatch(tokLower, symbolNameLower) || isNearMatch(tokUnaccented, nameUnaccented)) {
         matchedTokens += 0.7;
         matchReason = 'Typo tolerated';
       }
