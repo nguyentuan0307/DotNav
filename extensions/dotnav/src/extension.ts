@@ -42,7 +42,7 @@ let activeProcessManager: ProcessManager | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
-  const cacheDir = context.globalStorageUri?.fsPath || context.storageUri?.fsPath || path.join(context.extensionPath, '.cache');
+  const cacheDir = context.storageUri?.fsPath || context.globalStorageUri?.fsPath || path.join(context.extensionPath, '.cache');
   const diskStore = new DiskSymbolStore(cacheDir);
   if (isSolutionSearchEnabled()) {
     diskStore.initialize().catch(() => {});
