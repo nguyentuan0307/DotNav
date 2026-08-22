@@ -4,6 +4,25 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.24.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.23.0...dotnav-v0.24.0) (2026-08-22)
+
+
+### Features
+
+* **dotnav:** expand universal search scope across backend architecture with RAM optimizations ([e9ef767](https://github.com/nguyentuan0307/DotNav/commit/e9ef767323d4fa2491a0398a7bef7b0cc07d0734))
+
+### Bug Fixes
+
+* **dotnav:** auto-detect active CQRS symbol and shorten context menu action name ([df8ff88](https://github.com/nguyentuan0307/DotNav/commit/df8ff885b65799fbcf978682497bd0a5a883b111))
+* **dotnav:** ensure all CQRS flow nodes remain visible and bump cache version ([9121fff](https://github.com/nguyentuan0307/DotNav/commit/9121fff2ffd0b252296111fab2b40057e67ad795))
+* **dotnav:** preserve disk store across snapshot reload and synchronize token indexing ([35d11cb](https://github.com/nguyentuan0307/DotNav/commit/35d11cbea245ae4775dc2f0b39afef398124eb61))
+
+### Performance Improvements
+
+* **dotnav:** optimize prefix candidate retrieval in search index for sub-millisecond lookups ([7cdd962](https://github.com/nguyentuan0307/DotNav/commit/7cdd9621d8588857b73ef445330e721eb708acfa))
+* **dotnav:** implement tiered low-RAM search architecture with disk store and 2-phase querying ([60a1d1c](https://github.com/nguyentuan0307/DotNav/commit/60a1d1c7b951fb846cc56b463351be3a00212879))
+
+
 ## [0.23.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.22.2...dotnav-v0.23.0) (2026-08-22)
 
 

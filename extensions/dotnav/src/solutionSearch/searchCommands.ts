@@ -8,7 +8,7 @@ import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
 import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
 import { SearchFilterMode, SearchIndexSnapshot, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
-import { UniversalSymbolIndex, buildCqrsFlow } from './searchScanner';
+import { UniversalSymbolIndex, buildCqrsFlow, detectActiveCqrsContext } from './searchScanner';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
@@ -80,6 +80,16 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
       return `$(table) ${symbol.name}`;
     case 'ef_migration':
       return `$(history) ${symbol.name}`;
+    case 'db_table':
+      return `$(database) ${symbol.name}`;
+    case 'di_registration':
+      return `$(plug) ${symbol.name}`;
+    case 'background_job':
+      return `$(clock) ${symbol.name}`;
+    case 'mapping_profile':
+      return `$(arrow-swap) ${symbol.name}`;
+    case 'validation_rule':
+      return `$(pass) ${symbol.name}`;
     case 'interface':
       return `$(symbol-interface) ${symbol.name}`;
     case 'class':
@@ -117,8 +127,13 @@ export function formatSymbolDetail(symbol: UniversalSymbol): string {
     symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
       ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
       : '';
+  const injected =
+    symbol.metadata?.injectedParams && symbol.metadata.injectedParams.length > 0
+      ? ` • Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
+      : '';
+  const sqlTable = symbol.metadata?.sqlTable ? ` • Table: ${symbol.metadata.sqlTable}` : '';
 
-  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${handled}${emits}${configVal}`;
+  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${handled}${emits}${injected}${sqlTable}${configVal}`;
 }
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
@@ -133,7 +148,16 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
     case 'ef_dbset':
     case 'ef_entity':
     case 'ef_migration':
-      return 'Database & EF Core';
+    case 'db_table':
+      return 'Database & EF Core Tables';
+    case 'di_registration':
+      return 'Dependency Injection';
+    case 'background_job':
+      return 'Background Jobs (Hangfire / Worker)';
+    case 'mapping_profile':
+      return 'Object Mappings (AutoMapper / Mapster)';
+    case 'validation_rule':
+      return 'Validation Rules (FluentValidation)';
     case 'class':
     case 'interface':
     case 'record':
@@ -333,7 +357,7 @@ export async function loadSnapshotFromDisk(
       });
     });
     const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
-    if (snapshot && snapshot.version === 3 && snapshot.symbolsByFile) {
+    if (snapshot && snapshot.version === 5 && snapshot.symbolsByFile) {
       index.loadSnapshot(snapshot);
       return true;
     }
@@ -400,7 +424,7 @@ export async function populateUniversalIndexFromSolution(
 
   // Phase 3: Stale-While-Revalidate Background Sync (check mtime diff)
   const files = await vscode.workspace.findFiles(
-    '**/*.{cs,json,csproj,resx}',
+    '**/*.{cs,json,csproj,resx,sql,yaml,yml,proto,graphql,md,sh,ps1,xml,config}',
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**}'
   );
 
@@ -440,6 +464,7 @@ export async function populateUniversalIndexFromSolution(
 
   if (hasChanges || !loadedFromCache) {
     scheduleSaveSnapshotToDisk(context, index);
+    index.getDiskStore()?.saveToDisk().catch(() => {});
   }
 }
 
@@ -746,7 +771,7 @@ export async function searchEverywhereInteractive(
 export async function traceCqrsFlowInteractive(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  targetQueryOrSymbol?: string | UniversalSymbol,
+  targetQueryOrSymbol?: string | UniversalSymbol | vscode.Uri | any,
   context?: vscode.ExtensionContext
 ): Promise<void> {
   globalActiveTreeProvider = provider;
@@ -754,32 +779,7 @@ export async function traceCqrsFlowInteractive(
 
   await ensureUniversalIndexReady(provider, index, context);
 
-  let initialQuery = '';
-  if (typeof targetQueryOrSymbol === 'string') {
-    initialQuery = targetQueryOrSymbol;
-  } else if (targetQueryOrSymbol && typeof targetQueryOrSymbol === 'object') {
-    initialQuery = targetQueryOrSymbol.name;
-  } else {
-    // Check if active editor has word under cursor or file name
-    const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) {
-      const doc = activeEditor.document;
-      const selection = activeEditor.selection;
-      const wordRange = doc.getWordRangeAtPosition(selection.active);
-      if (wordRange) {
-        const word = doc.getText(wordRange);
-        if (word && word.length >= 3) {
-          initialQuery = word;
-        }
-      }
-      if (!initialQuery) {
-        const base = path.basename(doc.fileName, '.cs');
-        if (base && !base.startsWith('.')) {
-          initialQuery = base;
-        }
-      }
-    }
-  }
+  let initialQuery = detectActiveCqrsContext(targetQueryOrSymbol, vscode.window.activeTextEditor);
 
   if (!initialQuery) {
     const input = await vscode.window.showInputBox({
@@ -794,8 +794,8 @@ export async function traceCqrsFlowInteractive(
   const quickPick = vscode.window.createQuickPick<UniversalQuickPickItem>();
   quickPick.title = 'DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)';
   quickPick.placeholder = 'Search CQRS pipelines by name (e.g. AddAppField, CopyFunction, AppFieldDeleted)...';
-  quickPick.matchOnDescription = true;
-  quickPick.matchOnDetail = true;
+  quickPick.matchOnDescription = false;
+  quickPick.matchOnDetail = false;
 
   const updateFlowItems = (query: string) => {
     const flow = buildCqrsFlow(query, index);

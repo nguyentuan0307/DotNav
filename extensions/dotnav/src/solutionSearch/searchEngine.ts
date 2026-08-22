@@ -83,15 +83,21 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
   } else if (clean.startsWith('$') || clean.toLowerCase().startsWith('cqrs:')) {
     filterMode = 'cqrs';
     clean = clean.startsWith('$') ? clean.slice(1) : clean.slice(5);
-  } else if (clean.startsWith('%') || clean.toLowerCase().startsWith('db:')) {
+  } else if (clean.startsWith('%') || clean.toLowerCase().startsWith('db:') || clean.toLowerCase().startsWith('table:')) {
     filterMode = 'database';
-    clean = clean.startsWith('%') ? clean.slice(1) : clean.slice(3);
+    clean = clean.startsWith('%') ? clean.slice(1) : clean.startsWith('db:') ? clean.slice(3) : clean.slice(6);
   } else if (clean.startsWith('#') || clean.toLowerCase().startsWith('type:')) {
     filterMode = 'types';
     clean = clean.startsWith('#') ? clean.slice(1) : clean.slice(5);
   } else if (clean.startsWith('@') || clean.toLowerCase().startsWith('method:')) {
     filterMode = 'methods';
     clean = clean.startsWith('@') ? clean.slice(1) : clean.slice(7);
+  } else if (clean.toLowerCase().startsWith('di:') || clean.toLowerCase().startsWith('inject:')) {
+    filterMode = 'di';
+    clean = clean.startsWith('di:') ? clean.slice(3) : clean.slice(7);
+  } else if (clean.toLowerCase().startsWith('job:')) {
+    filterMode = 'jobs';
+    clean = clean.slice(4);
   } else if (clean.startsWith('!') || clean.toLowerCase().startsWith('file:')) {
     filterMode = 'files';
     clean = clean.startsWith('!') ? clean.slice(1) : clean.slice(5);
@@ -151,11 +157,15 @@ export function isKindMatchingMode(kind: UniversalSymbolKind, mode: SearchFilter
     case 'cqrs':
       return kind === 'cqrs_command' || kind === 'cqrs_query' || kind === 'cqrs_handler' || kind === 'cqrs_event';
     case 'database':
-      return kind === 'ef_entity' || kind === 'ef_dbset' || kind === 'ef_migration';
+      return kind === 'ef_entity' || kind === 'ef_dbset' || kind === 'ef_migration' || kind === 'db_table';
+    case 'di':
+      return kind === 'di_registration';
+    case 'jobs':
+      return kind === 'background_job';
     case 'types':
       return kind === 'class' || kind === 'interface' || kind === 'record' || kind === 'enum' || kind === 'enum_member';
     case 'methods':
-      return kind === 'method' || kind === 'property';
+      return kind === 'method' || kind === 'property' || kind === 'validation_rule' || kind === 'mapping_profile';
     case 'files':
       return kind === 'file' || kind === 'project' || kind === 'config_key';
     default:
@@ -239,6 +249,8 @@ export function scoreSymbol(
       symbol.name + ' ' +
       (symbol.metadata?.configValue || '') + ' ' +
       (symbol.metadata?.routeTemplate || '') + ' ' +
+      (symbol.metadata?.sqlTable || '') + ' ' +
+      ((symbol.metadata?.injectedParams || []).join(' ')) + ' ' +
       container + ' ' +
       bareContainer + ' ' +
       pluralContainer + ' ' +
@@ -304,7 +316,14 @@ export function scoreSymbol(
   }
 
   // 7. Domain priority adjustments
-  if (symbol.kind === 'endpoint' || symbol.kind === 'cqrs_command' || symbol.kind === 'cqrs_handler') {
+  if (
+    symbol.kind === 'endpoint' ||
+    symbol.kind === 'cqrs_command' ||
+    symbol.kind === 'cqrs_handler' ||
+    symbol.kind === 'cqrs_event' ||
+    symbol.kind === 'di_registration' ||
+    symbol.kind === 'background_job'
+  ) {
     baseScore = Math.min(100, baseScore + 2);
   }
 
@@ -330,9 +349,13 @@ export function scoreSymbol(
 }
 
 export function searchUniversalSymbols(
-  symbolsOrIndex: readonly UniversalSymbol[] | { getCandidates: (mode: SearchFilterMode, tokens: string[], proj?: string) => UniversalSymbol[]; getAllSymbols: () => UniversalSymbol[] },
+  symbolsOrIndex: readonly UniversalSymbol[] | {
+    getCandidates: (mode: SearchFilterMode, tokens: string[], proj?: string) => UniversalSymbol[];
+    getAllSymbols: () => UniversalSymbol[];
+    getDiskStore?: () => import('./searchDiskStore').DiskSymbolStore | undefined;
+  },
   rawQuery: string,
-  limit = 100,
+  limit = 200,
   rankingContext?: import('./searchModel').SearchRankingContext
 ): UniversalSearchResult[] {
   const parsed = parseUniversalSearchQuery(rawQuery);
@@ -351,11 +374,29 @@ export function searchUniversalSymbols(
   }
 
   const results: UniversalSearchResult[] = [];
+  const seenIds = new Set<string>();
 
+  // 1. Phase 1: In-Memory Hot RAM Candidates (< 1-2ms)
   for (const sym of candidateSymbols) {
     const { score, matchReason } = scoreSymbol(sym, parsed, rankingContext);
     if (score >= 40) {
       results.push({ symbol: sym, score, matchReason });
+      seenIds.add(sym.id);
+    }
+  }
+
+  // 2. Phase 2: On-Demand Cold Disk Store Search (< 15-25ms)
+  const diskStore = typeof (symbolsOrIndex as any)?.getDiskStore === 'function' ? (symbolsOrIndex as any).getDiskStore() : undefined;
+  if (diskStore && (parsed.filterMode === 'all' || parsed.filterMode === 'methods' || parsed.filterMode === 'files' || results.length < limit)) {
+    const coldSymbols = diskStore.searchColdSymbols(parsed.tokens, limit);
+    for (const sym of coldSymbols) {
+      if (!seenIds.has(sym.id)) {
+        const { score, matchReason } = scoreSymbol(sym, parsed, rankingContext);
+        if (score >= 40) {
+          results.push({ symbol: sym, score: Math.max(30, score - 2), matchReason: matchReason || 'Disk symbol match' });
+          seenIds.add(sym.id);
+        }
+      }
     }
   }
 

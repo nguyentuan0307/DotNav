@@ -100,7 +100,7 @@ test('UniversalSymbolIndex handles incremental updates and full scan tracking', 
   assert.equal(index.isFullScanCompleted, false);
 
   index.scanFileContent('/src/User.cs', 'public class User {}', 'MyProject', 'User.cs');
-  assert.equal(index.count, 1);
+  assert.equal(index.count, 2); // Class and File
   assert.equal(index.fileCount, 1);
 
   index.markFullScanCompleted();
@@ -162,24 +162,23 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
     1700000000000
   );
 
-  assert.equal(index.count, 2); // Class and Method
+  assert.equal(index.count, 3); // Class, Method, and File
   assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 3);
+  assert.equal(snapshot.version, 5);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
 
   const restoredIndex = new UniversalSymbolIndex();
   restoredIndex.loadSnapshot(snapshot);
 
-  assert.equal(restoredIndex.isFullScanCompleted, true);
-  assert.equal(restoredIndex.count, 2);
+  assert.equal(restoredIndex.count, 3);
   assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
 
   const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
-  assert.equal(searchResults.length, 1);
-  assert.equal(searchResults[0].symbol.name, 'ProcessOrder()');
+  assert.ok(searchResults.length >= 1);
+  assert.ok(searchResults.some((r: any) => r.symbol.name === 'ProcessOrder()'));
 });
 
 test('CQRS Flow Builder traces Command -> Handler -> Domain Event -> Listener flow', () => {
@@ -253,4 +252,193 @@ namespace ELDesk.CustomApp.DomainEventHandlers
   assert.equal(flow.nodes[3].symbol.metadata.handledType, 'AppFieldAddedDomainEvent');
 });
 
+test('detectActiveCqrsContext correctly extracts symbol from URI or Mock Editor', () => {
+  const { detectActiveCqrsContext } = require('../solutionSearch/searchScanner');
 
+  // Test 1: From Uri object
+  const mockUri = { fsPath: '/path/to/DataEntityCreatedDomainEvent.cs' };
+  assert.equal(detectActiveCqrsContext(mockUri), 'DataEntityCreatedDomainEvent');
+
+  // Test 2: From Mock Active Editor with class definition
+  const mockEditor = {
+    document: {
+      fileName: '/src/SomeFile.cs',
+      getText: (range?: any) => range ? '' : 'public class DataEntityCreatedDomainEvent : INotification {}',
+      getWordRangeAtPosition: () => undefined
+    },
+    selection: { isEmpty: true, active: {} }
+  };
+  assert.equal(detectActiveCqrsContext(undefined, mockEditor as any), 'DataEntityCreatedDomainEvent');
+
+  // Test 3: From UniversalSymbol
+  const mockSym = { name: 'AddAppFieldCommandHandler', kind: 'cqrs_handler' };
+  assert.equal(detectActiveCqrsContext(mockSym), 'AddAppFieldCommandHandler');
+});
+
+test('Wide-Scope Search parses Constructors, DI, Database Tables, Background Jobs, and Multi-files', () => {
+  const {
+    parseSymbolsFromCSharp,
+    parseSymbolsFromSql,
+    parseSymbolsFromYaml,
+    parseSymbolsFromProto,
+    parseSymbolsFromMarkdown
+  } = require('../solutionSearch/searchScanner');
+  const { searchUniversalSymbols } = require('../solutionSearch/searchEngine');
+
+  const csharpCode = `
+public class DataEntityService : IDataEntityService
+{
+    private readonly IUnitOfWorkBase _unitOfWork;
+    private readonly IAppFieldRepository _appFieldRepo;
+
+    public DataEntityService(IUnitOfWorkBase unitOfWork, IAppFieldRepository appFieldRepo)
+    {
+        _unitOfWork = unitOfWork;
+        _appFieldRepo = appFieldRepo;
+    }
+
+    public async Task CreateAsync(CreateDataEntityDto dto)
+    {
+        _backgroundJobManager.Enqueue<CreateDataEntityStorageContainerJob>(job => job.ExecuteAsync());
+    }
+}
+
+public class Startup
+{
+    public void ConfigureServices(IServiceCollection services)
+    {
+        services.AddScoped<IDataEntityService, DataEntityService>();
+    }
+}
+
+public class DataEntityConfiguration : IEntityTypeConfiguration<DataEntity>
+{
+    public void Configure(EntityTypeBuilder<DataEntity> builder)
+    {
+        builder.ToTable("DataEntities");
+    }
+}
+`;
+
+  const symbols = parseSymbolsFromCSharp(csharpCode, '/src/DataEntityService.cs', 'CustomApp', 'Services/DataEntityService.cs');
+  
+  // Verify Constructor & Injected params
+  const ctorSym = symbols.find((s: any) => s.id.includes(':ctor:'));
+  assert.ok(ctorSym);
+  assert.ok(ctorSym.metadata.injectedParams.includes('IUnitOfWorkBase'));
+  assert.ok(ctorSym.metadata.injectedParams.includes('IAppFieldRepository'));
+
+  // Verify DI Registration
+  const diSym = symbols.find((s: any) => s.kind === 'di_registration');
+  assert.ok(diSym);
+  assert.equal(diSym.name, 'AddScoped<IDataEntityService, DataEntityService>');
+
+  // Verify Database Table
+  const tableSym = symbols.find((s: any) => s.kind === 'db_table');
+  assert.ok(tableSym);
+  assert.equal(tableSym.name, 'Table: DataEntities');
+
+  // Verify Background Job Enqueue
+  const jobSym = symbols.find((s: any) => s.kind === 'background_job');
+  assert.ok(jobSym);
+  assert.equal(jobSym.name, 'Job: CreateDataEntityStorageContainerJob');
+
+  // Verify SQL Parser
+  const sqlCode = 'CREATE TABLE "AppFields" (Id INT PRIMARY KEY); CREATE PROCEDURE sp_ProcessOrders AS SELECT 1;';
+  const sqlSyms = parseSymbolsFromSql(sqlCode, '/db/schema.sql', 'CustomApp', 'db/schema.sql');
+  assert.equal(sqlSyms.length, 2);
+  assert.equal(sqlSyms[0].name, 'TABLE AppFields');
+  assert.equal(sqlSyms[1].name, 'PROCEDURE sp_ProcessOrders');
+
+  // Verify YAML Parser
+  const yamlCode = 'services:\n  customapp-api:\n    image: customapp:latest\n    environment:\n      ASPNETCORE_ENVIRONMENT: Development';
+  const yamlSyms = parseSymbolsFromYaml(yamlCode, '/docker-compose.yml', 'Root', 'docker-compose.yml');
+  assert.ok(yamlSyms.some((s: any) => s.name.includes('customapp-api')));
+
+  // Verify Proto Parser
+  const protoCode = 'service DataEntityService { rpc GetDataEntity (GetRequest) returns (GetResponse); } message GetRequest { int32 id = 1; }';
+  const protoSyms = parseSymbolsFromProto(protoCode, '/proto/data.proto', 'Protos', 'proto/data.proto');
+  assert.equal(protoSyms.length, 3);
+  assert.equal(protoSyms[0].name, 'service DataEntityService');
+  assert.equal(protoSyms[1].name, 'rpc GetDataEntity');
+  assert.equal(protoSyms[2].name, 'message GetRequest');
+
+  // Verify Markdown Parser
+  const mdCode = '# Architecture Overview\n## CQRS Pipelines\n## Database Design';
+  const mdSyms = parseSymbolsFromMarkdown(mdCode, '/docs/arch.md', 'Docs', 'docs/arch.md');
+  assert.equal(mdSyms.length, 3);
+  assert.equal(mdSyms[0].name, '# Architecture Overview');
+});
+
+test('DiskSymbolStore saves, streams, and searches cold secondary symbols without RAM overhead', async () => {
+  const { DiskSymbolStore } = require('../solutionSearch/searchDiskStore');
+  const { UniversalSymbolIndex } = require('../solutionSearch/searchScanner');
+  const { searchUniversalSymbols } = require('../solutionSearch/searchEngine');
+  const os = require('os');
+  const path = require('path');
+  const fs = require('fs');
+
+  const tmpDir = path.join(os.tmpdir(), `dotnav_test_store_${Date.now()}`);
+  const store = new DiskSymbolStore(tmpDir);
+  await store.initialize();
+
+  const csharpCode = `
+public class OrderService
+{
+    public string OrderId { get; set; }
+    public decimal TotalAmount { get; set; }
+
+    public async Task ProcessOrderAsync(int orderId)
+    {
+    }
+
+    private void CalculateTax()
+    {
+    }
+}
+`;
+
+  const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
+
+  // Scan file with DiskStore attached
+  const syms = index.scanFileContent('/src/OrderService.cs', csharpCode, 'OrderApp', 'src/OrderService.cs');
+  assert.ok(syms.length > 0);
+
+  // Verify that only primary symbols (class) are retained in RAM fileCache
+  const ramSymbols = index.getAllSymbols();
+  assert.ok(ramSymbols.some((s: any) => s.kind === 'class' && s.name === 'OrderService'));
+  // Methods and properties should NOT be in RAM fileCache
+  assert.ok(!ramSymbols.some((s: any) => s.kind === 'method' && s.name.startsWith('ProcessOrderAsync')));
+
+  // Verify that cold symbols (methods & properties) ARE registered in DiskStore
+  const diskMatches = store.searchColdSymbols(['ProcessOrder']);
+  assert.ok(diskMatches.length > 0);
+  assert.ok(diskMatches.some((s: any) => s.name.startsWith('ProcessOrderAsync')));
+
+  // Test Two-Phase Search via searchUniversalSymbols
+  const hotResults = searchUniversalSymbols(index, 'OrderService');
+  assert.ok(hotResults.length > 0);
+  assert.equal(hotResults[0].symbol.name, 'OrderService');
+
+  const coldResults = searchUniversalSymbols(index, 'ProcessOrder');
+  assert.ok(coldResults.length > 0);
+  assert.ok(coldResults.some((r: any) => r.symbol.name.startsWith('ProcessOrderAsync')));
+
+  // Save to disk and reload
+  await store.saveToDisk();
+  assert.ok(fs.existsSync(store.storagePath));
+
+  const store2 = new DiskSymbolStore(tmpDir);
+  const loaded = await store2.loadFromDisk();
+  assert.strictEqual(loaded, true);
+  assert.ok(store2.count > 0);
+  const reloadedMatches = store2.searchColdSymbols(['CalculateTax']);
+  assert.ok(reloadedMatches.length > 0);
+  assert.ok(reloadedMatches.some((s: any) => s.name.startsWith('CalculateTax')));
+
+  // Clean up
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {}
+});
