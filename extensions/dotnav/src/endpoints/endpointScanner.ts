@@ -225,30 +225,68 @@ export function parseEndpointsFromCSharp(
 
     const classBody = code.substring(bodyStartIndex, bodyEndIndex);
 
-    // Match action methods with HTTP attributes (supporting prior attributes like [FeatureAccessControl])
-    const methodRegex = /(?:\[[^\]]+\]\s*)*\[(?:(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|HttpHead|HttpOptions|AcceptVerbs|Route)\s*(?:\(\s*(?:\$|@)?"([^"]*)"[^)]*\))?)\]\s*(?:\[[^\]]+\]\s*)*(?:public\s+|protected\s+|internal\s+|private\s+|async\s+|virtual\s+|override\s+|static\s+)*(?:Task<[^>]+>|Task|ActionResult<[^>]+>|IActionResult|IResult|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g;
+    // Match action methods with any combination of HTTP and Route attributes
+    const actionBlockRegex = /(?:\[[^\]]+\]\s*)+(?:public\s+|protected\s+|internal\s+|private\s+|async\s+|virtual\s+|override\s+|static\s+)*(?:Task<[^>]+>|Task|ValueTask<[^>]+>|ValueTask|ActionResult<[^>]+>|IActionResult|IResult|[A-Za-z0-9_<>[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g;
 
-    let methodMatch: RegExpExecArray | null;
-    while ((methodMatch = methodRegex.exec(classBody)) !== null) {
-      const httpAttr = methodMatch[1];
-      const actionRouteArg = methodMatch[2] || '';
-      const actionName = methodMatch[3];
-      const paramsArg = methodMatch[4] || '';
+    let actionMatch: RegExpExecArray | null;
+    while ((actionMatch = actionBlockRegex.exec(classBody)) !== null) {
+      const fullBlock = actionMatch[0];
+      const actionName = actionMatch[1];
+      const paramsArg = actionMatch[2] || '';
 
-      let httpMethod: HttpMethod = 'GET';
-      if (/^HttpPost$/i.test(httpAttr)) httpMethod = 'POST';
-      else if (/^HttpPut$/i.test(httpAttr)) httpMethod = 'PUT';
-      else if (/^HttpDelete$/i.test(httpAttr)) httpMethod = 'DELETE';
-      else if (/^HttpPatch$/i.test(httpAttr)) httpMethod = 'PATCH';
-      else if (/^HttpHead$/i.test(httpAttr)) httpMethod = 'HEAD';
-      else if (/^HttpOptions$/i.test(httpAttr)) httpMethod = 'OPTIONS';
-      else if (/^Route$/i.test(httpAttr)) httpMethod = 'ANY';
-      else if (/^AcceptVerbs$/i.test(httpAttr)) {
-        const verbMatch = actionRouteArg.match(/(GET|POST|PUT|DELETE|PATCH)/i);
-        if (verbMatch) httpMethod = verbMatch[1].toUpperCase() as HttpMethod;
+      let httpMethod: HttpMethod | undefined = undefined;
+      let actionRouteArg = '';
+      const methodAuth: string[] = [];
+
+      const attrRegex = /\[([^\]]+)\]/g;
+      let attrMatch: RegExpExecArray | null;
+      while ((attrMatch = attrRegex.exec(fullBlock)) !== null) {
+        const rawContent = attrMatch[1].trim();
+        const attrName = rawContent.split(/[\s(]/)[0].trim();
+        const argMatch = rawContent.match(/\(\s*(?:\$|@)?"([^"]*)"/);
+        const attrArg = argMatch ? argMatch[1] : '';
+
+        if (/^HttpPost$/i.test(attrName)) {
+          httpMethod = 'POST';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpGet$/i.test(attrName)) {
+          httpMethod = 'GET';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpPut$/i.test(attrName)) {
+          httpMethod = 'PUT';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpDelete$/i.test(attrName)) {
+          httpMethod = 'DELETE';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpPatch$/i.test(attrName)) {
+          httpMethod = 'PATCH';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpHead$/i.test(attrName)) {
+          httpMethod = 'HEAD';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^HttpOptions$/i.test(attrName)) {
+          httpMethod = 'OPTIONS';
+          if (attrArg) actionRouteArg = attrArg;
+        } else if (/^Route$/i.test(attrName)) {
+          if (attrArg) actionRouteArg = attrArg;
+          if (!httpMethod) httpMethod = 'ANY';
+        } else if (/^AcceptVerbs$/i.test(attrName)) {
+          const verbMatch = rawContent.match(/(GET|POST|PUT|DELETE|PATCH)/i);
+          if (verbMatch) httpMethod = verbMatch[1].toUpperCase() as HttpMethod;
+        } else if (/^Authorize$/i.test(attrName)) {
+          methodAuth.push('Authorize');
+        } else if (/^AllowAnonymous$/i.test(attrName)) {
+          methodAuth.push('AllowAnonymous');
+        }
       }
 
-      const methodOffset = bodyStartIndex + methodMatch.index;
+      // If neither an HTTP verb nor a Route attribute was found, skip non-endpoint methods
+      if (!httpMethod && !actionRouteArg) {
+        continue;
+      }
+
+      const finalMethod: HttpMethod = httpMethod || 'GET';
+      const methodOffset = bodyStartIndex + actionMatch.index;
       const methodLine = code.substring(0, methodOffset).split('\n').length;
 
       const params = paramsArg
@@ -263,11 +301,11 @@ export function parseEndpointsFromCSharp(
         const segments = parseRouteSegments(rawRoute);
         const routeParams = extractRouteParameters(segments);
 
-        const id = `${filePath}:${methodLine}:${httpMethod}:${rawRoute}`;
+        const id = `${filePath}:${methodLine}:${finalMethod}:${rawRoute}`;
 
         endpoints.push({
           id,
-          httpMethod,
+          httpMethod: finalMethod,
           routeTemplate: rawRoute || '[root]',
           normalizedRoute: normalized || '[root]',
           segments,
@@ -280,7 +318,7 @@ export function parseEndpointsFromCSharp(
           projectName,
           parameters: params,
           routeParameters: routeParams,
-          authorization: classAuth
+          authorization: Array.from(new Set([...classAuth, ...methodAuth]))
         });
       }
     }
