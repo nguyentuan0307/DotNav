@@ -468,12 +468,19 @@ export async function populateUniversalIndexFromSolution(
   }
 }
 
+export function isSolutionSearchEnabled(): boolean {
+  return vscode.workspace.getConfiguration('dotnav').get<boolean>('solutionSearch.enabled', true);
+}
+
 export async function warmUpUniversalSearchIndex(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
   context?: vscode.ExtensionContext,
   force = false
 ): Promise<void> {
+  if (!isSolutionSearchEnabled()) {
+    return;
+  }
   if (!force && (index.isFullScanCompleted || activeFullScanPromise)) {
     return activeFullScanPromise;
   }
@@ -579,6 +586,22 @@ export async function searchEverywhereInteractive(
   initialPrefix = '',
   context?: vscode.ExtensionContext
 ): Promise<void> {
+  if (!isSolutionSearchEnabled()) {
+    const choice = await vscode.window.showInformationMessage(
+      'DotNav Search Everywhere is currently disabled in Settings.',
+      'Enable & Search',
+      'Open Settings'
+    );
+    if (choice === 'Enable & Search') {
+      await vscode.workspace.getConfiguration('dotnav').update('solutionSearch.enabled', true, vscode.ConfigurationTarget.Global);
+    } else if (choice === 'Open Settings') {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.solutionSearch.enabled');
+      return;
+    } else {
+      return;
+    }
+  }
+
   globalActiveTreeProvider = provider;
   globalActiveSymbolIndex = index;
   await ensureUniversalIndexReady(provider, index, context);

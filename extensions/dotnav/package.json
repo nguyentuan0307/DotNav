@@ -1148,6 +1148,11 @@
     "configuration": {
       "title": "DotNav",
       "properties": {
+        "dotnav.solutionSearch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable universal solution search indexing and the Search Everywhere command. When disabled, DotNav does not perform background symbol indexing and immediately frees all associated memory and disk caches."
+        },
         "dotnav.localHistory.enabled": {
           "type": "boolean",
           "default": false,
