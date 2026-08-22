@@ -240,6 +240,19 @@ export class DiskSymbolStore {
     }
   }
 
+  public async purgeDiskCache(): Promise<void> {
+    this.clear();
+    try {
+      if (fs.existsSync(this.storagePath)) {
+        await fs.promises.unlink(this.storagePath);
+      }
+      const tmpPath = `${this.storagePath}.tmp`;
+      if (fs.existsSync(tmpPath)) {
+        await fs.promises.unlink(tmpPath);
+      }
+    } catch {}
+  }
+
   private scheduleSave(): void {
     if (this.saveDebounceTimer) return;
     this.saveDebounceTimer = setTimeout(async () => {
