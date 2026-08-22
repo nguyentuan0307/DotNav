@@ -38,7 +38,7 @@ test('UniversalSymbolIndex supports clear and rescan lifecycle', () => {
   index.scanFileContent('/App.cs', 'public class AppService { }', 'App', 'App.cs');
   index.markFullScanCompleted();
 
-  assert.equal(index.count, 1);
+  assert.equal(index.count, 2); // Class and File
   assert.equal(index.isFullScanCompleted, true);
 
   // Clear on branch switch
@@ -49,9 +49,9 @@ test('UniversalSymbolIndex supports clear and rescan lifecycle', () => {
   // Rescan new branch content
   index.scanFileContent('/NewApp.cs', 'public class NewAppService { }', 'NewApp', 'NewApp.cs');
   index.markFullScanCompleted();
-  assert.equal(index.count, 1);
+  assert.equal(index.count, 2);
   assert.equal(index.isFullScanCompleted, true);
-  assert.equal(index.getAllSymbols()[0].name, 'NewAppService');
+  assert.ok(index.getAllSymbols().some(s => s.name === 'NewAppService'));
 });
 
 test('UniversalSymbolIndex parses and searches partial controller endpoints with route constraints and wildcard slashes', () => {

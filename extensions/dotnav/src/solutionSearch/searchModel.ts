@@ -7,6 +7,11 @@ export type UniversalSymbolKind =
   | 'ef_entity'
   | 'ef_dbset'
   | 'ef_migration'
+  | 'db_table'
+  | 'di_registration'
+  | 'background_job'
+  | 'mapping_profile'
+  | 'validation_rule'
   | 'class'
   | 'interface'
   | 'record'
@@ -25,6 +30,8 @@ export type SearchFilterMode =
   | 'database'
   | 'types'
   | 'methods'
+  | 'di'
+  | 'jobs'
   | 'files';
 
 export interface UniversalSymbol {
@@ -49,6 +56,8 @@ export interface UniversalSymbol {
     readonly docSummary?: string;
     readonly handledType?: string;
     readonly emittedEvents?: readonly string[];
+    readonly injectedParams?: readonly string[];
+    readonly sqlTable?: string;
   };
 }
 

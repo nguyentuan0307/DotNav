@@ -68,13 +68,26 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
     }
   };
 
-  const originalBareName = symbol.name.split('(')[0].trim();
+  const originalBareName = symbol.name
+    .split('(')[0]
+    .replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '')
+    .trim();
   addTerm(originalBareName);
 
-  // CamelCase word segments (e.g. UpdateRecordFieldValueAsync -> update, record, field, value, async)
-  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',]+/).filter(Boolean);
+  // CamelCase word segments
+  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(Boolean);
   for (const seg of segments) {
     addTerm(seg);
+  }
+
+  // Folder and path segments (e.g. Services, CustomAppShared, DomainEvents, DataEntities)
+  if (symbol.relativePath) {
+    const pathWords = symbol.relativePath.split(/[\/\\._-]+/).filter(Boolean);
+    for (const pw of pathWords) {
+      if (pw !== 'cs' && pw !== 'json' && pw !== 'csproj' && pw !== 'resx') {
+        addTerm(pw);
+      }
+    }
   }
 
   // Config value / Error message text tokens
@@ -105,8 +118,8 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
     }
   }
 
-  // BaseType / Return Type metadata and segments (e.g. RecordAppearanceLayoutType)
-  const typeMeta = symbol.metadata?.baseType || symbol.metadata?.returnType;
+  // BaseType / Return Type / Handled Type metadata and segments
+  const typeMeta = symbol.metadata?.baseType || symbol.metadata?.returnType || symbol.metadata?.handledType;
   if (typeMeta) {
     const baseTokens = typeMeta.split(/<|>|\s|,|\[|\]|:/).filter(Boolean);
     for (const b of baseTokens) {
@@ -114,6 +127,36 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
       const bSegs = b.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
       for (const bs of bSegs) {
         addTerm(bs);
+      }
+    }
+  }
+
+  // Injected dependencies parameter tokens
+  if (symbol.metadata?.injectedParams) {
+    for (const p of symbol.metadata.injectedParams) {
+      addTerm(p);
+      const pSegs = p.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:<>]+/).filter(Boolean);
+      for (const ps of pSegs) {
+        addTerm(ps);
+      }
+    }
+  }
+
+  // SQL Table
+  if (symbol.metadata?.sqlTable) {
+    addTerm(symbol.metadata.sqlTable);
+    const tSegs = symbol.metadata.sqlTable.split(/[-_\s.]+/).filter(Boolean);
+    for (const ts of tSegs) {
+      addTerm(ts);
+    }
+  }
+
+  // Parameter summary words
+  if (symbol.metadata?.parameterSummary) {
+    const paramWords = symbol.metadata.parameterSummary.split(/[-_\s/.:{}="',;!?()<>\[\],]+/).filter(Boolean);
+    for (const pw of paramWords) {
+      if (pw.length >= 3 && !CSHARP_RESERVED_KEYWORDS.has(pw)) {
+        addTerm(pw);
       }
     }
   }
@@ -520,7 +563,41 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // 7. Parse Properties (Auto, Required, Init, Expression-bodied)
+  // 7. Parse Constructors & Injected Dependencies
+  const ctorRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected|private)\s+([A-Za-z0-9_]+)\s*\(([\s\S]*?)\)\s*(?::\s*(?:base|this)\s*\([^)]*\))?\s*\{/gm;
+  let ctorMatch: RegExpExecArray | null;
+  while ((ctorMatch = ctorRegex.exec(code)) !== null) {
+    const ctorName = ctorMatch[1];
+    const ctorParams = ctorMatch[2].trim();
+    if (ctorParams && !CSHARP_RESERVED_KEYWORDS.has(ctorName)) {
+      const lineIndex = code.substring(0, ctorMatch.index).split(/\r?\n/).length;
+      const paramTypes = ctorParams
+        .split(',')
+        .map(p => {
+          const parts = p.trim().split(/\s+/);
+          return parts.length >= 2 ? parts[0].replace(/<[^>]+>/g, '') : '';
+        })
+        .filter(Boolean);
+
+      symbols.push({
+        id: `${filePath}:${lineIndex}:ctor:${ctorName}`,
+        name: `${ctorName}(${ctorParams.length > 30 ? '...' : ctorParams})`,
+        kind: internString('method') as UniversalSymbolKind,
+        filePath,
+        relativePath,
+        projectName: internString(projectName)!,
+        line: lineIndex,
+        column: 1,
+        containerName: ctorName,
+        metadata: {
+          parameterSummary: ctorParams.replace(/\s+/g, ' ').trim(),
+          injectedParams: paramTypes.map(p => internString(p)!)
+        }
+      });
+    }
+  }
+
+  // 8. Parse Properties (Auto, Required, Init, Expression-bodied)
   const propRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:public|internal|protected)\s+(?:virtual|override|static|sealed|readonly|new|required)*\s*([a-zA-Z0-9_<>?,.\[\]]+)\s+([a-zA-Z0-9_]+)\s*(?:\{\s*(?:get|set|init)|=>)/gm;
   let propMatch: RegExpExecArray | null;
 
@@ -551,7 +628,7 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // 8. Parse Inline Error Messages (throw new ...Exception("..."))
+  // 9. Parse Inline Error Messages (throw new ...Exception("..."))
   const throwRegex = /throw\s+new\s+([A-Za-z0-9_]*Exception)\s*\(\s*(?:\$|@)?"([^"\r\n]+)"/g;
   let throwMatch: RegExpExecArray | null;
   while ((throwMatch = throwRegex.exec(code)) !== null) {
@@ -574,6 +651,113 @@ export function parseSymbolsFromCSharp(
         }
       });
     }
+  }
+
+  // 10. Parse Dependency Injection Service Registrations (services.AddScoped<...>)
+  const diRegex = /\b(?:services|builder\.Services)\s*\.\s*(AddScoped|AddTransient|AddSingleton|AddHostedService)\s*<([a-zA-Z0-9_,\s<>]+)>\s*\(/g;
+  let diMatch: RegExpExecArray | null;
+  while ((diMatch = diRegex.exec(code)) !== null) {
+    const diLifetime = diMatch[1];
+    const diTypes = diMatch[2].trim();
+    const lineIndex = code.substring(0, diMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:di:${diTypes}`,
+      name: `${diLifetime}<${diTypes}>`,
+      kind: internString('di_registration') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: internString(diTypes),
+        docSummary: `DI: ${diLifetime}`
+      }
+    });
+  }
+
+  // 11. Parse Database Fluent API Table Mappings (.ToTable("..."))
+  const tableRegex = /\b(?:builder|entity)\s*\.\s*ToTable\s*\(\s*["']([^"']+)["']/g;
+  let tableMatch: RegExpExecArray | null;
+  while ((tableMatch = tableRegex.exec(code)) !== null) {
+    const tableName = tableMatch[1].trim();
+    const lineIndex = code.substring(0, tableMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:table:${tableName}`,
+      name: `Table: ${tableName}`,
+      kind: internString('db_table') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        sqlTable: internString(tableName)
+      }
+    });
+  }
+
+  // 12. Parse Background Jobs Enqueue / Schedule
+  const jobRegex = /\b(?:_backgroundJobManager|BackgroundJob|_jobClient|RecurringJob)\s*\.\s*(?:Enqueue|Schedule|AddOrUpdate)\s*<([a-zA-Z0-9_]+)>/g;
+  let jobMatch: RegExpExecArray | null;
+  while ((jobMatch = jobRegex.exec(code)) !== null) {
+    const jobName = jobMatch[1].trim();
+    const lineIndex = code.substring(0, jobMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:job:${jobName}`,
+      name: `Job: ${jobName}`,
+      kind: internString('background_job') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: internString(jobName)
+      }
+    });
+  }
+
+  // 13. Parse AutoMapper / Mapster Mappings
+  const mapRegex = /\b(?:CreateMap|TypeAdapterConfig)\s*<([a-zA-Z0-9_,\s<>]+)>/g;
+  let mapMatch: RegExpExecArray | null;
+  while ((mapMatch = mapRegex.exec(code)) !== null) {
+    const mapTypes = mapMatch[1].trim();
+    const lineIndex = code.substring(0, mapMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:map:${mapTypes}`,
+      name: `Map: ${mapTypes.replace(/\s+/g, ' ')}`,
+      kind: internString('mapping_profile') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: internString(mapTypes)
+      }
+    });
+  }
+
+  // 14. Parse FluentValidation Rules
+  const valRegex = /\bRuleFor\s*\(\s*[a-zA-Z0-9_]+\s*=>\s*[a-zA-Z0-9_]+\.([a-zA-Z0-9_]+)\s*\)/g;
+  let valMatch: RegExpExecArray | null;
+  while ((valMatch = valRegex.exec(code)) !== null) {
+    const prop = valMatch[1].trim();
+    const lineIndex = code.substring(0, valMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:validation:${prop}`,
+      name: `RuleFor: ${prop}`,
+      kind: internString('validation_rule') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        baseType: internString(prop)
+      }
+    });
   }
 
   return symbols;
@@ -653,6 +837,153 @@ export function parseSymbolsFromAppSettings(
   return symbols;
 }
 
+export function parseSymbolsFromSql(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const internedProj = internString(projectName)!;
+
+  const sqlObjRegex = /CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_."`]+)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = sqlObjRegex.exec(content)) !== null) {
+    const objType = match[1].toUpperCase();
+    const rawObjName = match[2].replace(/["`]/g, '');
+    const line = content.substring(0, match.index).split(/\r?\n/).length;
+
+    symbols.push({
+      id: `${filePath}:${line}:sql:${rawObjName}`,
+      name: `${objType} ${rawObjName}`,
+      kind: internString('db_table') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internedProj,
+      line,
+      column: 1,
+      metadata: {
+        sqlTable: internString(rawObjName),
+        docSummary: `SQL ${objType}`
+      }
+    });
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromYaml(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const internedProj = internString(projectName)!;
+  const lines = content.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const keyMatch = /^(\s*)([a-zA-Z0-9_.-]+):\s*(.*)$/.exec(line);
+    if (keyMatch) {
+      const indent = keyMatch[1].length;
+      const key = keyMatch[2];
+      const val = keyMatch[3].trim();
+      if (indent <= 4 && key.length >= 2 && !key.startsWith('#')) {
+        symbols.push({
+          id: `${filePath}:${i + 1}:yaml:${key}`,
+          name: val && val.length < 40 ? `${key}: ${val}` : key,
+          kind: internString('config_key') as UniversalSymbolKind,
+          filePath,
+          relativePath,
+          projectName: internedProj,
+          line: i + 1,
+          column: 1,
+          metadata: {
+            configValue: val ? internString(val) : undefined
+          }
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromProto(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const internedProj = internString(projectName)!;
+
+  const protoRegex = /\b(service|message|rpc|enum)\s+([a-zA-Z0-9_]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = protoRegex.exec(content)) !== null) {
+    const pKind = match[1];
+    const pName = match[2];
+    const line = content.substring(0, match.index).split(/\r?\n/).length;
+
+    let symKind: UniversalSymbolKind = 'class';
+    if (pKind === 'service') symKind = 'interface';
+    else if (pKind === 'rpc') symKind = 'endpoint';
+    else if (pKind === 'enum') symKind = 'enum';
+
+    symbols.push({
+      id: `${filePath}:${line}:proto:${pName}`,
+      name: `${pKind} ${pName}`,
+      kind: internString(symKind) as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internedProj,
+      line,
+      column: 1,
+      metadata: {
+        docSummary: `Protobuf ${pKind}`
+      }
+    });
+  }
+
+  return symbols;
+}
+
+export function parseSymbolsFromMarkdown(
+  content: string,
+  filePath: string,
+  projectName: string,
+  relativePath: string
+): UniversalSymbol[] {
+  const symbols: UniversalSymbol[] = [];
+  const internedProj = internString(projectName)!;
+  const lines = content.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('#')) {
+      const headingText = line.replace(/^#+\s*/, '').trim();
+      if (headingText) {
+        symbols.push({
+          id: `${filePath}:${i + 1}:md:${headingText.slice(0, 40)}`,
+          name: `# ${headingText}`,
+          kind: internString('file') as UniversalSymbolKind,
+          filePath,
+          relativePath,
+          projectName: internedProj,
+          line: i + 1,
+          column: 1,
+          metadata: {
+            docSummary: internString(headingText)
+          }
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
 export class UniversalSymbolIndex {
   private readonly fileCache = new Map<string, UniversalSymbol[]>();
   private readonly fileTimestamps = new Map<string, number>();
@@ -685,7 +1016,7 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 4,
+      version: 5,
       timestamp: Date.now(),
       fileTimestamps,
       symbolsByFile
@@ -770,13 +1101,24 @@ export class UniversalSymbolIndex {
       this.fileTimestamps.set(filePath, mtime);
     }
 
+    const baseName = path.basename(filePath);
+    const internedProj = internString(projectName)!;
+
     let symbols: UniversalSymbol[] = [];
     if (filePath.endsWith('.cs')) {
       symbols = parseSymbolsFromCSharp(content, filePath, projectName, relativePath);
     } else if (filePath.endsWith('.resx')) {
       symbols = parseSymbolsFromResx(content, filePath, projectName, relativePath);
-    } else if (path.basename(filePath).startsWith('appsettings') && filePath.endsWith('.json')) {
+    } else if (filePath.endsWith('.json')) {
       symbols = parseSymbolsFromAppSettings(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.sql')) {
+      symbols = parseSymbolsFromSql(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+      symbols = parseSymbolsFromYaml(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.proto')) {
+      symbols = parseSymbolsFromProto(content, filePath, projectName, relativePath);
+    } else if (filePath.endsWith('.md')) {
+      symbols = parseSymbolsFromMarkdown(content, filePath, projectName, relativePath);
     } else if (filePath.endsWith('.csproj')) {
       const projName = internString(path.basename(filePath, '.csproj'))!;
       symbols = [
@@ -791,6 +1133,23 @@ export class UniversalSymbolIndex {
           column: 1
         }
       ];
+    }
+
+    // Always register the file symbol itself for instant file location matching
+    if (!filePath.endsWith('.csproj')) {
+      symbols.push({
+        id: `${filePath}:file:${baseName}`,
+        name: baseName,
+        kind: 'file',
+        filePath,
+        relativePath,
+        projectName: internedProj,
+        line: 1,
+        column: 1,
+        metadata: {
+          docSummary: internString(relativePath)
+        }
+      });
     }
 
     for (const s of symbols) {
@@ -873,8 +1232,13 @@ export class UniversalSymbolIndex {
         return [
           ...Array.from(this.kindBuckets.get('ef_entity') || []),
           ...Array.from(this.kindBuckets.get('ef_dbset') || []),
-          ...Array.from(this.kindBuckets.get('ef_migration') || [])
+          ...Array.from(this.kindBuckets.get('ef_migration') || []),
+          ...Array.from(this.kindBuckets.get('db_table') || [])
         ];
+      case 'di':
+        return Array.from(this.kindBuckets.get('di_registration') || []);
+      case 'jobs':
+        return Array.from(this.kindBuckets.get('background_job') || []);
       case 'types':
         return [
           ...Array.from(this.kindBuckets.get('class') || []),
@@ -886,7 +1250,9 @@ export class UniversalSymbolIndex {
       case 'methods':
         return [
           ...Array.from(this.kindBuckets.get('method') || []),
-          ...Array.from(this.kindBuckets.get('property') || [])
+          ...Array.from(this.kindBuckets.get('property') || []),
+          ...Array.from(this.kindBuckets.get('validation_rule') || []),
+          ...Array.from(this.kindBuckets.get('mapping_profile') || [])
         ];
       case 'files':
         return [
