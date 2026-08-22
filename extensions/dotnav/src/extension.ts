@@ -26,6 +26,7 @@ import { activateLocalHistory } from './localHistory/localHistoryMain';
 import { showFeatureAnnouncements } from './featureAnnouncements';
 import { createAttachConfiguration, listDotnetProcesses } from './processDiscovery';
 import {
+  DiskSymbolStore,
   openActiveSymbolActions,
   rescanUniversalSearchIndex,
   resolveProjectForFile,
@@ -40,7 +41,11 @@ let activeProcessManager: ProcessManager | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
+  const cacheDir = context.globalStorageUri?.fsPath || context.storageUri?.fsPath || path.join(context.extensionPath, '.cache');
+  const diskStore = new DiskSymbolStore(cacheDir);
+  diskStore.initialize().catch(() => {});
   const symbolIndex = new UniversalSymbolIndex();
+  symbolIndex.setDiskStore(diskStore);
   provider.setRunStateProvider(
     project => processManager.getProjectPhase(project),
     configId => {

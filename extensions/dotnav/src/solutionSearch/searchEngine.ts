@@ -349,7 +349,11 @@ export function scoreSymbol(
 }
 
 export function searchUniversalSymbols(
-  symbolsOrIndex: readonly UniversalSymbol[] | { getCandidates: (mode: SearchFilterMode, tokens: string[], proj?: string) => UniversalSymbol[]; getAllSymbols: () => UniversalSymbol[] },
+  symbolsOrIndex: readonly UniversalSymbol[] | {
+    getCandidates: (mode: SearchFilterMode, tokens: string[], proj?: string) => UniversalSymbol[];
+    getAllSymbols: () => UniversalSymbol[];
+    getDiskStore?: () => import('./searchDiskStore').DiskSymbolStore | undefined;
+  },
   rawQuery: string,
   limit = 200,
   rankingContext?: import('./searchModel').SearchRankingContext
@@ -370,11 +374,29 @@ export function searchUniversalSymbols(
   }
 
   const results: UniversalSearchResult[] = [];
+  const seenIds = new Set<string>();
 
+  // 1. Phase 1: In-Memory Hot RAM Candidates (< 1-2ms)
   for (const sym of candidateSymbols) {
     const { score, matchReason } = scoreSymbol(sym, parsed, rankingContext);
     if (score >= 40) {
       results.push({ symbol: sym, score, matchReason });
+      seenIds.add(sym.id);
+    }
+  }
+
+  // 2. Phase 2: On-Demand Cold Disk Store Search (< 15-25ms)
+  const diskStore = typeof (symbolsOrIndex as any)?.getDiskStore === 'function' ? (symbolsOrIndex as any).getDiskStore() : undefined;
+  if (diskStore && (parsed.filterMode === 'all' || parsed.filterMode === 'methods' || parsed.filterMode === 'files' || results.length < limit)) {
+    const coldSymbols = diskStore.searchColdSymbols(parsed.tokens, limit);
+    for (const sym of coldSymbols) {
+      if (!seenIds.has(sym.id)) {
+        const { score, matchReason } = scoreSymbol(sym, parsed, rankingContext);
+        if (score >= 40) {
+          results.push({ symbol: sym, score: Math.max(30, score - 2), matchReason: matchReason || 'Disk symbol match' });
+          seenIds.add(sym.id);
+        }
+      }
     }
   }
 

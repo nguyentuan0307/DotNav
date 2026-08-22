@@ -370,5 +370,75 @@ public class DataEntityConfiguration : IEntityTypeConfiguration<DataEntity>
   assert.equal(mdSyms[0].name, '# Architecture Overview');
 });
 
+test('DiskSymbolStore saves, streams, and searches cold secondary symbols without RAM overhead', async () => {
+  const { DiskSymbolStore } = require('../solutionSearch/searchDiskStore');
+  const { UniversalSymbolIndex } = require('../solutionSearch/searchScanner');
+  const { searchUniversalSymbols } = require('../solutionSearch/searchEngine');
+  const os = require('os');
+  const path = require('path');
+  const fs = require('fs');
 
+  const tmpDir = path.join(os.tmpdir(), `dotnav_test_store_${Date.now()}`);
+  const store = new DiskSymbolStore(tmpDir);
+  await store.initialize();
 
+  const csharpCode = `
+public class OrderService
+{
+    public string OrderId { get; set; }
+    public decimal TotalAmount { get; set; }
+
+    public async Task ProcessOrderAsync(int orderId)
+    {
+    }
+
+    private void CalculateTax()
+    {
+    }
+}
+`;
+
+  const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
+
+  // Scan file with DiskStore attached
+  const syms = index.scanFileContent('/src/OrderService.cs', csharpCode, 'OrderApp', 'src/OrderService.cs');
+  assert.ok(syms.length > 0);
+
+  // Verify that only primary symbols (class) are retained in RAM fileCache
+  const ramSymbols = index.getAllSymbols();
+  assert.ok(ramSymbols.some((s: any) => s.kind === 'class' && s.name === 'OrderService'));
+  // Methods and properties should NOT be in RAM fileCache
+  assert.ok(!ramSymbols.some((s: any) => s.kind === 'method' && s.name.startsWith('ProcessOrderAsync')));
+
+  // Verify that cold symbols (methods & properties) ARE registered in DiskStore
+  const diskMatches = store.searchColdSymbols(['ProcessOrder']);
+  assert.ok(diskMatches.length > 0);
+  assert.ok(diskMatches.some((s: any) => s.name.startsWith('ProcessOrderAsync')));
+
+  // Test Two-Phase Search via searchUniversalSymbols
+  const hotResults = searchUniversalSymbols(index, 'OrderService');
+  assert.ok(hotResults.length > 0);
+  assert.equal(hotResults[0].symbol.name, 'OrderService');
+
+  const coldResults = searchUniversalSymbols(index, 'ProcessOrder');
+  assert.ok(coldResults.length > 0);
+  assert.ok(coldResults.some((r: any) => r.symbol.name.startsWith('ProcessOrderAsync')));
+
+  // Save to disk and reload
+  await store.saveToDisk();
+  assert.ok(fs.existsSync(store.storagePath));
+
+  const store2 = new DiskSymbolStore(tmpDir);
+  const loaded = await store2.loadFromDisk();
+  assert.strictEqual(loaded, true);
+  assert.ok(store2.count > 0);
+  const reloadedMatches = store2.searchColdSymbols(['CalculateTax']);
+  assert.ok(reloadedMatches.length > 0);
+  assert.ok(reloadedMatches.some((s: any) => s.name.startsWith('CalculateTax')));
+
+  // Clean up
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {}
+});

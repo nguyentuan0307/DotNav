@@ -8,7 +8,31 @@ import {
   UniversalSymbol,
   UniversalSymbolKind
 } from './searchModel';
+import { DiskSymbolStore } from './searchDiskStore';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
+
+export const PRIMARY_HOT_KINDS = new Set<UniversalSymbolKind>([
+  'endpoint',
+  'cqrs_command',
+  'cqrs_query',
+  'cqrs_handler',
+  'cqrs_event',
+  'ef_entity',
+  'ef_dbset',
+  'ef_migration',
+  'db_table',
+  'di_registration',
+  'background_job',
+  'mapping_profile',
+  'validation_rule',
+  'class',
+  'interface',
+  'record',
+  'enum',
+  'enum_member',
+  'project',
+  'file'
+]);
 
 const CSHARP_RESERVED_KEYWORDS = new Set([
   'if', 'else', 'for', 'foreach', 'while', 'switch', 'using', 'catch', 'lock', 'fixed',
@@ -54,14 +78,12 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   const addTerm = (term: string) => {
     if (!term) return;
     const cleaned = term.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase();
-    if (!cleaned) return;
+    if (!cleaned || cleaned.length < 2) return;
     tokens.add(cleaned);
     const unaccented = stripAccents(cleaned);
     tokens.add(unaccented);
-    if (cleaned.length >= 2) {
-      tokens.add(cleaned.slice(0, 2));
+    if (cleaned.length >= 4) {
       tokens.add(cleaned.slice(0, 3));
-      tokens.add(unaccented.slice(0, 2));
       tokens.add(unaccented.slice(0, 3));
       tokens.add(pluralize(cleaned));
       tokens.add(pluralize(unaccented));
@@ -992,6 +1014,15 @@ export class UniversalSymbolIndex {
   private readonly projectBuckets = new Map<string, Set<UniversalSymbol>>();
   private cachedAllSymbols: UniversalSymbol[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
+  private diskStore?: DiskSymbolStore;
+
+  public setDiskStore(store: DiskSymbolStore): void {
+    this.diskStore = store;
+  }
+
+  public getDiskStore(): DiskSymbolStore | undefined {
+    return this.diskStore;
+  }
 
   public get isFullScanCompleted(): boolean {
     return this._isFullScanCompleted;
@@ -1152,11 +1183,26 @@ export class UniversalSymbolIndex {
       });
     }
 
-    for (const s of symbols) {
+    let retainedSymbols = symbols;
+    if (this.diskStore) {
+      const primary: UniversalSymbol[] = [];
+      const secondary: UniversalSymbol[] = [];
+      for (const s of symbols) {
+        if (PRIMARY_HOT_KINDS.has(s.kind)) {
+          primary.push(s);
+        } else {
+          secondary.push(s);
+        }
+      }
+      this.diskStore.registerFileSymbols(filePath, relativePath, projectName, secondary);
+      retainedSymbols = primary;
+    }
+
+    for (const s of retainedSymbols) {
       this.addSymbolToBuckets(s);
     }
 
-    this.fileCache.set(filePath, symbols);
+    this.fileCache.set(filePath, retainedSymbols);
     this.cachedAllSymbols = undefined;
     return symbols;
   }
@@ -1186,6 +1232,9 @@ export class UniversalSymbolIndex {
       this.fileTimestamps.delete(filePath);
       this.cachedAllSymbols = undefined;
     }
+    if (this.diskStore) {
+      this.diskStore.registerFileSymbols(filePath, '', '', []);
+    }
   }
 
   public clear(): void {
@@ -1196,6 +1245,7 @@ export class UniversalSymbolIndex {
     this.projectBuckets.clear();
     this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = false;
+    this.diskStore?.clear();
   }
 
   public hasFile(filePath: string): boolean {

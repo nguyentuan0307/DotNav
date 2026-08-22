@@ -464,6 +464,7 @@ export async function populateUniversalIndexFromSolution(
 
   if (hasChanges || !loadedFromCache) {
     scheduleSaveSnapshotToDisk(context, index);
+    index.getDiskStore()?.saveToDisk().catch(() => {});
   }
 }
 
