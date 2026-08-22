@@ -305,3 +305,29 @@ public class UserModel {
   const endpoints = parseEndpointsFromCSharp(modelCode, '/src/Models/UserModel.cs', 'MyProject', 'Models/UserModel.cs');
   assert.equal(endpoints.length, 0);
 });
+
+test('parseEndpointsFromCSharp parses separate Http and Route attributes with custom decorators', () => {
+  const code = `
+public class ProjectController : ControllerBase
+{
+    [HttpPost]
+    [Route("{projectId:int}/invite")]
+    public async Task<Guid> InviteUser([FromRoute] int projectId) => Guid.NewGuid();
+
+    [Route("{projectId:guid}/members")]
+    [HttpGet]
+    public async Task<IActionResult> GetMembers([FromRoute] Guid projectId) => Ok();
+
+    [FeatureAccessControl("Project", "Invite")]
+    [HttpPost("{projectId:int}/confirm")]
+    [ProducesResponseType(200)]
+    public async Task<IActionResult> Confirm([FromRoute] int projectId) => Ok();
+}
+`;
+  const endpoints = parseEndpointsFromCSharp(code, '/ProjectController.cs', 'MyProject', 'ProjectController.cs');
+
+  assert.ok(endpoints.some(e => e.httpMethod === 'POST' && e.routeTemplate.includes('{projectId:int}/invite')));
+  assert.ok(endpoints.some(e => e.httpMethod === 'GET' && e.routeTemplate.includes('{projectId:guid}/members')));
+  assert.ok(endpoints.some(e => e.httpMethod === 'POST' && e.routeTemplate.includes('{projectId:int}/confirm')));
+});
+

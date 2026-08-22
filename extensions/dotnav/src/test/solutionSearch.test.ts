@@ -54,3 +54,62 @@ test('UniversalSymbolIndex supports clear and rescan lifecycle', () => {
   assert.equal(index.getAllSymbols()[0].name, 'NewAppService');
 });
 
+test('UniversalSymbolIndex parses and searches partial controller endpoints with route constraints and wildcard slashes', () => {
+  const index = new UniversalSymbolIndex();
+  const partialControllerCode = `
+using Microsoft.AspNetCore.Mvc;
+
+namespace ELDesk.Work.API
+{
+	public partial class ProjectController
+	{
+		[HttpPost("{projectId:int}/invite")]
+		[FeatureAccessControl(AccessControlBusinessType.Project, FeatureKey.Project_Member_Invite)]
+		public async Task<Guid> InviteUserToProject([FromRoute] int projectId, [FromBody] InviteUserToProjectRequest request)
+		{
+			return await _app.InviteUserToProjectAsync(projectId, request);
+		}
+	}
+}`;
+
+  index.scanFileContent('/src/API/ProjectController.Invite.cs', partialControllerCode, 'ELDesk.Work', 'API/ProjectController.Invite.cs');
+  index.markFullScanCompleted();
+
+  const query1 = searchUniversalSymbols(index, 'projects//invite');
+  assert.ok(query1.length > 0, 'projects//invite should match ProjectController invite endpoint');
+  assert.ok(query1.some(r => r.symbol.kind === 'endpoint' && r.symbol.name.includes('invite')));
+
+  const query2 = searchUniversalSymbols(index, 'projects/invite');
+  assert.ok(query2.length > 0, 'projects/invite should match ProjectController invite endpoint');
+
+  const query3 = searchUniversalSymbols(index, 'InviteUserToProject');
+  assert.ok(query3.length > 0, 'InviteUserToProject should match action method');
+});
+
+test('UniversalSymbolIndex parses interface methods, record constructor properties, and constants', () => {
+  const index = new UniversalSymbolIndex();
+  const code = `
+namespace MySolution
+{
+    public interface IProjectService
+    {
+        Task<Guid> InviteUserToProjectAsync(int projectId, InviteUserToProjectRequest request);
+        Task<ProjectDto> GetProjectByIdAsync(int id);
+    }
+
+    public record CreateProjectRequest(string Name, string Description, int OwnerId);
+
+    public static class FeatureKey
+    {
+        public const string Project_Member_Invite = "Project.Member.Invite";
+    }
+}`;
+
+  index.scanFileContent('/src/AllInOne.cs', code, 'MySolution', 'AllInOne.cs');
+  const symbols = index.getAllSymbols();
+
+  assert.ok(symbols.some(s => s.kind === 'method' && s.name.startsWith('InviteUserToProjectAsync')));
+  assert.ok(symbols.some(s => s.kind === 'property' && s.name.startsWith('Name')));
+  assert.ok(symbols.some(s => s.kind === 'property' && s.name.startsWith('Project_Member_Invite')));
+});
+
