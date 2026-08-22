@@ -81,42 +81,45 @@ export class DiskSymbolStore {
         ps: s.metadata?.parameterSummary || s.metadata?.configValue
       });
 
-      // Tokenize for disk inverted map
-      const bareName = s.name.split('(')[0].replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '').trim();
-      const bareLower = bareName.toLowerCase();
-      if (bareLower.length >= 2) {
-        let fSet = this.wordToFileMap.get(bareLower);
-        if (!fSet) {
-          fSet = new Set<string>();
-          this.wordToFileMap.set(bareLower, fSet);
-        }
-        fSet.add(filePath);
-      }
-
-      const words = bareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 2);
-      for (const w of words) {
-        const wLower = w.toLowerCase();
-        let fileSet = this.wordToFileMap.get(wLower);
-        if (!fileSet) {
-          fileSet = new Set<string>();
-          this.wordToFileMap.set(wLower, fileSet);
-        }
-        fileSet.add(filePath);
-        if (wLower.length >= 4) {
-          const p3 = wLower.slice(0, 3);
-          let p3Set = this.wordToFileMap.get(p3);
-          if (!p3Set) {
-            p3Set = new Set<string>();
-            this.wordToFileMap.set(p3, p3Set);
-          }
-          p3Set.add(filePath);
-        }
-      }
+      this.indexSymbolTokens(filePath, s.name);
     }
 
     this.fileSymbolsMap.set(filePath, compactList);
     this.dirtyFiles.add(filePath);
     this.scheduleSave();
+  }
+
+  private indexSymbolTokens(filePath: string, name: string): void {
+    const bareName = name.split('(')[0].replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '').trim();
+    const bareLower = bareName.toLowerCase();
+    if (bareLower.length >= 2) {
+      let fSet = this.wordToFileMap.get(bareLower);
+      if (!fSet) {
+        fSet = new Set<string>();
+        this.wordToFileMap.set(bareLower, fSet);
+      }
+      fSet.add(filePath);
+    }
+
+    const words = bareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 2);
+    for (const w of words) {
+      const wLower = w.toLowerCase();
+      let fileSet = this.wordToFileMap.get(wLower);
+      if (!fileSet) {
+        fileSet = new Set<string>();
+        this.wordToFileMap.set(wLower, fileSet);
+      }
+      fileSet.add(filePath);
+      if (wLower.length >= 4) {
+        const p3 = wLower.slice(0, 3);
+        let p3Set = this.wordToFileMap.get(p3);
+        if (!p3Set) {
+          p3Set = new Set<string>();
+          this.wordToFileMap.set(p3, p3Set);
+        }
+        p3Set.add(filePath);
+      }
+    }
   }
 
   private removeFileTokens(filePath: string): void {
@@ -289,16 +292,7 @@ export class DiskSymbolStore {
       for (const [filePath, symbols] of Object.entries(data)) {
         this.fileSymbolsMap.set(filePath, symbols);
         for (const s of symbols) {
-          const bareName = s.n.split('(')[0].replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '').trim();
-          const words = bareName.toLowerCase().split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 3);
-          for (const w of words) {
-            let fileSet = this.wordToFileMap.get(w);
-            if (!fileSet) {
-              fileSet = new Set<string>();
-              this.wordToFileMap.set(w, fileSet);
-            }
-            fileSet.add(filePath);
-          }
+          this.indexSymbolTokens(filePath, s.n);
         }
       }
       return true;

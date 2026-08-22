@@ -1055,7 +1055,13 @@ export class UniversalSymbolIndex {
   }
 
   public loadSnapshot(snapshot: SearchIndexSnapshot): void {
-    this.clear();
+    this.fileCache.clear();
+    this.fileTimestamps.clear();
+    this.kindBuckets.clear();
+    this.tokenBuckets.clear();
+    this.projectBuckets.clear();
+    this.cachedAllSymbols = undefined;
+    this._isFullScanCompleted = false;
     if (!snapshot || !snapshot.symbolsByFile) return;
     for (const [filePath, symbols] of Object.entries(snapshot.symbolsByFile)) {
       this.fileCache.set(filePath, symbols);
