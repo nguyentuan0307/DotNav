@@ -4,6 +4,22 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.25.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.24.0...dotnav-v0.25.0) (2026-08-22)
+
+
+### Features
+
+* **dotnav:** add dotnav.solutionSearch.enabled setting to toggle indexing and free resources ([0e935a5](https://github.com/nguyentuan0307/DotNav/commit/0e935a5aae27f4f8c28d2fd9065593c43772b46f))
+
+### Bug Fixes
+
+* **dotnav:** isolate storage by workspace and guard against non-.NET workspaces ([3548f01](https://github.com/nguyentuan0307/DotNav/commit/3548f01a8ed534ce2fc6fca1665b375ff06ee198))
+
+### Performance Improvements
+
+* **dotnav:** skip files larger than 2MB during search scan to prevent memory spikes ([24939fa](https://github.com/nguyentuan0307/DotNav/commit/24939fa503978ee2ede9ddee1aa8fe196dc2a7af))
+
+
 ## [0.24.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.23.0...dotnav-v0.24.0) (2026-08-22)
 
 
