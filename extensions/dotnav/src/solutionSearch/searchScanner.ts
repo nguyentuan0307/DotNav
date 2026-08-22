@@ -21,6 +21,15 @@ export function pluralize(word: string): string {
   return word + 's';
 }
 
+export function stripAccents(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 const stringPool = new Map<string, string>();
 export function internString(str: string | undefined): string | undefined {
   if (!str) return str;
@@ -34,24 +43,39 @@ export function internString(str: string | undefined): string | undefined {
 
 export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   const tokens = new Set<string>();
-  const originalBareName = symbol.name.split('(')[0].trim();
-  const bareLower = originalBareName.toLowerCase();
-  if (bareLower) {
-    tokens.add(bareLower);
-    if (bareLower.length >= 2) {
-      tokens.add(bareLower.slice(0, 2));
-      tokens.add(bareLower.slice(0, 3));
+
+  const addTerm = (term: string) => {
+    if (!term) return;
+    const cleaned = term.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase();
+    if (!cleaned) return;
+    tokens.add(cleaned);
+    const unaccented = stripAccents(cleaned);
+    tokens.add(unaccented);
+    if (cleaned.length >= 2) {
+      tokens.add(cleaned.slice(0, 2));
+      tokens.add(cleaned.slice(0, 3));
+      tokens.add(unaccented.slice(0, 2));
+      tokens.add(unaccented.slice(0, 3));
+      tokens.add(pluralize(cleaned));
+      tokens.add(pluralize(unaccented));
     }
-  }
+  };
+
+  const originalBareName = symbol.name.split('(')[0].trim();
+  addTerm(originalBareName);
 
   // CamelCase word segments (e.g. UpdateRecordFieldValueAsync -> update, record, field, value, async)
-  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
+  const segments = originalBareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',]+/).filter(Boolean);
   for (const seg of segments) {
-    const segLower = seg.toLowerCase();
-    if (segLower.length >= 2) {
-      tokens.add(segLower);
-      tokens.add(segLower.slice(0, 2));
-      tokens.add(pluralize(segLower));
+    addTerm(seg);
+  }
+
+  // Config value / Error message text tokens
+  if (symbol.metadata?.configValue) {
+    addTerm(symbol.metadata.configValue);
+    const valWords = symbol.metadata.configValue.split(/[-_\s/.:{}="',;!?()<>\[\]]+/).filter(Boolean);
+    for (const vw of valWords) {
+      addTerm(vw);
     }
   }
 
@@ -65,20 +89,12 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
 
   // Container name and segments (both singular and plural forms)
   if (symbol.containerName) {
-    const cLower = symbol.containerName.toLowerCase();
-    tokens.add(cLower);
-    const bareContainer = symbol.containerName.replace(/Controller$/i, '').toLowerCase();
-    tokens.add(bareContainer);
-    tokens.add(pluralize(bareContainer));
-    if (cLower.length >= 2) tokens.add(cLower.slice(0, 2));
+    addTerm(symbol.containerName);
+    const bareContainer = symbol.containerName.replace(/Controller$/i, '');
+    addTerm(bareContainer);
     const cSegments = symbol.containerName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}]+/).filter(Boolean);
     for (const cSeg of cSegments) {
-      const cSegLower = cSeg.toLowerCase();
-      if (cSegLower.length >= 2) {
-        tokens.add(cSegLower);
-        tokens.add(cSegLower.slice(0, 2));
-        tokens.add(pluralize(cSegLower));
-      }
+      addTerm(cSeg);
     }
   }
 
@@ -87,33 +103,20 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   if (typeMeta) {
     const baseTokens = typeMeta.split(/<|>|\s|,|\[|\]|:/).filter(Boolean);
     for (const b of baseTokens) {
-      const bLower = b.toLowerCase();
-      if (bLower.length >= 2) {
-        tokens.add(bLower);
-        tokens.add(bLower.slice(0, 2));
-      }
+      addTerm(b);
       const bSegs = b.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
       for (const bs of bSegs) {
-        const bsLower = bs.toLowerCase();
-        if (bsLower.length >= 2) {
-          tokens.add(bsLower);
-          tokens.add(bsLower.slice(0, 2));
-        }
+        addTerm(bs);
       }
     }
   }
 
   // Action name
   if (symbol.metadata?.actionName) {
-    const actLower = symbol.metadata.actionName.toLowerCase();
-    tokens.add(actLower);
+    addTerm(symbol.metadata.actionName);
     const actSegments = symbol.metadata.actionName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
     for (const a of actSegments) {
-      const aLower = a.toLowerCase();
-      if (aLower.length >= 2) {
-        tokens.add(aLower);
-        tokens.add(pluralize(aLower));
-      }
+      addTerm(a);
     }
   }
 
@@ -121,11 +124,7 @@ export function extractIndexTokens(symbol: UniversalSymbol): string[] {
   if (symbol.metadata?.routeTemplate) {
     const routeSegments = symbol.metadata.routeTemplate.toLowerCase().split(/[\/\\{}:]+/).filter(Boolean);
     for (const rSeg of routeSegments) {
-      if (rSeg.length >= 2) {
-        tokens.add(rSeg);
-        tokens.add(rSeg.slice(0, 2));
-        tokens.add(pluralize(rSeg));
-      }
+      addTerm(rSeg);
     }
   }
 
@@ -632,7 +631,7 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 1,
+      version: 3,
       timestamp: Date.now(),
       fileTimestamps,
       symbolsByFile

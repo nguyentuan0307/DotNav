@@ -306,7 +306,7 @@ export async function loadSnapshotFromDisk(
       });
     });
     const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
-    if (snapshot && snapshot.symbolsByFile) {
+    if (snapshot && snapshot.version === 3 && snapshot.symbolsByFile) {
       index.loadSnapshot(snapshot);
       return true;
     }

@@ -140,12 +140,21 @@ public class ProjectService
   assert.ok(resxQuery.length > 0, 'Should find resx message by Vietnamese text');
   assert.equal(resxQuery[0].symbol.metadata?.configValue, 'Không tìm thấy ứng dụng');
 
+  const unaccentedQuery = searchUniversalSymbols(index, 'khong tim thay ung dung');
+  assert.ok(unaccentedQuery.length > 0, 'Should find resx message by unaccented Vietnamese text');
+
+  const partialUnaccentedQuery = searchUniversalSymbols(index, 'tim thay ung dung');
+  assert.ok(partialUnaccentedQuery.length > 0, 'Should find resx message by partial unaccented query');
+
   const keyQuery = searchUniversalSymbols(index, 'ApplicationNotFound');
   assert.ok(keyQuery.length > 0, 'Should find resx by key name');
 
   const inlineQuery = searchUniversalSymbols(index, 'Người dùng đã được mời vào doanh nghiệp');
   assert.ok(inlineQuery.length > 0, 'Should find inline throw new Exception message');
   assert.ok(inlineQuery[0].symbol.name.includes('Người dùng đã được mời vào doanh nghiệp'));
+
+  const inlineUnaccentedQuery = searchUniversalSymbols(index, 'nguoi dung da duoc moi');
+  assert.ok(inlineUnaccentedQuery.length > 0, 'Should find inline throw message by unaccented query');
 });
 
 
