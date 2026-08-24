@@ -36,12 +36,14 @@ import {
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex
 } from './solutionSearch';
+import { registerEvaluateCommands } from './debugger';
 
 let activeProcessManager: ProcessManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new DotnetTreeProvider(context);
   const processManager = new ProcessManager();
+  registerEvaluateCommands(context);
   const cacheDir = context.storageUri?.fsPath || context.globalStorageUri?.fsPath || path.join(context.extensionPath, '.cache');
   const diskStore = new DiskSymbolStore(cacheDir);
   if (isSolutionSearchEnabled()) {
