@@ -43,6 +43,7 @@ catch (Exception error)
 }
 
 var evaluator = new MsbuildGraphEvaluator();
+var roslynEngine = new RoslynEvaluationEngine(instance.MSBuildPath);
 string? line;
 while ((line = await Console.In.ReadLineAsync()) is not null)
 {
@@ -60,6 +61,7 @@ while ((line = await Console.In.ReadLineAsync()) is not null)
                 instance.MSBuildPath,
                 instance.Version)),
             "evaluate" => Evaluate(request, evaluator, instance, jsonOptions),
+            "evaluate-csharp" => EvaluateCSharp(request, roslynEngine, jsonOptions),
             "shutdown" => new HostResponse(request.Id, new { shuttingDown = true }),
             _ => new HostResponse(request.Id, Error: new HostError("method-not-found", $"Unknown method '{request.Method}'."))
         };
@@ -75,6 +77,17 @@ while ((line = await Console.In.ReadLineAsync()) is not null)
 }
 
 return 0;
+
+static HostResponse EvaluateCSharp(
+    HostRequest request,
+    RoslynEvaluationEngine roslynEngine,
+    JsonSerializerOptions options)
+{
+    var parameters = request.Params.Deserialize<EvaluateCSharpRequest>(options)
+        ?? throw new InvalidOperationException("Evaluate parameters were missing.");
+    var result = roslynEngine.AnalyzeExpression(parameters.Expression);
+    return new HostResponse(request.Id, result);
+}
 
 static HostResponse Evaluate(
     HostRequest request,

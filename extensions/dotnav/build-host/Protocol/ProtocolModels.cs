@@ -14,3 +14,6 @@ internal sealed record EvaluateRequest(
     IReadOnlyList<string>? EntryProjects,
     string? SolutionPath,
     IReadOnlyDictionary<string, string>? GlobalProperties);
+
+internal sealed record EvaluateCSharpRequest(string Expression);
+

@@ -62,6 +62,13 @@ export class BuildHostClient {
     });
   }
 
+  async evaluateCSharp(expression: string): Promise<any> {
+    return this.enqueue(async () => {
+      await this.start();
+      return this.request<any>('evaluate-csharp', { expression });
+    });
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;

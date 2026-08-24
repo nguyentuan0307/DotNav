@@ -100,3 +100,24 @@ WHERE [a].[AppId] = 1
   assert.equal(tables.includes('AppField'), true);
   assert.equal(tables.includes('DataEntity'), true);
 });
+
+test('rewriteCSharpExpressionForDap extracts root variable from complex chained LINQ expressions', () => {
+  const localVars = new Map<string, DapVariable>([
+    ['query', { name: 'query', value: '{...}', type: 'System.Linq.IQueryable<AppField>' }]
+  ]);
+
+  const chainedExpr = `query
+    .OrderByDescending(_ => _.Id)
+    .Select(DbConnectionFieldDataResponse.GetBasicConnectionDataSelection(null, connectionField.TableFieldId).Expand())`;
+
+  const candidates = rewriteCSharpExpressionForDap(chainedExpr, localVars);
+  assert.equal(
+    candidates.includes('Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToQueryString(query)'),
+    true
+  );
+  assert.equal(
+    candidates.includes('((Microsoft.EntityFrameworkCore.Query.Internal.EntityQueryable<AppField>)query).DebugView.Query'),
+    true
+  );
+});
+
