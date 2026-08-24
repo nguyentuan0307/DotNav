@@ -81,11 +81,8 @@ export async function showEvaluateDialog(context: vscode.ExtensionContext): Prom
     panel.webview.html = getEvaluateWebviewHtml(panel.webview, expr, sql, resp);
   };
 
-  let activeRequestId = 0;
-
   panel.webview.onDidReceiveMessage(async message => {
     if (message.command === 'evaluate') {
-      const thisRequestId = ++activeRequestId;
       const expr = (message.expression || '').trim();
       const currentSession = vscode.debug.activeDebugSession;
       if (!currentSession) {
@@ -97,21 +94,7 @@ export async function showEvaluateDialog(context: vscode.ExtensionContext): Prom
       const currentLocals = await getLocalVariables(currentSession, currentFrameId);
 
       const newSql = await inspectSqlFromDebugSession(currentSession, currentFrameId, expr, currentLocals);
-      let newResp = await evaluateDapExpression(currentSession, currentFrameId, expr, currentLocals);
-
-      if (thisRequestId !== activeRequestId) {
-        return; // Stale request, discard to prevent race conditions
-      }
-
-      if (!newResp.success && newSql) {
-        newResp = {
-          result: `EF Core Query successfully resolved. Switch to 'SQL Inspector' tab to view the formatted SQL statement with parameter values.`,
-          type: 'Microsoft.EntityFrameworkCore.Query.IQueryable',
-          success: true,
-          usedExpression: expr
-        };
-      }
-
+      const newResp = await evaluateDapExpression(currentSession, currentFrameId, expr, currentLocals);
       updateView(expr, newSql, newResp);
     } else if (message.command === 'copySql') {
       await vscode.env.clipboard.writeText(message.text || '');

@@ -134,21 +134,15 @@ export function rewriteCSharpExpressionForDap(
     }
   }
 
-  // Pattern 3: If expression is an IQueryable variable name or a chain starting with one
-  let targetVar = expr;
-  const rootVarMatch = /^([a-zA-Z0-9_]+)\s*\./.exec(expr);
-  if (rootVarMatch && localVars?.has(rootVarMatch[1])) {
-    targetVar = rootVarMatch[1];
-  }
-
-  if (localVars && localVars.has(targetVar)) {
-    const varInfo = localVars.get(targetVar);
+  // Pattern 3: If expression is an IQueryable variable name itself, generate EF Core inspection queries
+  if (localVars && localVars.has(expr)) {
+    const varInfo = localVars.get(expr);
     const isQueryable = varInfo?.type?.includes('IQueryable') || varInfo?.type?.includes('EntityQueryable') || varInfo?.type?.includes('DbSet');
     if (isQueryable) {
-      candidates.push(`Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToQueryString(${targetVar})`);
+      candidates.push(`Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToQueryString(${expr})`);
       if (varInfo?.type && varInfo.type.includes('<') && varInfo.type.includes('>')) {
         const genericType = varInfo.type.substring(varInfo.type.indexOf('<') + 1, varInfo.type.lastIndexOf('>'));
-        candidates.push(`((Microsoft.EntityFrameworkCore.Query.Internal.EntityQueryable<${genericType}>)${targetVar}).DebugView.Query`);
+        candidates.push(`((Microsoft.EntityFrameworkCore.Query.Internal.EntityQueryable<${genericType}>)${expr}).DebugView.Query`);
       }
     }
   }

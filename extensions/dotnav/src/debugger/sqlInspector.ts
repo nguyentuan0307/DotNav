@@ -164,16 +164,7 @@ export async function inspectSqlFromDebugSession(
   }
 
   const parameters = extractParametersFromDebugText(rawText);
-  let formattedSql = formatSqlPretty(rawText);
-
-  // Check if expression contains OrderBy/OrderByDescending and formattedSql doesn't have ORDER BY
-  const orderMatch = /\.OrderBy(Descending)?\s*\(\s*(?:[a-zA-Z0-9_]+|\(\s*\))\s*=>\s*(?:[a-zA-Z0-9_]+|\(\s*\))\s*\.?\s*([a-zA-Z0-9_]+)\s*\)/.exec(rawExpression);
-  if (orderMatch && !formattedSql.includes('ORDER BY')) {
-    const isDesc = orderMatch[1] === 'Descending';
-    const propName = orderMatch[2];
-    formattedSql += `\nORDER BY [${propName}] ${isDesc ? 'DESC' : 'ASC'}`;
-  }
-
+  const formattedSql = formatSqlPretty(rawText);
   const boundSql = bindParametersToSql(formattedSql, parameters);
   const tables = extractTablesFromSql(formattedSql);
 
