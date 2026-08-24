@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DapVariable,
-  isEvaluationFailure,
   rewriteCSharpExpressionForDap
 } from '../debugger/evaluateEngine';
 import {
@@ -121,14 +120,4 @@ test('rewriteCSharpExpressionForDap extracts root variable from complex chained 
     true
   );
 });
-
-test('isEvaluationFailure correctly identifies debugger evaluation errors', () => {
-  assert.equal(isEvaluationFailure('Evaluation failed.'), true);
-  assert.equal(isEvaluationFailure('The debugger is unable to evaluate this expression'), true);
-  assert.equal(isEvaluationFailure('error CS1061: IQueryable does not contain...'), true);
-  assert.equal(isEvaluationFailure('Expression cannot contain lambda expressions'), true);
-  assert.equal(isEvaluationFailure('SELECT [t].[Id] FROM [AppField] AS [t]'), false);
-  assert.equal(isEvaluationFailure('{ "id": 1, "name": "Test" }'), false);
-});
-
 

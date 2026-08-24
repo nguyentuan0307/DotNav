@@ -171,19 +171,6 @@ export function rewriteCSharpExpressionForDap(
   return [...new Set(candidates)];
 }
 
-export function isEvaluationFailure(result: string | undefined): boolean {
-  if (!result) return true;
-  const lower = result.toLowerCase();
-  return (
-    lower.includes('evaluation failed') ||
-    lower.includes('unable to evaluate') ||
-    lower.includes('cannot contain lambda') ||
-    lower.startsWith('error cs') ||
-    lower.includes('does not exist in the current context') ||
-    lower.includes('cannot evaluate')
-  );
-}
-
 /**
  * Evaluates an expression against the active DAP session, trying smart fallbacks if needed
  */
@@ -204,7 +191,7 @@ export async function evaluateDapExpression(
         context: 'watch'
       });
 
-      if (response && response.result !== undefined && !isEvaluationFailure(response.result)) {
+      if (response && response.result !== undefined) {
         return {
           result: response.result,
           type: response.type,
@@ -212,8 +199,6 @@ export async function evaluateDapExpression(
           success: true,
           usedExpression: expr
         };
-      } else if (response && response.result) {
-        lastError = response.result;
       }
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
