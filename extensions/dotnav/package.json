@@ -554,12 +554,6 @@
         "command": "dotnav.ef.optimizeDbContext",
         "title": "Optimize DbContext...",
         "category": "EF Core"
-      },
-      {
-        "command": "dotnav.evaluateExpression",
-        "title": "Evaluate Expression & Inspect SQL",
-        "category": "DotNav",
-        "icon": "$(debug-console)"
       }
     ],
     "submenus": [
@@ -585,11 +579,6 @@
       }
     ],
     "keybindings": [
-      {
-        "command": "dotnav.evaluateExpression",
-        "key": "alt+f8",
-        "mac": "cmd+f8"
-      },
       {
         "command": "dotnav.renameItem",
         "key": "f2",
@@ -669,14 +658,9 @@
     "menus": {
       "editor/context": [
         {
-          "command": "dotnav.evaluateExpression",
-          "when": "inDebugMode && (editorLangId == csharp || resourceExtname == .cs)",
-          "group": "6_dotnav@0"
-        },
-        {
           "command": "dotnav.traceCqrsFlow",
           "when": "editorLangId == csharp || resourceExtname == .cs",
-          "group": "6_dotnav@1"
+          "group": "6_dotnav@0"
         },
         {
           "command": "dotnav.formatSelection",
