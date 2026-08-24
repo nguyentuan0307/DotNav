@@ -173,6 +173,16 @@ export function isKindMatchingMode(kind: UniversalSymbolKind, mode: SearchFilter
   }
 }
 
+export function normalizeRouteTemplate(route: string): string {
+  if (!route) return '';
+  return route
+    .toLowerCase()
+    .replace(/^\/+|\/+$/g, '') // Remove leading & trailing slashes
+    .replace(/^api\//, '') // Remove optional leading "api/"
+    .replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '{$1}') // Strip all constraints e.g. {appId:int}, {id:regex(...)} -> {appId}
+    .trim();
+}
+
 export function scoreSymbol(
   symbol: UniversalSymbol,
   query: ParsedSearchQuery,
@@ -213,22 +223,31 @@ export function scoreSymbol(
   const bareUnaccented = stripAccents(bareSymbolName);
   const nameUnaccented = stripAccents(symbolNameLower);
 
+  const normQueryRoute = normalizeRouteTemplate(rawQueryLower);
+  const normSymRoute = symbol.metadata?.routeTemplate ? normalizeRouteTemplate(symbol.metadata.routeTemplate) : '';
+
   let baseScore = 0;
   let matchReason = '';
 
-  // 3. Exact full match or bare name match (accent-tolerant)
+  // 3. Exact full match or bare name match or route template match (accent-tolerant)
   if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower || bareUnaccented === rawQueryUnaccented || nameUnaccented === rawQueryUnaccented) {
     baseScore = 100;
     matchReason = 'Exact name match';
+  } else if (normSymRoute && normQueryRoute && (normSymRoute === normQueryRoute || stripAccents(normSymRoute) === stripAccents(normQueryRoute))) {
+    baseScore = 100;
+    matchReason = 'Exact route template match';
+  } else if (normSymRoute && normQueryRoute && (normSymRoute.endsWith(normQueryRoute) || normSymRoute.startsWith(normQueryRoute)) && normQueryRoute.length >= 5) {
+    baseScore = 98;
+    matchReason = 'Route prefix/suffix match';
   } else if ((bareSymbolName.startsWith(rawQueryLower) || bareUnaccented.startsWith(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
     baseScore = 98;
     matchReason = 'Name prefix match';
   } else if ((bareSymbolName.includes(rawQueryLower) || bareUnaccented.includes(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
     baseScore = 95;
     matchReason = 'Name substring match';
-  } else if (symbol.metadata?.routeTemplate && (symbol.metadata.routeTemplate.toLowerCase() === rawQueryLower || stripAccents(symbol.metadata.routeTemplate.toLowerCase()) === rawQueryUnaccented)) {
-    baseScore = 100;
-    matchReason = 'Exact route template match';
+  } else if (normSymRoute && normQueryRoute && normSymRoute.includes(normQueryRoute) && normQueryRoute.length >= 5) {
+    baseScore = 94;
+    matchReason = 'Route substring match';
   }
 
   // 4. CamelCase Acronym match (e.g. CIVC -> CreateInterfaceViewCommand)
@@ -294,7 +313,25 @@ export function scoreSymbol(
 
     if (matchedTokens >= query.tokens.length * 0.6) {
       const matchRatio = Math.min(1, matchedTokens / query.tokens.length);
-      baseScore = Math.round(matchRatio * 90) - (inOrder ? 0 : 5);
+      let score = Math.round(matchRatio * 90) - (inOrder ? 0 : 5);
+
+      // Match Density & Extra Path Noise Penalty
+      if (symbol.kind === 'endpoint' && normSymRoute) {
+        const routeSegs = normSymRoute.split('/').filter(Boolean);
+        const querySegs = normQueryRoute ? normQueryRoute.split('/').filter(Boolean) : query.tokens;
+        if (routeSegs.length > 0 && querySegs.length > 0) {
+          const segDensity = Math.min(1, querySegs.length / routeSegs.length);
+          const noisePenalty = Math.round((1 - segDensity) * 25);
+          score = Math.max(20, score - noisePenalty);
+        }
+      } else if (bareSymbolName.length > 0 && rawQueryLower.length > 0) {
+        const nameRatio = Math.min(1, rawQueryLower.length / Math.max(rawQueryLower.length, bareSymbolName.length));
+        if (nameRatio < 0.5) {
+          score = Math.max(20, score - Math.round((1 - nameRatio) * 15));
+        }
+      }
+
+      baseScore = score;
       if (!matchReason) {
         matchReason = query.tokens.length > 1 ? 'Multi-token wildcard match' : 'Subsequence match';
       }
