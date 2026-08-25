@@ -98,3 +98,89 @@ test('scoreSymbol penalizes long noisy symbol names when searching specific shor
   assert.equal(scoreShort.score > scoreLong.score, true);
   assert.equal(scoreShort.score, 100);
 });
+
+test('scoreSymbol matches dynamic parameter values (numbers, GUIDs) and ranks endpoint #1 over domain events', () => {
+  const endpoint: UniversalSymbol = {
+    id: 'form-mode-endpoint',
+    name: 'PUT /api/custom-app/apps/forms/{formId}/mode',
+    kind: 'endpoint',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/API/FormController.cs',
+    relativePath: 'API/FormController.cs',
+    line: 177,
+    column: 1,
+    metadata: {
+      httpMethod: 'PUT',
+      routeTemplate: '/api/custom-app/apps/forms/{formId}/mode',
+      controllerName: 'FormController',
+      actionName: 'UpdateFormMode'
+    }
+  };
+
+  const competingDomainEvent: UniversalSymbol = {
+    id: 'form-mode-event',
+    name: 'FormModeSwitchedDomainEvent',
+    kind: 'cqrs_event',
+    projectName: 'ELDesk.CustomApp.SharedDomain',
+    filePath: '/src/Entities/FormModeSwitchedDomainEvent.cs',
+    relativePath: 'Entities/FormModeSwitchedDomainEvent.cs',
+    line: 12,
+    column: 1
+  };
+
+  const competingModel: UniversalSymbol = {
+    id: 'form-submission-model',
+    name: 'FormSubmissionTextValueChangeModel',
+    kind: 'class',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/Models/FormSubmissionTextValueChangeModel.cs',
+    relativePath: 'Models/FormSubmissionTextValueChangeModel.cs',
+    line: 5,
+    column: 1
+  };
+
+  // 1. Without leading slash: apps/forms/66090/mode
+  const queryNoSlash = parseUniversalSearchQuery('apps/forms/66090/mode');
+  assert.equal(queryNoSlash.isRouteQuery, true);
+
+  const scoreEndpoint = scoreSymbol(endpoint, queryNoSlash, { activeProjectName: 'ELDesk.CustomApp' });
+  const scoreEvent = scoreSymbol(competingDomainEvent, queryNoSlash, { activeProjectName: 'ELDesk.CustomApp' });
+  const scoreModel = scoreSymbol(competingModel, queryNoSlash, { activeProjectName: 'ELDesk.CustomApp' });
+
+  assert.equal(scoreEndpoint.score >= 98, true, `Endpoint score (${scoreEndpoint.score}) must be >= 98`);
+  assert.equal(scoreEndpoint.score > scoreEvent.score, true, `Endpoint (${scoreEndpoint.score}) must beat DomainEvent (${scoreEvent.score})`);
+  assert.equal(scoreEndpoint.score > scoreModel.score, true, `Endpoint (${scoreEndpoint.score}) must beat Model (${scoreModel.score})`);
+
+  // 2. Full URL from Swagger: http://localhost:5000/api/custom-app/apps/forms/66090/mode?expand=true#details
+  const querySwagger = parseUniversalSearchQuery('http://localhost:5000/api/custom-app/apps/forms/66090/mode?expand=true#details');
+  assert.equal(querySwagger.cleanQuery, 'api/custom-app/apps/forms/66090/mode');
+  const scoreSwagger = scoreSymbol(endpoint, querySwagger);
+  assert.equal(scoreSwagger.score, 100);
+
+  // 3. With explicit HTTP method: PUT apps/forms/66090/mode
+  const queryPut = parseUniversalSearchQuery('PUT apps/forms/66090/mode');
+  assert.equal(queryPut.explicitHttpMethod, 'PUT');
+  const scorePut = scoreSymbol(endpoint, queryPut);
+  assert.equal(scorePut.score >= 99, true);
+
+  // 4. GUID parameter matching: users/e0d4a940-1234-4a55-a22b-b8a914c62d08/roles
+  const guidEndpoint: UniversalSymbol = {
+    id: 'user-roles-endpoint',
+    name: 'GET /api/users/{userId:guid}/roles',
+    kind: 'endpoint',
+    projectName: 'ELDesk.IAM',
+    filePath: '/src/UserController.cs',
+    relativePath: 'UserController.cs',
+    line: 50,
+    column: 1,
+    metadata: {
+      httpMethod: 'GET',
+      routeTemplate: '/api/users/{userId:guid}/roles',
+      controllerName: 'UserController'
+    }
+  };
+  const queryGuid = parseUniversalSearchQuery('users/e0d4a940-1234-4a55-a22b-b8a914c62d08/roles');
+  const scoreGuid = scoreSymbol(guidEndpoint, queryGuid);
+  assert.equal(scoreGuid.score >= 98, true, `GUID route match score (${scoreGuid.score}) must be >= 98`);
+});
+

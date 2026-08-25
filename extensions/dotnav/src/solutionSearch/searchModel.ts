@@ -89,6 +89,7 @@ export interface ParsedSearchQuery {
   readonly projectNameFilter?: string;
   readonly targetLine?: number;
   readonly targetColumn?: number;
+  readonly isRouteQuery?: boolean;
 }
 
 export interface SearchRankingContext {

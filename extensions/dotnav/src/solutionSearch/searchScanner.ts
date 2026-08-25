@@ -1365,20 +1365,23 @@ export class UniversalSymbolIndex {
     const segments = rawQuery.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
     for (const seg of segments) {
       const segLower = seg.toLowerCase();
+      const isNumericOrGuid = /^\d+$/.test(segLower) || /^[0-9a-fA-F-]{32,36}$/.test(segLower);
       const segBucket = this.tokenBuckets.get(segLower);
       if (segBucket) {
         for (const s of segBucket) candidateSet.add(s);
       }
-      if (segLower.length >= 3) {
-        const p3 = segLower.slice(0, 3);
-        const p3Bucket = this.tokenBuckets.get(p3);
-        if (p3Bucket && candidateSet.size < 500) {
-          for (const s of p3Bucket) candidateSet.add(s);
-        }
-      } else if (segLower.length === 2 && candidateSet.size < 100) {
-        const p2Bucket = this.tokenBuckets.get(segLower);
-        if (p2Bucket) {
-          for (const s of p2Bucket) candidateSet.add(s);
+      if (!isNumericOrGuid) {
+        if (segLower.length >= 3) {
+          const p3 = segLower.slice(0, 3);
+          const p3Bucket = this.tokenBuckets.get(p3);
+          if (p3Bucket && candidateSet.size < 500) {
+            for (const s of p3Bucket) candidateSet.add(s);
+          }
+        } else if (segLower.length === 2 && candidateSet.size < 100) {
+          const p2Bucket = this.tokenBuckets.get(segLower);
+          if (p2Bucket) {
+            for (const s of p2Bucket) candidateSet.add(s);
+          }
         }
       }
     }

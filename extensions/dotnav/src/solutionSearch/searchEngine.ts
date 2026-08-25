@@ -76,7 +76,10 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
   let clean = rawQuery.trim();
   let filterMode: SearchFilterMode = 'all';
 
-  // 1. Check prefixes
+  // 1. Strip protocol and host (e.g. http://localhost:5000/api/... or https://dev.eldesk.com/api/...)
+  clean = clean.replace(/^https?:\/\/[^\/]+/i, '').trim();
+
+  // 2. Check filter mode prefixes
   if (clean.startsWith('/') || clean.toLowerCase().startsWith('api:')) {
     filterMode = 'endpoints';
     clean = clean.startsWith('/') ? clean.slice(1) : clean.slice(4);
@@ -103,9 +106,10 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = clean.startsWith('!') ? clean.slice(1) : clean.slice(5);
   }
 
-  clean = clean.trim();
+  // 3. Strip query string (?foo=bar) and hash anchor (#section) if present in URL
+  clean = clean.replace(/[\?\#].*$/, '').trim();
 
-  // 2. Extract line jump syntax at the end: e.g. "SubmitFormService:762", "SubmitFormService:762:15", "SubmitFormService@762"
+  // 4. Extract line jump syntax at the end: e.g. "SubmitFormService:762", "SubmitFormService:762:15", "SubmitFormService@762"
   let targetLine: number | undefined;
   let targetColumn: number | undefined;
   const lineMatch = /(?::(\d+)(?::(\d+))?|@(\d+))$/.exec(clean);
@@ -115,7 +119,7 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = clean.substring(0, lineMatch.index).trim();
   }
 
-  // 3. Extract explicit HTTP method
+  // 5. Extract explicit HTTP method (e.g. "PUT apps/forms/66090/mode" or "GET /users")
   let explicitHttpMethod: string | undefined;
   const methodMatch = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/i.exec(clean);
   if (methodMatch) {
@@ -123,7 +127,7 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = clean.substring(methodMatch[0].length).trim();
   }
 
-  // 4. Extract project name filter (e.g. "WebApp: users" or "CustomApp: orders")
+  // 6. Extract project name filter (e.g. "WebApp: users" or "CustomApp: orders")
   let projectNameFilter: string | undefined;
   const projectMatch = /^([a-zA-Z0-9_.-]+):\s+(.*)$/.exec(clean);
   if (projectMatch && !projectMatch[1].includes('/')) {
@@ -131,7 +135,10 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     clean = projectMatch[2].trim();
   }
 
-  // 5. Tokenize
+  // 7. Auto-detect Route Query (contains slashes or explicit HTTP method)
+  const isRouteQuery = clean.includes('/') || explicitHttpMethod !== undefined || filterMode === 'endpoints';
+
+  // 8. Tokenize
   const rawSegments = clean
     .split(/[\/\\\*\s]+/)
     .map(s => s.trim())
@@ -145,7 +152,8 @@ export function parseUniversalSearchQuery(rawQuery: string): ParsedSearchQuery {
     explicitHttpMethod,
     projectNameFilter,
     targetLine,
-    targetColumn
+    targetColumn,
+    isRouteQuery
   };
 }
 
@@ -181,6 +189,116 @@ export function normalizeRouteTemplate(route: string): string {
     .replace(/^api\//, '') // Remove optional leading "api/"
     .replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '{$1}') // Strip all constraints e.g. {appId:int}, {id:regex(...)} -> {appId}
     .trim();
+}
+
+export function matchSingleSegment(qSeg: string, tSeg: string): boolean {
+  if (!qSeg || !tSeg) return false;
+  const qLower = qSeg.toLowerCase();
+  const tLower = tSeg.toLowerCase();
+
+  // 1. Target is a parameter placeholder e.g. {formId}, {id}, {appId}
+  if (tLower.startsWith('{') && tLower.endsWith('}')) {
+    return true; // Matches numbers (66090), GUIDs, parameter names, or custom slugs
+  }
+
+  // 2. Query is a placeholder e.g. {formId}
+  if (qLower.startsWith('{') && qLower.endsWith('}')) {
+    return true;
+  }
+
+  // 3. Exact string or unaccented match
+  if (tLower === qLower || stripAccents(tLower) === stripAccents(qLower)) {
+    return true;
+  }
+
+  // 4. Singular / Plural variation (e.g. apps vs app, forms vs form)
+  const qSingular = qLower.endsWith('s') && qLower.length > 3 ? qLower.slice(0, -1) : qLower;
+  const tSingular = tLower.endsWith('s') && tLower.length > 3 ? tLower.slice(0, -1) : tLower;
+  if (qSingular === tSingular || qSingular === tLower || tSingular === qLower) {
+    return true;
+  }
+
+  // 5. Hyphen vs underscore vs no-separator (e.g. view-fields vs viewfields vs view_fields)
+  const qClean = qLower.replace(/[-_]/g, '');
+  const tClean = tLower.replace(/[-_]/g, '');
+  if (qClean === tClean && qClean.length >= 3) {
+    return true;
+  }
+
+  return false;
+}
+
+export function matchRouteSegments(
+  querySegs: string[],
+  targetSegs: string[]
+): { matched: boolean; score: number; matchReason: string } {
+  if (querySegs.length === 0 || targetSegs.length === 0) {
+    return { matched: false, score: 0, matchReason: '' };
+  }
+
+  // 1. Exact Match: Same number of segments and all match positionally
+  if (querySegs.length === targetSegs.length) {
+    let allMatch = true;
+    for (let i = 0; i < querySegs.length; i++) {
+      if (!matchSingleSegment(querySegs[i], targetSegs[i])) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) {
+      return { matched: true, score: 100, matchReason: 'Exact route template match' };
+    }
+  }
+
+  // 2. Suffix Match: Target ends with all query segments (e.g. "apps/forms/66090/mode" matches "custom-app/apps/forms/{formId}/mode")
+  if (targetSegs.length > querySegs.length) {
+    const offset = targetSegs.length - querySegs.length;
+    let suffixMatch = true;
+    for (let i = 0; i < querySegs.length; i++) {
+      if (!matchSingleSegment(querySegs[i], targetSegs[offset + i])) {
+        suffixMatch = false;
+        break;
+      }
+    }
+    if (suffixMatch) {
+      const skippedSegments = targetSegs.slice(0, offset);
+      const isCleanPrefix = skippedSegments.length <= 2;
+      const score = isCleanPrefix ? 99 : 97;
+      return { matched: true, score, matchReason: 'Route suffix match' };
+    }
+  }
+
+  // 3. Prefix Match: Target starts with all query segments (e.g. "custom-app/apps" matches "custom-app/apps/forms/{formId}/mode")
+  if (targetSegs.length > querySegs.length) {
+    let prefixMatch = true;
+    for (let i = 0; i < querySegs.length; i++) {
+      if (!matchSingleSegment(querySegs[i], targetSegs[i])) {
+        prefixMatch = false;
+        break;
+      }
+    }
+    if (prefixMatch) {
+      return { matched: true, score: 98, matchReason: 'Route prefix match' };
+    }
+  }
+
+  // 4. Contiguous Subsegment Match: Query segments appear consecutively inside target segments
+  if (targetSegs.length > querySegs.length && querySegs.length >= 2) {
+    for (let start = 0; start <= targetSegs.length - querySegs.length; start++) {
+      let subMatch = true;
+      for (let i = 0; i < querySegs.length; i++) {
+        if (!matchSingleSegment(querySegs[i], targetSegs[start + i])) {
+          subMatch = false;
+          break;
+        }
+      }
+      if (subMatch) {
+        return { matched: true, score: 96, matchReason: 'Route subsegment match' };
+      }
+    }
+  }
+
+  return { matched: false, score: 0, matchReason: '' };
 }
 
 export function scoreSymbol(
@@ -229,25 +347,40 @@ export function scoreSymbol(
   let baseScore = 0;
   let matchReason = '';
 
-  // 3. Exact full match or bare name match or route template match (accent-tolerant)
-  if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower || bareUnaccented === rawQueryUnaccented || nameUnaccented === rawQueryUnaccented) {
-    baseScore = 100;
-    matchReason = 'Exact name match';
-  } else if (normSymRoute && normQueryRoute && (normSymRoute === normQueryRoute || stripAccents(normSymRoute) === stripAccents(normQueryRoute))) {
-    baseScore = 100;
-    matchReason = 'Exact route template match';
-  } else if (normSymRoute && normQueryRoute && (normSymRoute.endsWith(normQueryRoute) || normSymRoute.startsWith(normQueryRoute)) && normQueryRoute.length >= 5) {
-    baseScore = 98;
-    matchReason = 'Route prefix/suffix match';
-  } else if ((bareSymbolName.startsWith(rawQueryLower) || bareUnaccented.startsWith(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
-    baseScore = 98;
-    matchReason = 'Name prefix match';
-  } else if ((bareSymbolName.includes(rawQueryLower) || bareUnaccented.includes(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
-    baseScore = 95;
-    matchReason = 'Name substring match';
-  } else if (normSymRoute && normQueryRoute && normSymRoute.includes(normQueryRoute) && normQueryRoute.length >= 5) {
-    baseScore = 94;
-    matchReason = 'Route substring match';
+  // 3. Dynamic Route Parameter & Segment Matching (for Endpoints)
+  if (symbol.kind === 'endpoint' && normSymRoute) {
+    const routeSegs = normSymRoute.split('/').filter(Boolean);
+    const querySegs = (normQueryRoute ? normQueryRoute.split('/') : query.tokens).filter(Boolean);
+    if (querySegs.length > 0 && routeSegs.length > 0) {
+      const routeMatch = matchRouteSegments(querySegs, routeSegs);
+      if (routeMatch.matched) {
+        baseScore = routeMatch.score;
+        matchReason = routeMatch.matchReason;
+      }
+    }
+  }
+
+  // 4. Exact full match or bare name match or route template match (accent-tolerant)
+  if (baseScore === 0) {
+    if (bareSymbolName === rawQueryLower || symbolNameLower === rawQueryLower || bareUnaccented === rawQueryUnaccented || nameUnaccented === rawQueryUnaccented) {
+      baseScore = 100;
+      matchReason = 'Exact name match';
+    } else if (normSymRoute && normQueryRoute && (normSymRoute === normQueryRoute || stripAccents(normSymRoute) === stripAccents(normQueryRoute))) {
+      baseScore = 100;
+      matchReason = 'Exact route template match';
+    } else if (normSymRoute && normQueryRoute && (normSymRoute.endsWith(normQueryRoute) || normSymRoute.startsWith(normQueryRoute)) && normQueryRoute.length >= 5) {
+      baseScore = 98;
+      matchReason = 'Route prefix/suffix match';
+    } else if ((bareSymbolName.startsWith(rawQueryLower) || bareUnaccented.startsWith(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
+      baseScore = 98;
+      matchReason = 'Name prefix match';
+    } else if ((bareSymbolName.includes(rawQueryLower) || bareUnaccented.includes(rawQueryUnaccented)) && rawQueryLower.length >= 3) {
+      baseScore = 95;
+      matchReason = 'Name substring match';
+    } else if (normSymRoute && normQueryRoute && normSymRoute.includes(normQueryRoute) && normQueryRoute.length >= 5) {
+      baseScore = 94;
+      matchReason = 'Route substring match';
+    }
   }
 
   // 4. CamelCase Acronym match (e.g. CIVC -> CreateInterfaceViewCommand)
