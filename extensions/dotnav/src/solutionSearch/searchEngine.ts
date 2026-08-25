@@ -485,7 +485,31 @@ export function scoreSymbol(
     }
   }
 
-  // 7. Domain priority adjustments
+  // 7. C# Naming Intent Detection
+  const cleanQ = query.cleanQuery;
+  if (/^I[A-Z][a-zA-Z0-9_]*$/.test(cleanQ)) {
+    if (symbol.kind === 'interface') {
+      baseScore = Math.min(100, baseScore + 20);
+      matchReason = `${matchReason} (Interface)`;
+    } else if (symbol.kind === 'class') {
+      baseScore = Math.max(10, baseScore - 15);
+    }
+  } else if (/(Command|Query|Handler|Event)$/i.test(cleanQ)) {
+    if (symbol.kind.startsWith('cqrs_')) {
+      baseScore = Math.min(100, baseScore + 15);
+      matchReason = `${matchReason} (CQRS)`;
+    }
+  } else if (/(Dto|Model|Request|Response|ViewModel)$/i.test(cleanQ)) {
+    if (symbol.kind === 'class' || symbol.kind === 'record') {
+      baseScore = Math.min(100, baseScore + 12);
+      matchReason = `${matchReason} (Model/DTO)`;
+    }
+  } else if (/Exception$/i.test(cleanQ) && symbol.kind === 'class') {
+    baseScore = Math.min(100, baseScore + 15);
+    matchReason = `${matchReason} (Exception)`;
+  }
+
+  // 8. Domain priority adjustments
   if (
     symbol.kind === 'endpoint' ||
     symbol.kind === 'cqrs_command' ||
@@ -497,19 +521,38 @@ export function scoreSymbol(
     baseScore = Math.min(100, baseScore + 2);
   }
 
-  // 8. Active Project / Active File Affinity Bonus
+  // 9. Git Working Tree Gravity (Files being actively modified in Git)
+  if (rankingContext?.gitModifiedPaths && rankingContext.gitModifiedPaths.length > 0) {
+    const isGitModified = rankingContext.gitModifiedPaths.some(
+      p => symbol.filePath.endsWith(p) || symbol.relativePath.endsWith(p)
+    );
+    if (isGitModified) {
+      baseScore = Math.min(100, baseScore + 15);
+      matchReason = `${matchReason} (🌿 Git Modified)`;
+    }
+  }
+
+  // 10. Active Project / Active File Affinity Bonus
   if (rankingContext?.activeFilePath && symbol.filePath === rankingContext.activeFilePath) {
     baseScore = Math.min(100, baseScore + 8);
     matchReason = `${matchReason} (Current File)`;
+  } else if (rankingContext?.activeFileDir && symbol.relativePath.startsWith(rankingContext.activeFileDir)) {
+    baseScore = Math.min(100, baseScore + 6);
+    matchReason = `${matchReason} (Same Module)`;
   } else if (
     rankingContext?.activeProjectName &&
     symbol.projectName.toLowerCase() === rankingContext.activeProjectName.toLowerCase()
   ) {
-    baseScore = Math.min(100, baseScore + 5);
+    baseScore = Math.min(100, baseScore + 4);
     matchReason = `${matchReason} (Active Project)`;
   }
 
-  // 9. MRU Recency Bonus
+  // 11. Active Editor Noun Gravity (e.g. FormController -> FormService)
+  if (rankingContext?.activeNoun && symbol.name.toLowerCase().includes(rankingContext.activeNoun.toLowerCase())) {
+    baseScore = Math.min(100, baseScore + 5);
+  }
+
+  // 12. MRU Recency Bonus
   if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.includes(symbol.id)) {
     baseScore = Math.min(100, baseScore + 10);
     matchReason = `${matchReason} (Recent)`;

@@ -184,3 +184,90 @@ test('scoreSymbol matches dynamic parameter values (numbers, GUIDs) and ranks en
   assert.equal(scoreGuid.score >= 98, true, `GUID route match score (${scoreGuid.score}) must be >= 98`);
 });
 
+test('scoreSymbol applies C# Naming Intent Detection (Interface vs Class vs CQRS)', () => {
+  const ifaceSym: UniversalSymbol = {
+    id: 'iface-1',
+    name: 'IAppFieldRepository',
+    kind: 'interface',
+    projectName: 'ELDesk.Domain',
+    filePath: '/src/IAppFieldRepository.cs',
+    relativePath: 'Repositories/IAppFieldRepository.cs',
+    line: 10,
+    column: 1
+  };
+
+  const classSym: UniversalSymbol = {
+    id: 'class-1',
+    name: 'AppFieldRepository',
+    kind: 'class',
+    projectName: 'ELDesk.Infrastructure',
+    filePath: '/src/AppFieldRepository.cs',
+    relativePath: 'Repositories/AppFieldRepository.cs',
+    line: 10,
+    column: 1
+  };
+
+  // When searching "IAppFieldRepository", the interface must rank higher than the implementation class
+  const queryIface = parseUniversalSearchQuery('IAppFieldRepository');
+  const scoreIface = scoreSymbol(ifaceSym, queryIface);
+  const scoreClass = scoreSymbol(classSym, queryIface);
+
+  assert.equal(scoreIface.score > scoreClass.score, true);
+  assert.equal(scoreIface.matchReason.includes('Interface'), true);
+
+  // When searching "CreateFormCommand", CQRS command should receive CQRS boost
+  const commandSym: UniversalSymbol = {
+    id: 'cmd-1',
+    name: 'CreateFormCommand',
+    kind: 'cqrs_command',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/Commands/CreateFormCommand.cs',
+    relativePath: 'Commands/CreateFormCommand.cs',
+    line: 5,
+    column: 1
+  };
+  const queryCmd = parseUniversalSearchQuery('CreateFormCommand');
+  const scoreCmd = scoreSymbol(commandSym, queryCmd);
+  assert.equal(scoreCmd.score, 100);
+  assert.equal(scoreCmd.matchReason.includes('CQRS') || scoreCmd.matchReason.includes('Exact'), true);
+});
+
+test('scoreSymbol applies Git Working Tree Gravity and Editor Context Gravity', () => {
+  const normalSym: UniversalSymbol = {
+    id: 'sym-1',
+    name: 'FormValidator',
+    kind: 'class',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/Validation/FormValidator.cs',
+    relativePath: 'Validation/FormValidator.cs',
+    line: 10,
+    column: 1
+  };
+
+  const gitModifiedSym: UniversalSymbol = {
+    id: 'sym-2',
+    name: 'FormValidator',
+    kind: 'class',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/Validation/FormValidator.cs',
+    relativePath: 'Validation/FormValidator.cs',
+    line: 10,
+    column: 1
+  };
+
+  const query = parseUniversalSearchQuery('FormValidator');
+
+  // Without git modified
+  const scoreNormal = scoreSymbol(normalSym, query);
+
+  // With git modified
+  const scoreGit = scoreSymbol(gitModifiedSym, query, {
+    gitModifiedPaths: ['Validation/FormValidator.cs'],
+    activeNoun: 'Form'
+  });
+
+  assert.equal(scoreGit.score >= scoreNormal.score, true);
+  assert.equal(scoreGit.matchReason.includes('Git Modified'), true);
+});
+
+

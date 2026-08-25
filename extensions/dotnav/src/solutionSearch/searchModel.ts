@@ -95,6 +95,9 @@ export interface ParsedSearchQuery {
 export interface SearchRankingContext {
   readonly activeProjectName?: string;
   readonly activeFilePath?: string;
+  readonly activeFileDir?: string;
+  readonly activeNoun?: string;
+  readonly gitModifiedPaths?: readonly string[];
   readonly mruSymbolIds?: readonly string[];
 }
 
