@@ -644,18 +644,6 @@ function getButtonsForSymbol(sym: UniversalSymbol): vscode.QuickInputButton[] {
   return buttons;
 }
 
-function formatItemDescription(res: UniversalSearchResult): string {
-  const score = res.score;
-  const reason = res.matchReason || '';
-  if (score >= 95) {
-    return `✓ ${score} pts • ${reason}`;
-  }
-  if (score >= 80) {
-    return `★ ${score} pts • ${reason}`;
-  }
-  return `${score} pts • ${reason}`;
-}
-
 function buildEmptySearchItems(
   allSymbols: UniversalSymbol[],
   gitModifiedPaths: string[],
@@ -921,7 +909,6 @@ export async function searchEverywhereInteractive(
 
       items.push({
         label: formatSymbolLabel(sym),
-        description: formatItemDescription(res),
         detail: formatSymbolDetail(sym),
         alwaysShow: true,
         symbol: sym,
