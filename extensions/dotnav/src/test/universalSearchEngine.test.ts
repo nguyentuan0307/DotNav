@@ -3,9 +3,15 @@ import { test } from 'node:test';
 import {
   normalizeRouteTemplate,
   parseUniversalSearchQuery,
-  scoreSymbol
+  scoreSymbol,
+  searchUniversalSymbols
 } from '../solutionSearch/searchEngine';
 import { UniversalSymbol } from '../solutionSearch/searchModel';
+import {
+  parseSymbolsFromCSharp,
+  parseSymbolsFromResx,
+  UniversalSymbolIndex
+} from '../solutionSearch/searchScanner';
 
 test('normalizeRouteTemplate strips constraints and optional api prefix', () => {
   assert.equal(
@@ -268,6 +274,89 @@ test('scoreSymbol applies Git Working Tree Gravity and Editor Context Gravity', 
 
   assert.equal(scoreGit.score >= scoreNormal.score, true);
   assert.equal(scoreGit.matchReason.includes('Git Modified'), true);
+});
+
+test('parseSymbolsFromCSharp extracts error messages, responses, and FluentValidation rules', () => {
+  const sampleCode = `
+namespace ELDesk.CustomApp.Services;
+
+public class FormService
+{
+    public void Validate(Form form)
+    {
+        if (form == null)
+            throw new BusinessException("Form not found or has been deleted");
+
+        if (form.Id <= 0)
+            return BadRequest("Invalid form schema definition");
+    }
+}
+
+public class FormValidator : AbstractValidator<Form>
+{
+    public FormValidator()
+    {
+        RuleFor(x => x.Title).NotEmpty().WithMessage("Title is required and must not be empty");
+    }
+}
+`;
+
+  const symbols = parseSymbolsFromCSharp(sampleCode, '/src/FormService.cs', 'ELDesk.CustomApp', 'Services/FormService.cs');
+  
+  const exMsg = symbols.find(s => s.kind === 'error_message' && s.name.includes('Form not found or has been deleted'));
+  assert.equal(exMsg !== undefined, true, 'Must find BusinessException error message');
+  assert.equal(exMsg?.metadata?.baseType, 'BusinessException');
+
+  const badReqMsg = symbols.find(s => s.kind === 'error_message' && s.name.includes('Invalid form schema definition'));
+  assert.equal(badReqMsg !== undefined, true, 'Must find BadRequest response error message');
+
+  const fluentMsg = symbols.find(s => s.kind === 'error_message' && s.name.includes('Title is required'));
+  assert.equal(fluentMsg !== undefined, true, 'Must find FluentValidation message');
+});
+
+test('parseSymbolsFromResx extracts localization resources with localization_resource kind', () => {
+  const resxContent = `<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="UserNotFound" xml:space="preserve">
+    <value>User with specified ID does not exist</value>
+  </data>
+</root>`;
+
+  const symbols = parseSymbolsFromResx(resxContent, '/src/Resources.resx', 'ELDesk.Domain', 'Resources.resx');
+  assert.equal(symbols.length, 1);
+  assert.equal(symbols[0].kind, 'localization_resource');
+  assert.equal(symbols[0].name.includes('UserNotFound'), true);
+  assert.equal(symbols[0].metadata?.configValue, 'User with specified ID does not exist');
+});
+
+test('searchUniversalSymbols finds error messages and localization by message content', () => {
+  const exMsg: UniversalSymbol = {
+    id: 'err-1',
+    name: '"Form not found or has been deleted"',
+    kind: 'error_message',
+    projectName: 'ELDesk.CustomApp',
+    filePath: '/src/FormService.cs',
+    relativePath: 'Services/FormService.cs',
+    line: 12,
+    column: 1,
+    metadata: {
+      configValue: 'Form not found or has been deleted',
+      baseType: 'BusinessException'
+    }
+  };
+
+  const index = new UniversalSymbolIndex();
+  index.scanFileContent(
+    '/src/FormService.cs',
+    'throw new BusinessException("Form not found or has been deleted");',
+    'ELDesk.CustomApp',
+    'Services/FormService.cs'
+  );
+
+  const results = searchUniversalSymbols(index, 'Form not found', 10);
+  assert.equal(results.length > 0, true, 'Must find error message when searching "Form not found"');
+  assert.equal(results[0].symbol.kind, 'error_message');
+  assert.equal(results[0].symbol.name.includes('Form not found'), true);
 });
 
 

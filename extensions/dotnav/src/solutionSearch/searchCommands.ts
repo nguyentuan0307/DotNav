@@ -109,6 +109,10 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
       return `$(symbol-property) ${symbol.name}`;
     case 'config_key':
       return `$(settings) ${symbol.name}`;
+    case 'error_message':
+      return `$(alert) ${symbol.name}`;
+    case 'localization_resource':
+      return `$(globe) ${symbol.name}`;
     case 'project':
       return `$(project) ${symbol.name}`;
     case 'file':
@@ -172,6 +176,10 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
       return 'Methods & Properties';
     case 'config_key':
       return 'Configuration Keys';
+    case 'error_message':
+      return 'Error Messages & Exceptions';
+    case 'localization_resource':
+      return 'Localization Resources (.resx / json)';
     default:
       return 'Files & Projects';
   }

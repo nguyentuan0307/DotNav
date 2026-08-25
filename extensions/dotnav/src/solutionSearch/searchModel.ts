@@ -20,6 +20,8 @@ export type UniversalSymbolKind =
   | 'method'
   | 'property'
   | 'config_key'
+  | 'error_message'
+  | 'localization_resource'
   | 'project'
   | 'file';
 
