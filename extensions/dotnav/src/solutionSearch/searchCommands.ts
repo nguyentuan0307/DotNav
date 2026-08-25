@@ -62,7 +62,9 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
     case 'endpoint': {
       const method = symbol.metadata?.httpMethod || 'API';
       const route = symbol.metadata?.routeTemplate
-        ? '/' + symbol.metadata.routeTemplate.replace(/^\/+/, '')
+        ? '/' + symbol.metadata.routeTemplate
+            .replace(/^\/+/, '')
+            .replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '{$1}')
         : symbol.name;
       return `[${method}] ${route}`;
     }
@@ -626,8 +628,8 @@ export async function searchEverywhereInteractive(
 
   quickPick.title = 'DotNav: Search Everywhere (Universal Solution Search)';
   quickPick.placeholder = 'Search everything: /api, $cqrs, %db, #type, @method, !file (Enter: Go to Code • Ctrl+Enter: Actions)';
-  quickPick.matchOnDescription = false;
-  quickPick.matchOnDetail = false;
+  quickPick.matchOnDescription = true;
+  quickPick.matchOnDetail = true;
 
   quickPick.buttons = [
     {

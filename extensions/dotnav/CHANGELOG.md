@@ -4,6 +4,26 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.26.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.25.0...dotnav-v0.26.0) (2026-08-24)
+
+
+### Features
+
+* **dotnav:** add live C# expression evaluator and EF Core SQL inspector with Alt+F8 support ([1cdf30a](https://github.com/nguyentuan0307/DotNav/commit/1cdf30a3501bda5e3fbcd3f17abd2e2f3ba4f2c6))
+* **dotnav:** integrate SDK Roslyn dynamic evaluation with race condition protection and chain query extraction ([fdbe19c](https://github.com/nguyentuan0307/DotNav/commit/fdbe19c13b967ab240dd0f90092ae88d7fb7cb4f))
+
+### Bug Fixes
+
+* **dotnav:** skip failed evaluation results in candidate loop to allow query fallbacks ([68c6553](https://github.com/nguyentuan0307/DotNav/commit/68c6553277d8673ab7da87e05d52de8eb4ff3e94))
+* **dotnav:** optimize route template normalization, match density scoring and parameter highlight in Search Everywhere ([73e312f](https://github.com/nguyentuan0307/DotNav/commit/73e312f238064956e6b648dd80f77e0cd114d1e7))
+
+### Changes
+
+* Revert "fix(dotnav): skip failed evaluation results in candidate loop to allow query fallbacks" ([4ddc65f](https://github.com/nguyentuan0307/DotNav/commit/4ddc65fc451c1615678222f939c03989297ae514))
+* Revert "feat(dotnav): integrate SDK Roslyn dynamic evaluation with race condition protection and chain query extraction" ([46b21fc](https://github.com/nguyentuan0307/DotNav/commit/46b21fc2ccf04f1633c4e0cd07f1399495cd5f7a))
+* Revert "feat(dotnav): add live C# expression evaluator and EF Core SQL inspector with Alt+F8 support" ([1f30f4b](https://github.com/nguyentuan0307/DotNav/commit/1f30f4b323e20f072cac2cf2dbd030b663d86d1d))
+
+
 ## [0.25.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.24.0...dotnav-v0.25.0) (2026-08-22)
 
 
