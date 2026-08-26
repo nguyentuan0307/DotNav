@@ -39,8 +39,8 @@ body, html {
 
 .diagram-container {
   display: flex;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   position: relative;
 }
@@ -190,15 +190,19 @@ body, html {
 /* Main Workspace */
 .main-area {
   flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
   position: relative;
   overflow: hidden;
 }
 
 /* Toolbar */
 .toolbar {
+  width: 100%;
+  min-width: 0;
   height: 42px;
   background: rgba(30, 30, 30, 0.85);
   backdrop-filter: blur(8px);
@@ -379,6 +383,10 @@ body, html {
 /* Canvas Viewport */
 .canvas-viewport {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
   position: relative;
   overflow: hidden;
   background-color: #14161a;
@@ -883,35 +891,36 @@ body, html {
 /* Floating Canvas Controls Dock (Bottom-Right, above Minimap) */
 .floating-canvas-controls {
   position: absolute;
-  bottom: 146px;
-  right: 14px;
+  bottom: 152px;
+  right: 16px;
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(28, 32, 40, 0.9);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(24, 26, 32, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  padding: 3px 5px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  z-index: 20;
+  border-radius: 8px;
+  padding: 3px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 30;
   user-select: none;
 }
 
 /* Interactive Canvas Minimap */
 .canvas-minimap {
   position: absolute;
-  bottom: 14px;
-  right: 14px;
+  bottom: 16px;
+  right: 16px;
   width: 190px;
   height: 125px;
-  background: rgba(24, 26, 32, 0.88);
-  backdrop-filter: blur(8px);
-  border: 1px solid #3c4048;
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-  z-index: 15;
+  background: rgba(24, 26, 32, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  z-index: 25;
   overflow: hidden;
   display: flex;
   align-items: center;
