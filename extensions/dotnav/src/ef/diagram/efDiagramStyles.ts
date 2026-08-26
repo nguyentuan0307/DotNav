@@ -83,11 +83,17 @@ body, html {
   gap: 8px;
 }
 
+.sidebar-context-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .sidebar-title {
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
   display: flex;
   align-items: center;
   gap: 6px;

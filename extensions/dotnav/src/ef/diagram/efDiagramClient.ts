@@ -121,6 +121,7 @@ export function getEfDiagramClientScript(): string {
   // Toolbar Controls
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
+  const btnAutoLayout = document.getElementById('btnAutoLayout');
   const layoutModeSelect = document.getElementById('layoutModeSelect');
   const btnAddNote = document.getElementById('btnAddNote');
   const exportSelect = document.getElementById('exportSelect');
@@ -392,7 +393,7 @@ export function getEfDiagramClientScript(): string {
 
   function updateSidebarTitle() {
     if (sidebarContextTitle) {
-      sidebarContextTitle.textContent = \`\${activeDbContext || 'Entity Palette'} (\${allEntities.length})\`;
+      sidebarContextTitle.textContent = 'Active DbContext';
     }
   }
 
@@ -2177,6 +2178,16 @@ export function getEfDiagramClientScript(): string {
 
     renderCanvas();
     renderNotes();
+    Object.keys(activePositions).forEach(name => cacheCardLayout(name));
+    scheduleSvgUpdate();
+    updateMinimap();
+  }
+
+  if (btnAutoLayout) {
+    btnAutoLayout.addEventListener('click', () => {
+      const mode = layoutModeSelect ? layoutModeSelect.value : 'column';
+      autoLayoutEntities(null, mode || 'column');
+    });
   }
 
   if (layoutModeSelect) {
@@ -2184,7 +2195,6 @@ export function getEfDiagramClientScript(): string {
       const mode = layoutModeSelect.value;
       if (mode) {
         autoLayoutEntities(null, mode);
-        layoutModeSelect.value = '';
       }
     });
   }

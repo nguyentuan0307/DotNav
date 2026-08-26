@@ -20,17 +20,21 @@ export function renderEfDiagramHtml(): string {
     <!-- Left Sidebar: Searchable Entity Catalog -->
     <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-title">
-          <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5-.5a.5.5 0 0 0-.5.5v1h10v-1a.5.5 0 0 0-.5-.5h-9zm10 2.5H2.5v6.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5.5z"/>
-          </svg>
-          <span id="sidebarContextTitle">Entity Palette</span>
+        <div class="sidebar-context-group">
+          <div class="sidebar-title">
+            <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5-.5a.5.5 0 0 0-.5.5v1h10v-1a.5.5 0 0 0-.5-.5h-9zm10 2.5H2.5v6.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5.5z"/>
+            </svg>
+            <span id="sidebarContextTitle">DbContext</span>
+          </div>
+          <select class="diagram-select" id="dbContextSelect" style="width: 100%; font-weight: 600;" title="Select Active DbContext"></select>
         </div>
+
         <div class="search-box-wrapper">
           <svg class="search-icon-svg" viewBox="0 0 16 16" fill="currentColor">
             <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
           </svg>
-          <input type="text" class="search-box" id="searchBox" placeholder="Filter entities in active DbContext..." autocomplete="off" />
+          <input type="text" class="search-box" id="searchBox" placeholder="Filter entities..." autocomplete="off" />
         </div>
         <button class="btn btn-secondary" id="btnAddAllToCanvas" style="width: 100%; font-size: 11px; padding: 6px;" title="Add all tables of active DbContext to canvas">
           <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
@@ -50,16 +54,6 @@ export function renderEfDiagramHtml(): string {
       <!-- Top Toolbar -->
       <div class="toolbar">
         <div class="toolbar-left">
-          <div class="context-picker-group">
-            <span class="context-label">
-              <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9z"/></svg>
-              DbContext:
-            </span>
-            <select class="diagram-select" id="dbContextSelect" style="font-weight: 600; min-width: 170px;" title="Select Active DbContext"></select>
-          </div>
-
-          <div class="toolbar-divider"></div>
-
           <select class="diagram-select" id="diagramSelect" title="Select Saved Diagram">
             <option value="Default">Default Diagram</option>
           </select>
@@ -86,14 +80,19 @@ export function renderEfDiagramHtml(): string {
 
           <div class="toolbar-divider"></div>
 
-          <!-- Auto-Arrange Layout Selector (Instant Trigger) -->
-          <select class="diagram-select" id="layoutModeSelect" title="Auto-Arrange Diagram Layout">
-            <option value="" disabled selected>📐 Arrange Layout...</option>
-            <option value="column">📐 Layout: Columns (DAG)</option>
-            <option value="hierarchical">🌲 Layout: Tree Hierarchy</option>
-            <option value="radial">⭐ Layout: Radial Star</option>
-            <option value="grid">▦ Layout: Compact Grid</option>
-          </select>
+          <!-- Auto-Arrange Layout Controls -->
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button class="btn btn-secondary" id="btnAutoLayout" title="Auto-Arrange entities on canvas">
+              <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zM2.5 2a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zM1 10.5A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3z"/></svg>
+              Arrange
+            </button>
+            <select class="diagram-select" id="layoutModeSelect" title="Select Layout Algorithm">
+              <option value="column" selected>📐 Columns (DAG)</option>
+              <option value="hierarchical">🌲 Hierarchy (Tree)</option>
+              <option value="radial">⭐ Radial (Star)</option>
+              <option value="grid">▦ Grid</option>
+            </select>
+          </div>
 
           <!-- Add Sticky Note Button -->
           <button class="btn btn-secondary" id="btnAddNote" title="Add Sticky Note to Canvas">
