@@ -4,6 +4,60 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.27.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.26.0...dotnav-v0.27.0) (2026-08-26)
+
+
+### Features
+
+* **dotnav:** implement 5 smart search everywhere upgrades: git and editor context gravity, C# intent detection, explainable badges, and inline CQRS actions ([59d1c10](https://github.com/nguyentuan0307/DotNav/commit/59d1c10627becce4b1e0bf89397944c2029cb81b))
+* **dotnav:** implement error message and localization resource search across solution ([b1c4a4d](https://github.com/nguyentuan0307/DotNav/commit/b1c4a4d5192b25a946f398612beb86e81c814b74))
+* **dotnav:** implement interactive EF Core Visual ERD Diagram with drag-drop and persistence ([9cd6681](https://github.com/nguyentuan0307/DotNav/commit/9cd6681b320dee80906a59c2033badea4c5ac6df))
+* **dotnav:** add settings toggle and update announcement for EF Core ERD diagram ([38523c9](https://github.com/nguyentuan0307/DotNav/commit/38523c94b39fb6402f494cffa7c717ca5371e0d8))
+* **dotnav:** implement 2-pass strict EF Core entity detection and base class property inheritance ([fda2ffb](https://github.com/nguyentuan0307/DotNav/commit/fda2ffb1615563b5b05ff73f88da2d6c8c89a114))
+* **dotnav:** implement DbContext and project grouped entity palette with context filtering and add-all ([f5a68c3](https://github.com/nguyentuan0307/DotNav/commit/f5a68c3abc595428409b6a5969c67c8c529e839f))
+* **dotnav:** apply enterprise multi-bounded context detection ruleset for EF Core ERD diagram ([f17a358](https://github.com/nguyentuan0307/DotNav/commit/f17a358f5164e3d0b23fa835cebff9e50b1f6a94))
+* **dotnav:** implement DbContext-Centric migration-style ERD diagram with snapshot parser and active context scoping ([40fc685](https://github.com/nguyentuan0307/DotNav/commit/40fc6850c0dd9d84ced39d17808184f8ee285535))
+* **dotnav:** implement exact row-level pin anchoring and topological auto-layout for ERD diagram ([e9fc2ab](https://github.com/nguyentuan0307/DotNav/commit/e9fc2ab06905b0ecec50ea69008cb44464fac3ed))
+* **dotnav:** implement resizable sidebar and cards, column view filter chips, and professional SVG iconography ([a548b17](https://github.com/nguyentuan0307/DotNav/commit/a548b176de35654bee08d0d54247d2b703de5090))
+* **dotnav:** store saved diagrams in VS Code storageUri to prevent git tracking ([fc9943a](https://github.com/nguyentuan0307/DotNav/commit/fc9943a19b74fae197b6d873b28ff338910cbfd4))
+* **dotnav:** implement per-table column manager popover, inline row eye toggle, domain color tags, and card context menu ([b0e3590](https://github.com/nguyentuan0307/DotNav/commit/b0e359003d5f634f0cd3f407403d5178faa851dd))
+* **dotnav:** implement ctrl+wheel zoom and natural container scrolling for canvas ([03fe244](https://github.com/nguyentuan0307/DotNav/commit/03fe24483f2a4f9cb1f57348f526c74298dce79b))
+* **dotnav:** adopt GitNav-style SVG eye toggles and non-dismissing in-place column manager ([c41eb8f](https://github.com/nguyentuan0307/DotNav/commit/c41eb8f851b2e97a4e7e269aaaac7088e71bacee))
+* **dotnav:** implement interactive relationship inspector popover on link click ([a034748](https://github.com/nguyentuan0307/DotNav/commit/a034748b43e301bff43b9a4886c26e7729c24dae))
+* **dotnav:** implement comprehensive 3-group ERD upgrades including smart lines, sticky notes, high-DPI export, multi-layouts, marquee multi-select, undo-redo, and minimap ([8b290cc](https://github.com/nguyentuan0307/DotNav/commit/8b290ccd768c251419d350c212fd09cd034f1b18))
+* **dotnav:** implement pixel-perfect 1:1 fidelity diagram exporter with PK/FK badges, table headers, and themed sticky notes ([075fcac](https://github.com/nguyentuan0307/DotNav/commit/075fcacb9038b54de8deedf16cc8f377e25e921b))
+* **dotnav:** add glassmorphism loading overlay, in-memory model caching, and error retry state ([8666ede](https://github.com/nguyentuan0307/DotNav/commit/8666ede2df446d8b35518e167b876aeb14407a76))
+* **dotnav:** implement 60FPS animated auto-layout engine with smooth card transitions, auto-fit centering, and toast feedback ([2fc6ab5](https://github.com/nguyentuan0307/DotNav/commit/2fc6ab5a138101fc58dd692671af896dce40946e))
+* **dotnav:** convert Arrange to single interactive dropdown action menu with 60FPS animations ([692ff4b](https://github.com/nguyentuan0307/DotNav/commit/692ff4bd2afbc6790a3c97ad824ac1fa89a48ec8))
+* **dotnav:** implement explicit diagram creation lifecycle with empty hero state and diagram deletion support ([64a250f](https://github.com/nguyentuan0307/DotNav/commit/64a250f0ab73282d07298077c6b8409a6e5e36ab))
+
+### Bug Fixes
+
+* **dotnav:** implement auto-route detection and dynamic parameter route matching in search everywhere ([e5ce9c0](https://github.com/nguyentuan0307/DotNav/commit/e5ce9c0a6b32d905ffe9e4bf594981a0945344bd))
+* **dotnav:** remove score and match reason text to keep search everywhere clean and uncluttered ([4d68ed8](https://github.com/nguyentuan0307/DotNav/commit/4d68ed8a95f8c6ffd42cc5fc01874a5a7c15c643))
+* **dotnav:** fix snapshot entity deduplication, 12k file discovery, and revamp DataGrip-style card UI ([6282319](https://github.com/nguyentuan0307/DotNav/commit/62823193320a6e3cf992cbef91102e7ac9879c9a))
+* **dotnav:** implement authoritative PK and FK resolution from snapshot and navigation pairing ([66e30bb](https://github.com/nguyentuan0307/DotNav/commit/66e30bbffffcc157743f19736264f37124a7da58))
+* **dotnav:** scope auto arrange to active canvas tables and sync sidebar palette state ([b2b84f3](https://github.com/nguyentuan0307/DotNav/commit/b2b84f3c8bfe4884a8723188b902e89fa1a66363))
+* **dotnav:** implement real-time smooth minimap dragging and sync to canvas ([afdf343](https://github.com/nguyentuan0307/DotNav/commit/afdf343ee32dfdb1cf0d99467113c855b8f9c733))
+* **dotnav:** fix entity expand plus button, add standalone vector SVG export and add all connected tables action ([5919630](https://github.com/nguyentuan0307/DotNav/commit/5919630a1a568d9970fada4fab6ad221c50ebc65))
+* **dotnav:** fix relationship curve routing to ensure continuous non-breaking lines at any height ([4cfa051](https://github.com/nguyentuan0307/DotNav/commit/4cfa051cd4a6ecc9f4bd41b27ad1b38cd3b978a8))
+* **dotnav:** fix auto-arrange feature with dedicated button and layout mode selector ([c26b5e8](https://github.com/nguyentuan0307/DotNav/commit/c26b5e87ad5bb317302264cc021551079c5e55ab))
+* **dotnav:** fix canvas viewport flexbox sizing and pin minimap and zoom hud to bottom-right corner ([2e095cd](https://github.com/nguyentuan0307/DotNav/commit/2e095cdd7bf61fd72a06004ec1da6aa3a49a3f76))
+* **dotnav:** route export and delete operations through native VS Code APIs and normalize drop coordinates ([6a68103](https://github.com/nguyentuan0307/DotNav/commit/6a68103d27561948bf8ab56db40bbb25cd7913a1))
+* **dotnav:** fix toolbar overflow clipping, add export dropdown menu, and enhance save/arrange feedback ([4c5c52b](https://github.com/nguyentuan0307/DotNav/commit/4c5c52bae13a4f5ee936c54aaab0aa744c9c7998))
+* **dotnav:** resolve fatal ReferenceError, implement pure delta-based card dragging, and refine curve routing ([1b9fc8b](https://github.com/nguyentuan0307/DotNav/commit/1b9fc8bbcd5628b3a79b0569594da8d90b6e2be6))
+* **dotnav:** fix minimap union coordinate bounding box and add collapsible dock ([8955236](https://github.com/nguyentuan0307/DotNav/commit/89552362c8ec8f606bd8afc915918bc89655d951))
+
+### Performance Improvements
+
+* **dotnav:** implement snapshot-first parallel scan for sub-50ms webview load with zero cache RAM footprint ([94e203d](https://github.com/nguyentuan0307/DotNav/commit/94e203d6770893f803cbffd15e03332c2dc9db76))
+* **dotnav:** implement draggable inspector popover and 60fps GPU-accelerated canvas dragging with zero layout thrashing ([d5ba79b](https://github.com/nguyentuan0307/DotNav/commit/d5ba79bfd05dd15a7a10acb7d45ee4089b5daa90))
+
+### Changes
+
+* refactor(dotnav): streamline toolbar UI, remove redundant align buttons, and add floating canvas zoom dock ([13d183a](https://github.com/nguyentuan0307/DotNav/commit/13d183a929279bed1b697db64324e0d3baaab6c2))
+
+
 ## [0.26.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.25.0...dotnav-v0.26.0) (2026-08-24)
 
 
