@@ -21,10 +21,28 @@ const previewFeatures: PreviewFeature[] = [
 
 const lastEndpointAnnouncementVersionKey = 'dotnav.endpointAnnouncement.lastVersion';
 const lastSearchAnnouncementVersionKey = 'dotnav.searchAnnouncement.lastVersion';
+const lastDiagramAnnouncementVersionKey = 'dotnav.diagramAnnouncement.lastVersion';
 
 export async function showFeatureAnnouncements(context: vscode.ExtensionContext): Promise<void> {
   const currentVersion = String(context.extension.packageJSON.version ?? '0.0.0');
   const lastVersion = context.globalState.get<string>(lastAnnouncementVersionKey);
+
+  // Announce EF Core Visual ERD Diagram on update
+  const lastDiagramAnnounced = context.globalState.get<string>(lastDiagramAnnouncementVersionKey);
+  if (!lastDiagramAnnounced || compareVersions('0.21.0', lastDiagramAnnounced) > 0) {
+    await context.globalState.update(lastDiagramAnnouncementVersionKey, currentVersion);
+    void vscode.window.showInformationMessage(
+      '🗄️ New in DotNav: Interactive EF Core Visual ERD Diagram! Drag & drop entities, auto-discover Crow\'s Foot relationships, and save persistent diagrams with automatic code live-sync.',
+      'Open ERD Diagram',
+      'Settings'
+    ).then(action => {
+      if (action === 'Open ERD Diagram') {
+        void vscode.commands.executeCommand('dotnav.ef.openDiagram');
+      } else if (action === 'Settings') {
+        void vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.ef.diagram.enabled');
+      }
+    });
+  }
 
   // Announce Universal Solution Search Everywhere on update
   const lastSearchAnnounced = context.globalState.get<string>(lastSearchAnnouncementVersionKey);

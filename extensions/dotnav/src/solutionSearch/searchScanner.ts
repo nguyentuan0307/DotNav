@@ -31,6 +31,8 @@ export const PRIMARY_HOT_KINDS = new Set<UniversalSymbolKind>([
   'enum',
   'enum_member',
   'project',
+  'error_message',
+  'localization_resource',
   'file'
 ]);
 
@@ -245,13 +247,18 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // Fast-path heuristic: If file doesn't have class/interface/record/enum/struct declarations, skip
+  // Fast-path heuristic: If file doesn't have declarations or error patterns, skip
   if (
     !code.includes('class') &&
     !code.includes('interface') &&
     !code.includes('record') &&
     !code.includes('enum') &&
-    !code.includes('struct')
+    !code.includes('struct') &&
+    !code.includes('throw') &&
+    !code.includes('WithMessage') &&
+    !code.includes('BadRequest') &&
+    !code.includes('NotFound') &&
+    !code.includes('const')
   ) {
     return symbols;
   }
@@ -650,26 +657,95 @@ export function parseSymbolsFromCSharp(
     });
   }
 
-  // 9. Parse Inline Error Messages (throw new ...Exception("..."))
-  const throwRegex = /throw\s+new\s+([A-Za-z0-9_]*Exception)\s*\(\s*(?:\$|@)?"([^"\r\n]+)"/g;
+  // 9. Parse Inline Error Messages, Exceptions, Responses, and Validation Rules
+  // 9a. throw new ...Exception("...")
+  const throwRegex = /throw\s+new\s+([A-Za-z0-9_]*Exception)\s*\(\s*(?:nameof\([^)]+\)\s*,\s*)?(?:\$|@)?"([^"\r\n]{3,180})"/g;
   let throwMatch: RegExpExecArray | null;
   while ((throwMatch = throwRegex.exec(code)) !== null) {
     const exType = throwMatch[1];
     const message = throwMatch[2].trim();
-    if (message.length >= 3) {
-      const lineIndex = code.substring(0, throwMatch.index).split(/\r?\n/).length;
+    const lineIndex = code.substring(0, throwMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:error:${message.slice(0, 40)}`,
+      name: `"${message}"`,
+      kind: internString('error_message') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        configValue: internString(message),
+        baseType: internString(exType)
+      }
+    });
+  }
+
+  // 9b. Controller & Minimal API error results: BadRequest("..."), NotFound("..."), Results.Problem("...")
+  const respErrRegex = /\b(?:return\s+)?(BadRequest|NotFound|Conflict|UnprocessableEntity|Problem|Results\.(?:BadRequest|NotFound|Conflict|Problem))\s*\(\s*(?:\$|@)?"([^"\r\n]{3,180})"/g;
+  let respMatch: RegExpExecArray | null;
+  while ((respMatch = respErrRegex.exec(code)) !== null) {
+    const respType = respMatch[1];
+    const message = respMatch[2].trim();
+    const lineIndex = code.substring(0, respMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:resp_error:${message.slice(0, 40)}`,
+      name: `"${message}"`,
+      kind: internString('error_message') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        configValue: internString(message),
+        baseType: internString(respType)
+      }
+    });
+  }
+
+  // 9c. FluentValidation .WithMessage("...")
+  const fluentMsgRegex = /\.WithMessage\s*\(\s*(?:\$|@)?"([^"\r\n]{3,180})"/g;
+  let fluentMatch: RegExpExecArray | null;
+  while ((fluentMatch = fluentMsgRegex.exec(code)) !== null) {
+    const message = fluentMatch[1].trim();
+    const lineIndex = code.substring(0, fluentMatch.index).split(/\r?\n/).length;
+    symbols.push({
+      id: `${filePath}:${lineIndex}:fluent_msg:${message.slice(0, 40)}`,
+      name: `"${message}"`,
+      kind: internString('error_message') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      metadata: {
+        configValue: internString(message),
+        baseType: internString('FluentValidation')
+      }
+    });
+  }
+
+  // 9d. Error and Message Constants in *Error*.cs, *Message*.cs, *Constant*.cs
+  if (/(?:Error|Message|Constant|Code)s?\.cs$/i.test(filePath)) {
+    const constRegex = /(?:public|internal)\s+(?:const|static\s+readonly)\s+string\s+([A-Za-z0-9_]+)\s*=\s*(?:\$|@)?"([^"\r\n]{3,180})"/g;
+    let constMatch: RegExpExecArray | null;
+    while ((constMatch = constRegex.exec(code)) !== null) {
+      const constName = constMatch[1];
+      const constVal = constMatch[2].trim();
+      const lineIndex = code.substring(0, constMatch.index).split(/\r?\n/).length;
       symbols.push({
-        id: `${filePath}:${lineIndex}:error:${message.slice(0, 40)}`,
-        name: `${exType}: "${message}"`,
-        kind: internString('config_key') as UniversalSymbolKind,
+        id: `${filePath}:${lineIndex}:error_const:${constName}`,
+        name: `${constName} = "${constVal}"`,
+        kind: internString('error_message') as UniversalSymbolKind,
         filePath,
         relativePath,
         projectName: internString(projectName)!,
         line: lineIndex,
         column: 1,
         metadata: {
-          configValue: internString(message),
-          baseType: internString(exType)
+          configValue: internString(constVal),
+          baseType: internString('Constant')
         }
       });
     }
@@ -804,14 +880,15 @@ export function parseSymbolsFromResx(
     symbols.push({
       id: `${filePath}:${line}:resx:${key}`,
       name: `${key} = "${val}"`,
-      kind: internString('config_key') as UniversalSymbolKind,
+      kind: internString('localization_resource') as UniversalSymbolKind,
       filePath,
       relativePath,
       projectName: internedProj,
       line,
       column: 1,
       metadata: {
-        configValue: internString(val)
+        configValue: internString(val),
+        baseType: internString('Resx')
       }
     });
   }
@@ -1365,20 +1442,23 @@ export class UniversalSymbolIndex {
     const segments = rawQuery.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:]+/).filter(Boolean);
     for (const seg of segments) {
       const segLower = seg.toLowerCase();
+      const isNumericOrGuid = /^\d+$/.test(segLower) || /^[0-9a-fA-F-]{32,36}$/.test(segLower);
       const segBucket = this.tokenBuckets.get(segLower);
       if (segBucket) {
         for (const s of segBucket) candidateSet.add(s);
       }
-      if (segLower.length >= 3) {
-        const p3 = segLower.slice(0, 3);
-        const p3Bucket = this.tokenBuckets.get(p3);
-        if (p3Bucket && candidateSet.size < 500) {
-          for (const s of p3Bucket) candidateSet.add(s);
-        }
-      } else if (segLower.length === 2 && candidateSet.size < 100) {
-        const p2Bucket = this.tokenBuckets.get(segLower);
-        if (p2Bucket) {
-          for (const s of p2Bucket) candidateSet.add(s);
+      if (!isNumericOrGuid) {
+        if (segLower.length >= 3) {
+          const p3 = segLower.slice(0, 3);
+          const p3Bucket = this.tokenBuckets.get(p3);
+          if (p3Bucket && candidateSet.size < 500) {
+            for (const s of p3Bucket) candidateSet.add(s);
+          }
+        } else if (segLower.length === 2 && candidateSet.size < 100) {
+          const p2Bucket = this.tokenBuckets.get(segLower);
+          if (p2Bucket) {
+            for (const s of p2Bucket) candidateSet.add(s);
+          }
         }
       }
     }

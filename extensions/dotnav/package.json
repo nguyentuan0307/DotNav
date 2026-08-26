@@ -69,7 +69,8 @@
     "onCommand:dotnav.localHistory.showSelection",
     "onCommand:dotnav.searchApiEndpoints",
     "onCommand:dotnav.refreshApiEndpoints",
-    "onCommand:dotnav.openEndpointActions"
+    "onCommand:dotnav.openEndpointActions",
+    "onCommand:dotnav.ef.openDiagram"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -554,6 +555,12 @@
         "command": "dotnav.ef.optimizeDbContext",
         "title": "Optimize DbContext...",
         "category": "EF Core"
+      },
+      {
+        "command": "dotnav.ef.openDiagram",
+        "title": "Visual Entity Relationship Diagram (ERD)",
+        "category": "EF Core",
+        "icon": "$(type-hierarchy)"
       }
     ],
     "submenus": [
@@ -1136,6 +1143,10 @@
           "group": "2_database@4"
         },
         {
+          "command": "dotnav.ef.openDiagram",
+          "group": "3_tools@0"
+        },
+        {
           "command": "dotnav.ef.openCenter",
           "group": "3_tools@1"
         },
@@ -1220,6 +1231,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable EF Core project detection, the EF Core Center, and EF commands."
+        },
+        "dotnav.ef.diagram.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Entity Framework Core Visual Entity Relationship Diagram (ERD) canvas and commands."
         },
         "dotnav.ef.language": {
           "type": "string",

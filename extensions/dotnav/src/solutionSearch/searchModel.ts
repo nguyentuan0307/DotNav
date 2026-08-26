@@ -20,6 +20,8 @@ export type UniversalSymbolKind =
   | 'method'
   | 'property'
   | 'config_key'
+  | 'error_message'
+  | 'localization_resource'
   | 'project'
   | 'file';
 
@@ -89,11 +91,15 @@ export interface ParsedSearchQuery {
   readonly projectNameFilter?: string;
   readonly targetLine?: number;
   readonly targetColumn?: number;
+  readonly isRouteQuery?: boolean;
 }
 
 export interface SearchRankingContext {
   readonly activeProjectName?: string;
   readonly activeFilePath?: string;
+  readonly activeFileDir?: string;
+  readonly activeNoun?: string;
+  readonly gitModifiedPaths?: readonly string[];
   readonly mruSymbolIds?: readonly string[];
 }
 
