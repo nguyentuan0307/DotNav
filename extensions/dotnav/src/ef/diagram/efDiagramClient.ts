@@ -1005,19 +1005,37 @@ export function getEfDiagramClientScript(): string {
   }
 
   viewport.addEventListener('wheel', e => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    const newZoom = Math.min(Math.max(0.3, zoom * zoomFactor), 2.5);
+    const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list');
 
-    const rect = viewport.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl + Wheel: Smooth Zoom centered at mouse cursor
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newZoom = Math.min(Math.max(0.3, zoom * zoomFactor), 2.5);
 
-    panX = mouseX - (mouseX - panX) * (newZoom / zoom);
-    panY = mouseY - (mouseY - panY) * (newZoom / zoom);
-    zoom = newZoom;
+      const rect = viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-    applyTransform();
+      panX = mouseX - (mouseX - panX) * (newZoom / zoom);
+      panY = mouseY - (mouseY - panY) * (newZoom / zoom);
+      zoom = newZoom;
+
+      applyTransform();
+    } else if (scrollableTarget) {
+      // Inside a table card or list: Let native vertical scrolling work naturally!
+      return;
+    } else {
+      // Normal wheel over canvas background: Pan the canvas
+      e.preventDefault();
+      if (e.shiftKey) {
+        panX -= (e.deltaY || e.deltaX);
+      } else {
+        panY -= e.deltaY;
+        panX -= e.deltaX;
+      }
+      applyTransform();
+    }
   }, { passive: false });
 
   viewport.addEventListener('mousedown', e => {
