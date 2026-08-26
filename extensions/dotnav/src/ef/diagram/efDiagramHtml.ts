@@ -208,8 +208,14 @@ export function renderEfDiagramHtml(): string {
 
         <!-- Interactive Canvas Minimap -->
         <div class="canvas-minimap" id="canvasMinimap" title="Click or drag to pan canvas">
-          <canvas class="minimap-canvas" id="minimapCanvas" width="190" height="125"></canvas>
-          <div class="minimap-lens" id="minimapLens"></div>
+          <div class="minimap-header" id="minimapHeader">
+            <span class="minimap-title">🗺️ Map</span>
+            <button class="btn-icon minimap-toggle-btn" id="btnToggleMinimap" title="Toggle Minimap">▾</button>
+          </div>
+          <div class="minimap-body" id="minimapBody">
+            <canvas class="minimap-canvas" id="minimapCanvas" width="190" height="125"></canvas>
+            <div class="minimap-lens" id="minimapLens"></div>
+          </div>
         </div>
 
         <!-- Empty Canvas Prompt (When diagram exists but has no entities) -->

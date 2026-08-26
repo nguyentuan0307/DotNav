@@ -996,7 +996,7 @@ body, html {
 /* Floating Canvas Controls Dock (Bottom-Right, above Minimap) */
 .floating-canvas-controls {
   position: absolute;
-  bottom: 152px;
+  bottom: 180px;
   right: 16px;
   display: flex;
   align-items: center;
@@ -1010,6 +1010,7 @@ body, html {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   z-index: 30;
   user-select: none;
+  transition: bottom 0.2s ease;
 }
 
 /* Interactive Canvas Minimap */
@@ -1017,8 +1018,6 @@ body, html {
   position: absolute;
   bottom: 16px;
   right: 16px;
-  width: 190px;
-  height: 125px;
   background: rgba(24, 26, 32, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -1028,8 +1027,39 @@ body, html {
   z-index: 25;
   overflow: hidden;
   display: flex;
+  flex-direction: column;
+  transition: all 0.2s ease;
+}
+
+.minimap-header {
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+  cursor: pointer;
+}
+
+.minimap-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
+.minimap-toggle-btn {
+  font-size: 11px;
+  padding: 0 4px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.minimap-body {
+  position: relative;
+  width: 190px;
+  height: 125px;
   cursor: pointer;
 }
 
@@ -1042,9 +1072,18 @@ body, html {
 .minimap-lens {
   position: absolute;
   border: 1.5px solid #60a5fa;
-  background: rgba(96, 165, 250, 0.15);
+  background: rgba(96, 165, 250, 0.2);
   border-radius: 2px;
   pointer-events: none;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.3);
+}
+
+.canvas-minimap.collapsed .minimap-body {
+  display: none;
+}
+
+.canvas-minimap.collapsed .minimap-header {
+  border-bottom: none;
 }
 
 /* GitNav-Style Floating Column Visibility Popover */

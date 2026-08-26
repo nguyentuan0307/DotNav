@@ -83,6 +83,10 @@ export function getEfDiagramClientScript(): string {
   const canvasMinimap = document.getElementById('canvasMinimap');
   const minimapCanvas = document.getElementById('minimapCanvas');
   const minimapLens = document.getElementById('minimapLens');
+  const minimapHeader = document.getElementById('minimapHeader');
+  const minimapBody = document.getElementById('minimapBody');
+  const btnToggleMinimap = document.getElementById('btnToggleMinimap');
+  const floatingZoomControls = document.getElementById('floatingZoomControls');
 
   // Loading & Error Overlay Elements
   const loadingOverlay = document.getElementById('loadingOverlay');
@@ -1795,13 +1799,27 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
-  // Stable Minimap Geometry & Calculation (No Jitter)
+  // Stable Union Minimap Geometry & Calculation (Viewport + Cards)
   function getMinimapGeometry() {
     const activeNames = Object.keys(activePositions);
-    let minX = 0, minY = 0, maxX = 1200, maxY = 800;
+    
+    // Viewport world bounds
+    const vpW = viewport ? viewport.clientWidth : 1200;
+    const vpH = viewport ? viewport.clientHeight : 800;
+    const viewWorldX = -panX / zoom;
+    const viewWorldY = -panY / zoom;
+    const viewWorldW = vpW / zoom;
+    const viewWorldH = vpH / zoom;
+    const viewWorldMaxX = viewWorldX + viewWorldW;
+    const viewWorldMaxY = viewWorldY + viewWorldH;
+
+    // Start bounding box with current visible viewport so lens is always inside minimap
+    let minX = viewWorldX;
+    let minY = viewWorldY;
+    let maxX = viewWorldMaxX;
+    let maxY = viewWorldMaxY;
 
     if (activeNames.length > 0 || notes.length > 0) {
-      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
       activeNames.forEach(name => {
         const p = activePositions[name];
         const s = cardSizeCache[name] || { width: 310, height: 200 };
@@ -1819,16 +1837,19 @@ export function getEfDiagramClientScript(): string {
       });
     }
 
-    const pad = 160;
+    const pad = 100;
     minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-    const worldW = Math.max(600, maxX - minX);
-    const worldH = Math.max(400, maxY - minY);
+    const worldW = Math.max(400, maxX - minX);
+    const worldH = Math.max(300, maxY - minY);
 
-    const scale = Math.min((minimapCanvas?.width || 190) / worldW, (minimapCanvas?.height || 125) / worldH);
-    const offsetX = ((minimapCanvas?.width || 190) - worldW * scale) / 2;
-    const offsetY = ((minimapCanvas?.height || 125) - worldH * scale) / 2;
+    const canvasW = minimapCanvas?.width || 190;
+    const canvasH = minimapCanvas?.height || 125;
 
-    return { minX, minY, worldW, worldH, scale, offsetX, offsetY };
+    const scale = Math.min(canvasW / worldW, canvasH / worldH);
+    const offsetX = (canvasW - worldW * scale) / 2;
+    const offsetY = (canvasH - worldH * scale) / 2;
+
+    return { minX, minY, worldW, worldH, scale, offsetX, offsetY, viewWorldX, viewWorldY, viewWorldW, viewWorldH };
   }
 
   // Interactive Canvas Minimap
@@ -1854,46 +1875,47 @@ export function getEfDiagramClientScript(): string {
       const s = cardSizeCache[name] || { width: 310, height: 200 };
       const mx = geom.offsetX + (p.x - geom.minX) * geom.scale;
       const my = geom.offsetY + (p.y - geom.minY) * geom.scale;
-      const mw = Math.max(3, s.width * geom.scale);
-      const mh = Math.max(3, s.height * geom.scale);
+      const mw = Math.max(4, s.width * geom.scale);
+      const mh = Math.max(4, s.height * geom.scale);
 
-      ctx.fillStyle = colorByEntity[name] || '#3c4048';
-      ctx.fillRect(mx, my, mw, mh);
+      ctx.fillStyle = colorByEntity[name] || '#3b82f6';
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(mx, my, mw, mh, 2);
+      else ctx.rect(mx, my, mw, mh);
+      ctx.fill();
     });
+    ctx.globalAlpha = 1.0;
 
     // Draw Notes on Minimap
     notes.forEach(n => {
       const mx = geom.offsetX + (n.x - geom.minX) * geom.scale;
       const my = geom.offsetY + (n.y - geom.minY) * geom.scale;
-      const mw = Math.max(3, (n.width || 220) * geom.scale);
-      const mh = Math.max(3, (n.height || 120) * geom.scale);
+      const mw = Math.max(4, (n.width || 220) * geom.scale);
+      const mh = Math.max(4, (n.height || 120) * geom.scale);
 
       ctx.fillStyle = '#fef08a';
       ctx.fillRect(mx, my, mw, mh);
     });
 
     // Update Minimap Lens for Viewport Area
-    const viewWorldX = -panX / zoom;
-    const viewWorldY = -panY / zoom;
-    const viewWorldW = viewport.clientWidth / zoom;
-    const viewWorldH = viewport.clientHeight / zoom;
+    const lensX = geom.offsetX + (geom.viewWorldX - geom.minX) * geom.scale;
+    const lensY = geom.offsetY + (geom.viewWorldY - geom.minY) * geom.scale;
+    const lensW = Math.max(12, geom.viewWorldW * geom.scale);
+    const lensH = Math.max(12, geom.viewWorldH * geom.scale);
 
-    const lensX = geom.offsetX + (viewWorldX - geom.minX) * geom.scale;
-    const lensY = geom.offsetY + (viewWorldY - geom.minY) * geom.scale;
-    const lensW = Math.max(12, viewWorldW * geom.scale);
-    const lensH = Math.max(12, viewWorldH * geom.scale);
-
-    minimapLens.style.left = lensX + 'px';
-    minimapLens.style.top = lensY + 'px';
-    minimapLens.style.width = lensW + 'px';
-    minimapLens.style.height = lensH + 'px';
+    minimapLens.style.left = Math.round(lensX) + 'px';
+    minimapLens.style.top = Math.round(lensY) + 'px';
+    minimapLens.style.width = Math.round(lensW) + 'px';
+    minimapLens.style.height = Math.round(lensH) + 'px';
   }
 
   // Smooth Live Pan from Minimap Coordinates
   function panFromMinimap(clientX, clientY) {
-    if (!canvasMinimap) return;
+    const targetEl = minimapBody || canvasMinimap;
+    if (!targetEl) return;
     const geom = getMinimapGeometry();
-    const rect = canvasMinimap.getBoundingClientRect();
+    const rect = targetEl.getBoundingClientRect();
     const clickX = clientX - rect.left;
     const clickY = clientY - rect.top;
 
@@ -1910,17 +1932,18 @@ export function getEfDiagramClientScript(): string {
   // Real-Time Pointer Dragging on Minimap
   let isDraggingMinimap = false;
 
-  if (canvasMinimap) {
-    canvasMinimap.addEventListener('pointerdown', e => {
+  if (minimapBody || canvasMinimap) {
+    const targetEl = minimapBody || canvasMinimap;
+    targetEl.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
       isDraggingMinimap = true;
-      canvasMinimap.setPointerCapture(e.pointerId);
+      targetEl.setPointerCapture(e.pointerId);
       panFromMinimap(e.clientX, e.clientY);
       e.stopPropagation();
       e.preventDefault();
     });
 
-    canvasMinimap.addEventListener('pointermove', e => {
+    targetEl.addEventListener('pointermove', e => {
       if (isDraggingMinimap) {
         panFromMinimap(e.clientX, e.clientY);
         e.stopPropagation();
@@ -1928,17 +1951,31 @@ export function getEfDiagramClientScript(): string {
       }
     });
 
-    canvasMinimap.addEventListener('pointerup', e => {
+    targetEl.addEventListener('pointerup', e => {
       if (isDraggingMinimap) {
         isDraggingMinimap = false;
         e.stopPropagation();
       }
     });
 
-    canvasMinimap.addEventListener('pointercancel', () => {
+    targetEl.addEventListener('pointercancel', () => {
       isDraggingMinimap = false;
     });
   }
+
+  // Toggle Collapse Minimap
+  function toggleMinimap(e) {
+    if (e) e.stopPropagation();
+    if (!canvasMinimap) return;
+    canvasMinimap.classList.toggle('collapsed');
+    const isCollapsed = canvasMinimap.classList.contains('collapsed');
+    if (btnToggleMinimap) btnToggleMinimap.textContent = isCollapsed ? '▴' : '▾';
+    if (floatingZoomControls) {
+      floatingZoomControls.style.bottom = isCollapsed ? '48px' : '180px';
+    }
+  }
+  if (btnToggleMinimap) btnToggleMinimap.addEventListener('click', toggleMinimap);
+  if (minimapHeader) minimapHeader.addEventListener('click', toggleMinimap);
 
   // Pan & Zoom
   function applyTransform() {
