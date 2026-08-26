@@ -1,3 +1,4 @@
+import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
@@ -108,6 +109,10 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
       return `$(symbol-property) ${symbol.name}`;
     case 'config_key':
       return `$(settings) ${symbol.name}`;
+    case 'error_message':
+      return `$(alert) ${symbol.name}`;
+    case 'localization_resource':
+      return `$(globe) ${symbol.name}`;
     case 'project':
       return `$(project) ${symbol.name}`;
     case 'file':
@@ -171,6 +176,10 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
       return 'Methods & Properties';
     case 'config_key':
       return 'Configuration Keys';
+    case 'error_message':
+      return 'Error Messages & Exceptions';
+    case 'localization_resource':
+      return 'Localization Resources (.resx / json)';
     default:
       return 'Files & Projects';
   }
@@ -584,7 +593,7 @@ export async function openActiveSymbolActions(): Promise<void> {
   await showSymbolActions(active.symbol);
 }
 
-export async function searchEverywhereInteractive(
+export async function showSearchEverywhereWithPrompt(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
   initialPrefix = '',
@@ -606,6 +615,164 @@ export async function searchEverywhereInteractive(
     }
   }
 
+  await searchEverywhereInteractive(provider, index, initialPrefix, context);
+}
+
+export async function getGitModifiedPaths(workspaceRoot?: string): Promise<string[]> {
+  if (!workspaceRoot) return [];
+  return new Promise<string[]>(resolve => {
+    cp.execFile('git', ['status', '--porcelain'], { cwd: workspaceRoot, timeout: 1500 }, (err, stdout) => {
+      if (err || !stdout) {
+        resolve([]);
+        return;
+      }
+      const files: string[] = [];
+      for (const line of stdout.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const p = line.substring(3).trim().replace(/^"|"$/g, '');
+        if (p) files.push(p);
+      }
+      resolve(files);
+    });
+  });
+}
+
+function getButtonsForSymbol(sym: UniversalSymbol): vscode.QuickInputButton[] {
+  const buttons: vscode.QuickInputButton[] = [];
+  if (sym.kind === 'cqrs_command' || sym.kind === 'cqrs_query') {
+    buttons.push({
+      iconPath: new vscode.ThemeIcon('arrow-right'),
+      tooltip: 'Jump to Handler'
+    });
+  }
+  buttons.push({
+    iconPath: new vscode.ThemeIcon('ellipsis'),
+    tooltip: 'More Actions (Ctrl+Enter)'
+  });
+  return buttons;
+}
+
+function buildEmptySearchItems(
+  allSymbols: UniversalSymbol[],
+  gitModifiedPaths: string[],
+  activeFilePath?: string,
+  activeNoun?: string,
+  mruSymbolIds?: readonly string[]
+): UniversalQuickPickItem[] {
+  const items: UniversalQuickPickItem[] = [];
+  const addedIds = new Set<string>();
+
+  // 1. Section 1: 🌿 Git Working Tree (Modified / Added Files)
+  if (gitModifiedPaths.length > 0) {
+    items.push({
+      label: `🌿 Git Working Tree (${gitModifiedPaths.length} Modified)`,
+      kind: vscode.QuickPickItemKind.Separator
+    });
+
+    for (const gitPath of gitModifiedPaths) {
+      const fileSyms = allSymbols.filter(s => s.filePath.endsWith(gitPath) || s.relativePath.endsWith(gitPath));
+      if (fileSyms.length > 0) {
+        for (const s of fileSyms.slice(0, 3)) {
+          if (!addedIds.has(s.id)) {
+            addedIds.add(s.id);
+            items.push({
+              label: formatSymbolLabel(s),
+              description: `🌿 Git Modified`,
+              detail: formatSymbolDetail(s),
+              alwaysShow: true,
+              symbol: s,
+              buttons: getButtonsForSymbol(s)
+            });
+          }
+        }
+      } else {
+        const fileSym: UniversalSymbol = {
+          id: `file:${gitPath}`,
+          name: path.basename(gitPath),
+          kind: 'file',
+          filePath: gitPath,
+          relativePath: gitPath,
+          projectName: 'Git',
+          line: 1,
+          column: 1
+        };
+        if (!addedIds.has(fileSym.id)) {
+          addedIds.add(fileSym.id);
+          items.push({
+            label: `$(diff-modified) ${path.basename(gitPath)}`,
+            description: `🌿 Git Modified`,
+            detail: `$(file) ${gitPath}`,
+            alwaysShow: true,
+            symbol: fileSym,
+            buttons: getButtonsForSymbol(fileSym)
+          });
+        }
+      }
+    }
+  }
+
+  // 2. Section 2: 🎯 Related to Active File
+  if (activeFilePath) {
+    const activeBase = path.basename(activeFilePath, '.cs');
+    const related = allSymbols.filter(
+      s => !addedIds.has(s.id) && (s.filePath === activeFilePath || (activeNoun && s.name.toLowerCase().includes(activeNoun.toLowerCase())))
+    );
+
+    if (related.length > 0) {
+      items.push({
+        label: `🎯 Related to Active File (${activeBase}.cs)`,
+        kind: vscode.QuickPickItemKind.Separator
+      });
+
+      for (const s of related.slice(0, 8)) {
+        addedIds.add(s.id);
+        items.push({
+          label: formatSymbolLabel(s),
+          description: `🎯 Active Context`,
+          detail: formatSymbolDetail(s),
+          alwaysShow: true,
+          symbol: s,
+          buttons: getButtonsForSymbol(s)
+        });
+      }
+    }
+  }
+
+  // 3. Section 3: ⏱️ Frequently & Recently Visited (MRU)
+  if (mruSymbolIds && mruSymbolIds.length > 0) {
+    const mruSyms = mruSymbolIds
+      .map(id => allSymbols.find(s => s.id === id))
+      .filter((s): s is UniversalSymbol => s !== undefined && !addedIds.has(s.id));
+
+    if (mruSyms.length > 0) {
+      items.push({
+        label: `⏱️ Frequently & Recently Visited`,
+        kind: vscode.QuickPickItemKind.Separator
+      });
+
+      for (const s of mruSyms.slice(0, 10)) {
+        addedIds.add(s.id);
+        items.push({
+          label: formatSymbolLabel(s),
+          description: `⏱️ Recent`,
+          detail: formatSymbolDetail(s),
+          alwaysShow: true,
+          symbol: s,
+          buttons: getButtonsForSymbol(s)
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+export async function searchEverywhereInteractive(
+  provider: DotnetTreeProvider,
+  index: UniversalSymbolIndex,
+  initialPrefix = '',
+  context?: vscode.ExtensionContext
+): Promise<void> {
   globalActiveTreeProvider = provider;
   globalActiveSymbolIndex = index;
   await ensureUniversalIndexReady(provider, index, context);
@@ -682,18 +849,46 @@ export async function searchEverywhereInteractive(
 
   const activeEditor = vscode.window.activeTextEditor;
   const activeFilePath = activeEditor ? activeEditor.document.uri.fsPath : undefined;
+  const activeFileDir = activeFilePath ? path.dirname(activeFilePath) : undefined;
+  const activeBaseName = activeFilePath ? path.basename(activeFilePath, '.cs') : undefined;
+  const activeNoun = activeBaseName ? activeBaseName.replace(/(Controller|Service|Repository|Handler|Command|Query|Model|Dto)$/i, '') : undefined;
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const gitModifiedPaths = await getGitModifiedPaths(workspaceRoot);
+
   const solution = provider.getSolution();
   const activeProjectName = activeFilePath ? resolveProjectForFile(activeFilePath, solution?.projects) : undefined;
   const rankingContext = {
     activeProjectName,
     activeFilePath,
+    activeFileDir,
+    activeNoun,
+    gitModifiedPaths,
     mruSymbolIds
   };
 
   const updateItems = (query: string) => {
+    if (query.trim().length === 0) {
+      const emptyItems = buildEmptySearchItems(
+        allSymbols,
+        gitModifiedPaths,
+        activeFilePath,
+        activeNoun,
+        mruSymbolIds
+      );
+      quickPick.items = emptyItems.length > 0 ? emptyItems : [
+        {
+          label: '$(search) Start typing to search solution symbols...',
+          description: 'Try: /api for endpoints, $ for CQRS, % for EF DbSets, # for classes',
+          alwaysShow: true,
+          isAction: true
+        }
+      ];
+      return;
+    }
+
     const results = searchUniversalSymbols(index, query, 120, rankingContext);
 
-    if (results.length === 0 && query.trim().length > 0) {
+    if (results.length === 0) {
       quickPick.items = [
         {
           label: `$(info) No symbols or endpoints found matching "${query}"`,
@@ -726,12 +921,7 @@ export async function searchEverywhereInteractive(
         alwaysShow: true,
         symbol: sym,
         searchResult: res,
-        buttons: [
-          {
-            iconPath: new vscode.ThemeIcon('ellipsis'),
-            tooltip: 'More Actions (Ctrl+Enter)'
-          }
-        ]
+        buttons: getButtonsForSymbol(sym)
       });
     }
 
@@ -749,10 +939,26 @@ export async function searchEverywhereInteractive(
     updateItems(value);
   });
 
-  // QuickPick mode: keeps user's open editor tabs untouched until Enter
+  // QuickPick mode: item button triggers actions or CQRS handler navigation
   quickPick.onDidTriggerItemButton(async event => {
     const sym = event.item.symbol;
     if (!sym) return;
+
+    if (event.button.tooltip === 'Jump to Handler') {
+      const all = index.getAllSymbols();
+      const handlerName = sym.name.replace(/^(Command|Query):\s*/i, '') + 'Handler';
+      const bareName = sym.name.replace(/^(Command|Query):\s*/i, '');
+      const targetHandler = all.find(
+        s => s.kind === 'cqrs_handler' && (s.name.includes(handlerName) || s.name.includes(bareName) || s.metadata?.handledType === bareName)
+      );
+      if (targetHandler) {
+        isAccepted = true;
+        quickPick.hide();
+        await openSymbolInEditor(targetHandler);
+        return;
+      }
+    }
+
     await showSymbolActions(sym);
   });
 
