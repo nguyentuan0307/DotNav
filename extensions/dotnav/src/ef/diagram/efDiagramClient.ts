@@ -121,8 +121,9 @@ export function getEfDiagramClientScript(): string {
   // Toolbar Controls
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
-  const btnAutoLayout = document.getElementById('btnAutoLayout');
-  const layoutModeSelect = document.getElementById('layoutModeSelect');
+  const btnArrangeDropdown = document.getElementById('btnArrangeDropdown');
+  const arrangeDropdownMenu = document.getElementById('arrangeDropdownMenu');
+  const arrangeDropdownWrapper = document.getElementById('arrangeDropdownWrapper');
   const btnAddNote = document.getElementById('btnAddNote');
   const exportSelect = document.getElementById('exportSelect');
 
@@ -2278,18 +2279,24 @@ export function getEfDiagramClientScript(): string {
     showToast(\`✨ Arranged with \${algoNames[algorithm] || algorithm}\`);
   }
 
-  if (btnAutoLayout) {
-    btnAutoLayout.addEventListener('click', () => {
-      const mode = layoutModeSelect ? layoutModeSelect.value : 'column';
-      autoLayoutEntities(null, mode || 'column');
+  if (btnArrangeDropdown && arrangeDropdownMenu) {
+    btnArrangeDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+      arrangeDropdownMenu.classList.toggle('show');
     });
-  }
 
-  if (layoutModeSelect) {
-    layoutModeSelect.addEventListener('change', () => {
-      const mode = layoutModeSelect.value;
-      if (mode) {
-        autoLayoutEntities(null, mode);
+    arrangeDropdownMenu.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const layout = item.dataset.layout || 'column';
+        arrangeDropdownMenu.classList.remove('show');
+        autoLayoutEntities(null, layout);
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (arrangeDropdownWrapper && !arrangeDropdownWrapper.contains(e.target)) {
+        arrangeDropdownMenu.classList.remove('show');
       }
     });
   }

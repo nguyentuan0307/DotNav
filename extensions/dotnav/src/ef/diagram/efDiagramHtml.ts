@@ -80,18 +80,42 @@ export function renderEfDiagramHtml(): string {
 
           <div class="toolbar-divider"></div>
 
-          <!-- Auto-Arrange Layout Controls -->
-          <div style="display: flex; align-items: center; gap: 4px;">
-            <button class="btn btn-secondary" id="btnAutoLayout" title="Auto-Arrange entities on canvas">
-              <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zM2.5 2a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zM1 10.5A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3z"/></svg>
-              Arrange
+          <!-- Auto-Arrange Dropdown Menu -->
+          <div class="dropdown-wrapper" id="arrangeDropdownWrapper">
+            <button class="btn btn-secondary" id="btnArrangeDropdown" title="Select and apply diagram layout">
+              <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zM9 2.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zM1 10.5A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zM9 10.5A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3z"/></svg>
+              Arrange ▾
             </button>
-            <select class="diagram-select" id="layoutModeSelect" title="Select Layout Algorithm">
-              <option value="column" selected>📐 Columns (DAG)</option>
-              <option value="hierarchical">🌲 Hierarchy (Tree)</option>
-              <option value="radial">⭐ Radial (Star)</option>
-              <option value="grid">▦ Grid</option>
-            </select>
+            <div class="dropdown-menu" id="arrangeDropdownMenu">
+              <div class="dropdown-item" data-layout="column">
+                <span class="dropdown-icon">📐</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Columns (DAG Flow)</div>
+                  <div class="dropdown-desc">Left-to-right dependency columns</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-layout="hierarchical">
+                <span class="dropdown-icon">🌲</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Tree Hierarchy</div>
+                  <div class="dropdown-desc">Roots at top, descendants cascade down</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-layout="radial">
+                <span class="dropdown-icon">⭐</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Radial Star</div>
+                  <div class="dropdown-desc">Central hub entity with satellites in orbit</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-layout="grid">
+                <span class="dropdown-icon">▦</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Compact Grid</div>
+                  <div class="dropdown-desc">Clean square grid matrix layout</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Add Sticky Note Button -->
