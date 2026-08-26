@@ -65,7 +65,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     }
   }
 
-  if (configuredBuildBeforeRunMode() === 'standard' && !options.skipBuild) {
+  if (configuredBuildBeforeRunMode() !== 'none' && !options.skipBuild) {
     const built = await buildProject(project, options.processManager, runId, targetId);
     if (!built) {
       return false;
@@ -306,7 +306,7 @@ export async function runConfig(
     }
   }
 
-  const prebuildGroup = buildMode === 'standard' && resolvedTargets.length > 1;
+  const prebuildGroup = buildMode !== 'none' && resolvedTargets.length > 1;
   if (prebuildGroup) {
     const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), options.processManager, session?.runId);
     if (!built) {

@@ -51,6 +51,7 @@ test('creates one parallel restore and build orchestration with XML-safe project
   assert.match(xml, /Name="Restore"/);
   assert.match(xml, /Name="Build" DependsOnTargets="Restore"/);
   assert.equal((xml.match(/BuildInParallel="true"/g) ?? []).length, 2);
+  assert.match(xml, /StopOnFirstFailure="true"/);
   assert.match(xml, /Properties="Configuration=\$\(Configuration\)"/);
 });
 

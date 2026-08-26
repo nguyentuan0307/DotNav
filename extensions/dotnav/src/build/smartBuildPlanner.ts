@@ -35,6 +35,16 @@ export class SmartBuildPlanner {
         const current = await fingerprints.fingerprintAgainst(project.assetsFile, prevAssets);
         if (!current || !sameFingerprint(current, prevAssets)) return undefined;
       }
+
+      // Fast mtime/size sanity check on all project inputs
+      const inputChecks = await mapConcurrent(project.inputs, 32, async input => {
+        const prev = stored.inputs[input];
+        if (!prev) return false;
+        const current = await fingerprints.fingerprintAgainst(input, prev, false);
+        return Boolean(current && sameFingerprint(current, prev));
+      });
+      if (inputChecks.some(valid => !valid)) return undefined;
+
       projects.push(plan(project, 'up-to-date', []));
     }
 

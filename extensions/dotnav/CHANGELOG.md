@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.27.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.27.0...dotnav-v0.27.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **dotnav:** refine solution search ranking and fix stale build detection in smart build ([165ed93](https://github.com/nguyentuan0307/DotNav/commit/165ed935dae17c98df86fd683acabe78c13c0c08))
+
+
 ## [0.27.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.26.0...dotnav-v0.27.0) (2026-08-26)
 
 
