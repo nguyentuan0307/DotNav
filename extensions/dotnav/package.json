@@ -1232,6 +1232,11 @@
           "default": true,
           "description": "Enable EF Core project detection, the EF Core Center, and EF commands."
         },
+        "dotnav.ef.diagram.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Entity Framework Core Visual Entity Relationship Diagram (ERD) canvas and commands."
+        },
         "dotnav.ef.language": {
           "type": "string",
           "enum": [

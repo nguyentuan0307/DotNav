@@ -109,6 +109,7 @@ test('EF settings are declared under the dotnav.ef namespace', () => {
     .filter(key => key.startsWith('dotnav.ef.'));
   for (const expected of [
     'dotnav.ef.enable',
+    'dotnav.ef.diagram.enabled',
     'dotnav.ef.startupProject',
     'dotnav.ef.configuration',
     'dotnav.ef.noBuild',

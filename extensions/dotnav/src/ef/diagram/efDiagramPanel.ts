@@ -69,6 +69,19 @@ export async function openEfDiagramPanel(
   context: vscode.ExtensionContext,
   initialEntityName?: string
 ): Promise<void> {
+  const isEnabled = vscode.workspace.getConfiguration('dotnav.ef.diagram').get<boolean>('enabled', true);
+  if (!isEnabled) {
+    const choice = await vscode.window.showWarningMessage(
+      'EF Core Visual ERD Diagram is currently disabled in DotNav settings.',
+      'Open Settings',
+      'Cancel'
+    );
+    if (choice === 'Open Settings') {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.ef.diagram.enabled');
+    }
+    return;
+  }
+
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
   if (currentDiagramPanel) {
