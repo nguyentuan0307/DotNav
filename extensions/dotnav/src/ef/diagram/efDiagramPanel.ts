@@ -292,9 +292,17 @@ export async function openEfDiagramPanel(
       case 'deleteDiagram': {
         const diagramName = msg.name?.trim();
         if (!diagramName) break;
+        const displayName = diagramName.includes('_') ? diagramName.split('_').slice(1).join('_') : diagramName;
+        const choice = await vscode.window.showWarningMessage(
+          `Are you sure you want to delete diagram "${displayName}"?`,
+          { modal: true },
+          'Delete'
+        );
+        if (choice !== 'Delete') break;
+
         const deleted = await deleteDiagramFile(diagramName, storageRoot, workspaceRoot);
         if (deleted) {
-          vscode.window.showInformationMessage(`Diagram "${diagramName}" deleted.`);
+          vscode.window.showInformationMessage(`Diagram "${displayName}" deleted.`);
           const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
           panel.webview.postMessage({
             type: 'diagramDeleted',
@@ -302,7 +310,44 @@ export async function openEfDiagramPanel(
             savedDiagramNames: savedDiagrams
           });
         } else {
-          vscode.window.showErrorMessage(`Failed to delete diagram "${diagramName}".`);
+          vscode.window.showErrorMessage(`Failed to delete diagram "${displayName}".`);
+        }
+        break;
+      }
+
+      case 'exportFile': {
+        try {
+          const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri
+            ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, msg.filename || 'Diagram.png')
+            : undefined;
+
+          const targetUri = await vscode.window.showSaveDialog({
+            defaultUri,
+            saveLabel: 'Export Diagram',
+            filters: msg.filters || { 'All Files': ['*'] }
+          });
+
+          if (!targetUri) break;
+
+          if (msg.fileType === 'png' && msg.dataUrl) {
+            const base64Data = msg.dataUrl.replace(/^data:image\/png;base64,/, '');
+            const buffer = Buffer.from(base64Data, 'base64');
+            await fs.promises.writeFile(targetUri.fsPath, buffer);
+            vscode.window.showInformationMessage(`📸 Diagram exported successfully to ${path.basename(targetUri.fsPath)}!`);
+          } else if (msg.content) {
+            await fs.promises.writeFile(targetUri.fsPath, msg.content, 'utf8');
+            vscode.window.showInformationMessage(`📐 Diagram exported successfully to ${path.basename(targetUri.fsPath)}!`);
+          }
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to export diagram: ${err?.message || err}`);
+        }
+        break;
+      }
+
+      case 'copyMermaid': {
+        if (msg.content) {
+          await vscode.env.clipboard.writeText(msg.content);
+          vscode.window.showInformationMessage('✨ Mermaid ERD diagram code copied to clipboard!');
         }
         break;
       }

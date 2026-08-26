@@ -9,7 +9,16 @@ import {
   buildDbContextScopedModel,
   buildRelationships
 } from '../ef/diagram/efDiagramScanner';
-import { liveSyncDiagramWithCode } from '../ef/diagram/efDiagramStorage';
+import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+  saveDiagramToFile,
+  loadDiagramFromFile,
+  deleteDiagramFile,
+  listSavedDiagrams,
+  liveSyncDiagramWithCode
+} from '../ef/diagram/efDiagramStorage';
 import { DiagramFile, EntityModel } from '../ef/diagram/efDiagramModel';
 
 describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', () => {
@@ -179,5 +188,43 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     });
     assert.equal(saved.notes?.length, 1);
     assert.equal(saved.notes?.[0].color, 'emerald');
+  });
+
+  it('diagram storage lifecycle saves, loads, lists, and deletes diagram files', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotnav-diagram-test-'));
+    try {
+      const positions = {
+        Application: { x: 100, y: 200 },
+        User: { x: 400, y: 200 }
+      };
+      const notes = [
+        { id: 'note-1', x: 50, y: 50, text: 'Architecture notes', color: 'blue' }
+      ];
+
+      // Save
+      const savedOk = await saveDiagramToFile('Overview', positions, tmpDir, undefined, notes);
+      assert.equal(savedOk, true);
+
+      // List
+      const list = await listSavedDiagrams(tmpDir);
+      assert.ok(list.includes('Overview'));
+
+      // Load
+      const loaded = await loadDiagramFromFile('Overview', tmpDir);
+      assert.ok(loaded);
+      assert.equal(loaded?.name, 'Overview');
+      assert.deepEqual(loaded?.entities, positions);
+      assert.equal(loaded?.notes?.length, 1);
+      assert.equal(loaded?.notes?.[0].text, 'Architecture notes');
+
+      // Delete
+      const deletedOk = await deleteDiagramFile('Overview', tmpDir);
+      assert.equal(deletedOk, true);
+
+      const afterDeleteList = await listSavedDiagrams(tmpDir);
+      assert.equal(afterDeleteList.includes('Overview'), false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

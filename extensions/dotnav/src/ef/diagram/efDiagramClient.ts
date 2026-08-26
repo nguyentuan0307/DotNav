@@ -526,14 +526,11 @@ export function getEfDiagramClientScript(): string {
   if (btnDeleteDiagram) {
     btnDeleteDiagram.addEventListener('click', () => {
       if (!currentDiagramName) return;
-      const displayName = getDisplayDiagramName(currentDiagramName);
-      if (confirm(\`Are you sure you want to delete diagram "\${displayName}"?\`)) {
-        vscode.postMessage({
-          type: 'deleteDiagram',
-          name: currentDiagramName,
-          dbContext: activeDbContext
-        });
-      }
+      vscode.postMessage({
+        type: 'deleteDiagram',
+        name: currentDiagramName,
+        dbContext: activeDbContext
+      });
     });
   }
 
@@ -2136,14 +2133,17 @@ export function getEfDiagramClientScript(): string {
     e.preventDefault();
     const entityName = e.dataTransfer.getData('text/plain');
     if (entityName) {
-      addEntityToCanvas(entityName, e.clientX, e.clientY);
+      const rect = viewport.getBoundingClientRect();
+      const worldX = (e.clientX - rect.left - panX) / zoom;
+      const worldY = (e.clientY - rect.top - panY) / zoom;
+      addEntityToCanvas(entityName, worldX, worldY);
     }
   });
 
   // Alignment & Distribution Tools
   function alignSelected(type) {
     if (selectedEntityNames.size < 2) {
-      alert('Please select at least 2 tables (hold Shift and drag on canvas to multi-select).');
+      showToast('⚠️ Please select at least 2 tables to align');
       return;
     }
     pushHistory();
@@ -2473,7 +2473,7 @@ export function getEfDiagramClientScript(): string {
   function exportDiagram(type) {
     const activeNames = Object.keys(activePositions);
     if (activeNames.length === 0 && notes.length === 0) {
-      alert('Cannot export an empty diagram. Please add tables or notes first.');
+      showToast('⚠️ Cannot export an empty diagram');
       return;
     }
 
@@ -2500,9 +2500,11 @@ export function getEfDiagramClientScript(): string {
         }
       }
 
-      navigator.clipboard.writeText(mermaid).then(() => {
-        alert('Mermaid ERD code copied to clipboard!');
+      vscode.postMessage({
+        type: 'copyMermaid',
+        content: mermaid
       });
+      showToast('📋 Mermaid ERD code copied to clipboard!');
       return;
     }
 
@@ -2730,12 +2732,17 @@ export function getEfDiagramClientScript(): string {
         });
       });
 
-      // Trigger Download
+      // Trigger Native VS Code File Save
       const dataUrl = offscreen.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.download = \`\${activeDbContext}_\${currentDiagramName}_\${isLight ? 'light' : 'dark'}.png\`;
-      a.href = dataUrl;
-      a.click();
+      const filename = \`\${getDisplayDiagramName(currentDiagramName) || 'Diagram'}_\${isLight ? 'light' : 'dark'}.png\`;
+      vscode.postMessage({
+        type: 'exportFile',
+        filename,
+        dataUrl,
+        fileType: 'png',
+        filters: { 'PNG Image': ['png'] }
+      });
+      showToast('📸 Opening save dialog for PNG Image...');
       return;
     }
 
@@ -2847,13 +2854,15 @@ export function getEfDiagramClientScript(): string {
 
       svgContent += '</svg>';
 
-      const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.download = \`\${activeDbContext}_\${currentDiagramName}.svg\`;
-      a.href = url;
-      a.click();
-      URL.revokeObjectURL(url);
+      const filename = \`\${getDisplayDiagramName(currentDiagramName) || 'Diagram'}.svg\`;
+      vscode.postMessage({
+        type: 'exportFile',
+        filename,
+        content: svgContent,
+        fileType: 'svg',
+        filters: { 'SVG Vector Image': ['svg'] }
+      });
+      showToast('📐 Opening save dialog for SVG Vector...');
       return;
     }
   }
