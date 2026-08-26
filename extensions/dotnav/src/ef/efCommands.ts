@@ -72,6 +72,8 @@ const FIELD = {
   selfContained: 'selfContained'
 } as const;
 
+import { openEfDiagramPanel } from './diagram/efDiagramPanel';
+
 export function registerEfCommands(context: vscode.ExtensionContext, feature: EfFeature): void {
   const register = (id: string, handler: (...args: never[]) => unknown) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, handler as (...args: unknown[]) => unknown));
@@ -82,6 +84,7 @@ export function registerEfCommands(context: vscode.ExtensionContext, feature: Ef
     vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.ef'));
   register('dotnav.ef.installTool', (node?: EfCommandSource) => installTool(feature, node));
   register('dotnav.ef.openCenter', (node?: EfCommandSource) => addMigration(feature, node));
+  register('dotnav.ef.openDiagram', (entityName?: string) => openEfDiagramPanel(context, entityName));
   const handlers: EfActionHandlers<EfCommandSource> = {
     'dotnav.ef.addMigration': node => addMigration(feature, node),
     'dotnav.ef.createEmptyMigration': node => createEmptyMigrationCommand(feature, node),

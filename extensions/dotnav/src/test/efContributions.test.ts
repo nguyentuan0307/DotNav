@@ -53,9 +53,9 @@ test('the destructive action sits in its own trailing group', () => {
   assert.ok(others.every(item => !/^9_/.test(item.group ?? '')));
 });
 
-test('the project submenu contains ten contextual actions and keeps maintenance in the Center toolbar', () => {
+test('the project submenu contains contextual actions and keeps maintenance in the Center toolbar', () => {
   const entries = manifest.contributes.menus['dotnav.efCore'];
-  assert.equal(entries.length, 10);
+  assert.equal(entries.length, 11);
   for (const maintenance of [
     'dotnav.ef.refresh',
     'dotnav.ef.showOutput',
@@ -66,6 +66,7 @@ test('the project submenu contains ten contextual actions and keeps maintenance 
   }
   assert.ok(entries.some(item => item.command === 'dotnav.ef.openCenter'));
   assert.ok(entries.some(item => item.command === 'dotnav.ef.pendingModelChanges'));
+  assert.ok(entries.some(item => item.command === 'dotnav.ef.openDiagram'));
 });
 
 test('no menu entry references a command that was removed with the tree view', () => {
@@ -96,7 +97,8 @@ test('declares the complete Center, diagnostics, and advanced command set', () =
     'dotnav.ef.openCenter',
     'dotnav.ef.pendingModelChanges',
     'dotnav.ef.migrationsBundle',
-    'dotnav.ef.optimizeDbContext'
+    'dotnav.ef.optimizeDbContext',
+    'dotnav.ef.openDiagram'
   ]) {
     assert.ok(declared.has(expected), `missing ${expected}`);
   }
