@@ -80,7 +80,8 @@ export async function saveDiagramToFile(
   diagramName: string,
   positions: Record<string, any>,
   storageRoot?: string,
-  workspaceRoot?: string
+  workspaceRoot?: string,
+  notes?: readonly any[]
 ): Promise<boolean> {
   const dir = await ensureDiagramStorageDirectory(storageRoot, workspaceRoot);
   if (!dir) return false;
@@ -93,7 +94,8 @@ export async function saveDiagramToFile(
     name: cleanName,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    entities: positions
+    entities: positions,
+    notes: notes || []
   };
 
   try {

@@ -188,6 +188,7 @@ export async function openEfDiagramPanel(
         const relationships = model.relationshipsByContext[activeCtx] || [];
         const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
         let activePositions: Record<string, { x: number; y: number }> = {};
+        let savedNotes: any[] = [];
 
         if (initialEntityName) {
           activePositions[initialEntityName] = { x: 120, y: 120 };
@@ -196,6 +197,9 @@ export async function openEfDiagramPanel(
           const saved = await loadDiagramFromFile(`${activeCtx}_Default`, storageRoot, workspaceRoot) || await loadDiagramFromFile('Default', storageRoot, workspaceRoot);
           if (saved) {
             activePositions = liveSyncDiagramWithCode(saved, entities);
+            if (saved.notes) {
+              savedNotes = Array.from(saved.notes);
+            }
           } else if (entities.length > 0) {
             // Pick first 3 entities as initial showcase
             entities.slice(0, 3).forEach((e, idx) => {
@@ -214,7 +218,8 @@ export async function openEfDiagramPanel(
           relationships,
           activeDiagramName: 'Default',
           activePositions,
-          savedDiagramNames: savedDiagrams
+          savedDiagramNames: savedDiagrams,
+          notes: savedNotes
         });
         break;
       }
@@ -228,13 +233,14 @@ export async function openEfDiagramPanel(
         panel.webview.postMessage({
           type: 'diagramLoaded',
           diagramName: msg.name,
-          activePositions: synced
+          activePositions: synced,
+          notes: saved?.notes || []
         });
         break;
       }
 
       case 'saveDiagram': {
-        const success = await saveDiagramToFile(msg.name, msg.positions, storageRoot, workspaceRoot);
+        const success = await saveDiagramToFile(msg.name, msg.positions, storageRoot, workspaceRoot, msg.notes);
         if (success) {
           vscode.window.showInformationMessage(`Diagram "${msg.name}" saved successfully!`);
           const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);

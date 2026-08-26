@@ -51,6 +51,16 @@ export interface DiagramEntityState {
   readonly isMinimized?: boolean;
 }
 
+export interface DiagramNote {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly text: string;
+  readonly color?: string;
+}
+
 export interface DiagramFile {
   readonly version: number;
   readonly name: string;
@@ -58,6 +68,7 @@ export interface DiagramFile {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly entities: Record<string, DiagramEntityState | { x: number; y: number }>;
+  readonly notes?: readonly DiagramNote[];
 }
 
 export interface DiagramWebviewInitialState {
@@ -70,4 +81,5 @@ export interface DiagramWebviewInitialState {
   readonly activeDiagramName: string;
   readonly activePositions: Record<string, DiagramEntityState | { x: number; y: number }>;
   readonly savedDiagramNames: readonly string[];
+  readonly notes?: readonly DiagramNote[];
 }

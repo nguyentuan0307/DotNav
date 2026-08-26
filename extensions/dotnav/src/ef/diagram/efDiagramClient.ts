@@ -12,10 +12,22 @@ export function getEfDiagramClientScript(): string {
   let allEntities = [];
   let allRelationships = [];
   let activePositions = {};
+  let notes = []; // Array of DiagramNote: { id, x, y, width, height, text, color }
   let minimizedCards = new Set();
   let hiddenColumnsByEntity = {}; // { [entityName]: Set<propName> }
   let colorByEntity = {}; // { [entityName]: hexColor }
   let activeSelectedRelId = null;
+
+  // Multi-Selection State
+  let selectedEntityNames = new Set();
+  let isMarqueeSelecting = false;
+  let marqueeStartX = 0;
+  let marqueeStartY = 0;
+
+  // Undo / Redo History State
+  const undoStack = [];
+  const redoStack = [];
+  const MAX_HISTORY = 30;
 
   // Performance Caches (Eliminates Layout Thrashing / Reflow during Dragging)
   const cardSizeCache = {}; // { [name]: { width: number, height: number } }
@@ -34,6 +46,12 @@ export function getEfDiagramClientScript(): string {
   let draggedCard = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let batchDragInitialPositions = {};
+
+  // Draggable Note State
+  let draggedNote = null;
+  let noteDragOffsetX = 0;
+  let noteDragOffsetY = 0;
 
   // Draggable Inspector State
   let draggedInspector = null;
@@ -50,6 +68,7 @@ export function getEfDiagramClientScript(): string {
   const canvasTransform = document.getElementById('canvasTransform');
   const linksSvg = document.getElementById('linksSvg');
   const cardsLayer = document.getElementById('cardsLayer');
+  const notesLayer = document.getElementById('notesLayer');
   const entityListEl = document.getElementById('entityList');
   const searchBox = document.getElementById('searchBox');
   const dbContextSelect = document.getElementById('dbContextSelect');
@@ -58,6 +77,22 @@ export function getEfDiagramClientScript(): string {
   const btnAddAllToCanvas = document.getElementById('btnAddAllToCanvas');
   const emptyPrompt = document.getElementById('emptyPrompt');
   const zoomDisplay = document.getElementById('zoomDisplay');
+  const marqueeBox = document.getElementById('marqueeBox');
+  const canvasMinimap = document.getElementById('canvasMinimap');
+  const minimapCanvas = document.getElementById('minimapCanvas');
+  const minimapLens = document.getElementById('minimapLens');
+
+  // Toolbar Controls
+  const btnUndo = document.getElementById('btnUndo');
+  const btnRedo = document.getElementById('btnRedo');
+  const layoutModeSelect = document.getElementById('layoutModeSelect');
+  const btnAutoLayout = document.getElementById('btnAutoLayout');
+  const btnAddNote = document.getElementById('btnAddNote');
+  const exportSelect = document.getElementById('exportSelect');
+
+  const btnAlignLeft = document.getElementById('btnAlignLeft');
+  const btnAlignTop = document.getElementById('btnAlignTop');
+  const btnDistributeH = document.getElementById('btnDistributeH');
 
   // Filter Chips
   const chipAll = document.getElementById('chipAll');
@@ -84,7 +119,67 @@ export function getEfDiagramClientScript(): string {
     return '<span class="column-toggle-icon"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/>' + (visible ? '' : '<path d="M2 2l12 12"/>') + '</svg></span>';
   }
 
-  // Initialize
+  // Snapshot State for Undo / Redo
+  function captureStateSnapshot() {
+    return {
+      positions: JSON.parse(JSON.stringify(activePositions)),
+      notes: JSON.parse(JSON.stringify(notes)),
+      hiddenColumns: Object.fromEntries(Object.entries(hiddenColumnsByEntity).map(([k, v]) => [k, Array.from(v)])),
+      colors: { ...colorByEntity },
+      minimized: Array.from(minimizedCards)
+    };
+  }
+
+  function pushHistory() {
+    undoStack.push(captureStateSnapshot());
+    if (undoStack.length > MAX_HISTORY) undoStack.shift();
+    redoStack.length = 0;
+    updateUndoRedoButtons();
+  }
+
+  function applyStateSnapshot(snap) {
+    if (!snap) return;
+    activePositions = JSON.parse(JSON.stringify(snap.positions || {}));
+    notes = JSON.parse(JSON.stringify(snap.notes || []));
+    hiddenColumnsByEntity = {};
+    if (snap.hiddenColumns) {
+      for (const [k, v] of Object.entries(snap.hiddenColumns)) {
+        hiddenColumnsByEntity[k] = new Set(v);
+      }
+    }
+    colorByEntity = { ...(snap.colors || {}) };
+    minimizedCards = new Set(snap.minimized || []);
+    selectedEntityNames.clear();
+
+    renderEntityList(searchBox.value);
+    renderCanvas();
+    renderNotes();
+    updateUndoRedoButtons();
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(captureStateSnapshot());
+    const prev = undoStack.pop();
+    applyStateSnapshot(prev);
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(captureStateSnapshot());
+    const next = redoStack.pop();
+    applyStateSnapshot(next);
+  }
+
+  function updateUndoRedoButtons() {
+    if (btnUndo) btnUndo.disabled = undoStack.length === 0;
+    if (btnRedo) btnRedo.disabled = redoStack.length === 0;
+  }
+
+  if (btnUndo) btnUndo.addEventListener('click', undo);
+  if (btnRedo) btnRedo.addEventListener('click', redo);
+
+  // Initialize from Extension Message
   window.addEventListener('message', event => {
     const msg = event.data;
     switch (msg.type) {
@@ -97,9 +192,11 @@ export function getEfDiagramClientScript(): string {
         allEntities = entitiesByContext[activeDbContext] || msg.allEntities || [];
         allRelationships = relationshipsByContext[activeDbContext] || msg.relationships || [];
         activePositions = {};
+        notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
         hiddenColumnsByEntity = {};
         colorByEntity = {};
         minimizedCards.clear();
+        selectedEntityNames.clear();
         activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
@@ -110,19 +207,23 @@ export function getEfDiagramClientScript(): string {
         updateSidebarTitle();
         renderEntityList();
         renderCanvas();
+        renderNotes();
         break;
 
       case 'diagramLoaded':
         activePositions = {};
+        notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
         hiddenColumnsByEntity = {};
         colorByEntity = {};
         minimizedCards.clear();
+        selectedEntityNames.clear();
         activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
         currentDiagramName = msg.diagramName || 'Default';
         renderEntityList();
         renderCanvas();
+        renderNotes();
         break;
 
       case 'diagramListUpdated':
@@ -193,6 +294,7 @@ export function getEfDiagramClientScript(): string {
 
   // Column View Filter Chips
   function setFilterMode(mode) {
+    pushHistory();
     activeFilterMode = mode;
     [chipAll, chipKeys, chipNoAudit].forEach(chip => {
       if (chip) {
@@ -222,13 +324,16 @@ export function getEfDiagramClientScript(): string {
 
   if (dbContextSelect) {
     dbContextSelect.addEventListener('change', () => {
+      pushHistory();
       activeDbContext = dbContextSelect.value;
       allEntities = entitiesByContext[activeDbContext] || [];
       allRelationships = relationshipsByContext[activeDbContext] || [];
       activePositions = {};
+      notes = [];
       minimizedCards.clear();
       hiddenColumnsByEntity = {};
       colorByEntity = {};
+      selectedEntityNames.clear();
       activeSelectedRelId = null;
 
       if (allEntities.length > 0) {
@@ -240,6 +345,7 @@ export function getEfDiagramClientScript(): string {
       updateSidebarTitle();
       renderEntityList();
       renderCanvas();
+      renderNotes();
     });
   }
 
@@ -395,12 +501,13 @@ export function getEfDiagramClientScript(): string {
 
   if (btnAddAllToCanvas) {
     btnAddAllToCanvas.addEventListener('click', () => {
+      pushHistory();
       for (const e of allEntities) {
         if (!activePositions[e.name]) {
           activePositions[e.name] = { x: 0, y: 0 };
         }
       }
-      autoLayoutEntities(allEntities);
+      autoLayoutEntities(allEntities, 'column');
       renderEntityList(searchBox.value);
       renderCanvas();
     });
@@ -416,6 +523,7 @@ export function getEfDiagramClientScript(): string {
       return;
     }
 
+    pushHistory();
     let posX = 80;
     let posY = 80;
 
@@ -435,8 +543,10 @@ export function getEfDiagramClientScript(): string {
   }
 
   function removeEntityFromCanvas(entityName) {
+    pushHistory();
     delete activePositions[entityName];
     minimizedCards.delete(entityName);
+    selectedEntityNames.delete(entityName);
     delete hiddenColumnsByEntity[entityName];
     delete colorByEntity[entityName];
     delete cardSizeCache[entityName];
@@ -486,9 +596,10 @@ export function getEfDiagramClientScript(): string {
     closeAllPopovers();
     const activeNames = Object.keys(activePositions);
 
-    if (activeNames.length === 0) {
+    if (activeNames.length === 0 && notes.length === 0) {
       emptyPrompt.style.display = 'flex';
       linksSvg.innerHTML = '';
+      updateMinimap();
       return;
     }
 
@@ -500,11 +611,12 @@ export function getEfDiagramClientScript(): string {
 
       const pos = activePositions[name];
       const isMinimized = minimizedCards.has(entity.name);
+      const isMultiSelected = selectedEntityNames.has(entity.name);
       const customColor = colorByEntity[entity.name];
       const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
 
       const card = document.createElement('div');
-      card.className = 'table-card' + (isMinimized ? ' minimized' : '');
+      card.className = 'table-card' + (isMinimized ? ' minimized' : '') + (isMultiSelected ? ' multi-selected' : '');
       card.id = 'card-' + entity.name;
       card.style.left = pos.x + 'px';
       card.style.top = pos.y + 'px';
@@ -515,7 +627,6 @@ export function getEfDiagramClientScript(): string {
 
       const tableDisplay = entity.tableName ? (entity.schemaName ? entity.schemaName + '.' + entity.tableName : entity.tableName) : entity.name;
 
-      // Count visible vs total
       const totalProps = entity.properties.length;
       let visibleCount = 0;
       const propRowsHtml = entity.properties.map(p => {
@@ -596,13 +707,27 @@ export function getEfDiagramClientScript(): string {
         openCardContextMenu(entity, card, e.clientX, e.clientY);
       });
 
-      // Pointer-based High Performance Dragging
+      // Pointer-based High Performance Dragging with Multi-Select Batch Move Support
       header.addEventListener('pointerdown', e => {
         if (e.button !== 0 || e.target.closest('.card-actions')) return;
         draggedCard = card;
         header.setPointerCapture(e.pointerId);
         card.classList.add('dragging');
         card.style.zIndex = '100';
+
+        if (!e.shiftKey && !selectedEntityNames.has(entity.name)) {
+          selectedEntityNames.clear();
+          cardsLayer.querySelectorAll('.table-card').forEach(c => c.classList.remove('multi-selected'));
+        }
+        selectedEntityNames.add(entity.name);
+        card.classList.add('multi-selected');
+
+        batchDragInitialPositions = {};
+        selectedEntityNames.forEach(selName => {
+          if (activePositions[selName]) {
+            batchDragInitialPositions[selName] = { ...activePositions[selName] };
+          }
+        });
 
         const rect = card.getBoundingClientRect();
         dragOffsetX = (e.clientX - rect.left) / zoom;
@@ -636,21 +761,111 @@ export function getEfDiagramClientScript(): string {
           
           if (!activePositions[targetEntity]) {
             const slot = findFreeCanvasSlot(currentLeft + 360, currentTop);
-            activePositions[targetEntity] = {
-              x: slot.x,
-              y: slot.y
-            };
-            renderEntityList(searchBox.value);
-            renderCanvas();
+            addEntityToCanvas(targetEntity, slot.x, slot.y);
           }
         }
       });
     });
 
-    // Populate layout caches and render initial SVG links
     requestAnimationFrame(() => {
       activeNames.forEach(cacheCardLayout);
       buildAllSvgElements();
+      updateMinimap();
+    });
+  }
+
+  // Sticky Notes Lifecycle & Rendering
+  function renderNotes() {
+    notesLayer.innerHTML = '';
+    for (const note of notes) {
+      const noteEl = document.createElement('div');
+      noteEl.className = 'sticky-note note-' + (note.color || 'yellow');
+      noteEl.id = 'note-' + note.id;
+      noteEl.style.left = note.x + 'px';
+      noteEl.style.top = note.y + 'px';
+      if (note.width) noteEl.style.width = note.width + 'px';
+
+      noteEl.innerHTML = \`
+        <div class="note-header" data-note-id="\${note.id}">
+          <div class="note-color-dots">
+            <div class="note-dot" data-color="yellow" style="background:#fef08a;" title="Yellow"></div>
+            <div class="note-dot" data-color="emerald" style="background:#a7f3d0;" title="Emerald"></div>
+            <div class="note-dot" data-color="blue" style="background:#bfdbfe;" title="Blue"></div>
+            <div class="note-dot" data-color="rose" style="background:#fecdd3;" title="Rose"></div>
+            <div class="note-dot" data-color="purple" style="background:#e9d5ff;" title="Purple"></div>
+            <div class="note-dot" data-color="dark" style="background:#2d3748;" title="Dark"></div>
+          </div>
+          <button class="note-close-btn" title="Delete Note">✕</button>
+        </div>
+        <div class="note-body">
+          <textarea class="note-textarea" placeholder="Add business logic note...">\${escapeHtml(note.text || '')}</textarea>
+        </div>
+      \`;
+
+      const header = noteEl.querySelector('.note-header');
+      header.addEventListener('pointerdown', e => {
+        if (e.target.closest('.note-dot') || e.target.closest('.note-close-btn')) return;
+        draggedNote = noteEl;
+        header.setPointerCapture(e.pointerId);
+        noteEl.classList.add('dragging');
+        const rect = noteEl.getBoundingClientRect();
+        noteDragOffsetX = (e.clientX - rect.left) / zoom;
+        noteDragOffsetY = (e.clientY - rect.top) / zoom;
+        e.stopPropagation();
+      });
+
+      noteEl.querySelectorAll('.note-dot').forEach(dot => {
+        dot.addEventListener('click', e => {
+          e.stopPropagation();
+          note.color = dot.dataset.color;
+          noteEl.className = 'sticky-note note-' + note.color;
+        });
+      });
+
+      noteEl.querySelector('.note-close-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        pushHistory();
+        notes = notes.filter(n => n.id !== note.id);
+        renderNotes();
+      });
+
+      const textarea = noteEl.querySelector('.note-textarea');
+      textarea.addEventListener('input', () => {
+        note.text = textarea.value;
+      });
+
+      notesLayer.appendChild(noteEl);
+    }
+  }
+
+  function addStickyNote(clientX, clientY) {
+    pushHistory();
+    const vpRect = viewport.getBoundingClientRect();
+    let posX = (clientX !== undefined ? clientX - vpRect.left - panX : 120 - panX) / zoom;
+    let posY = (clientY !== undefined ? clientY - vpRect.top - panY : 120 - panY) / zoom;
+
+    const newNote = {
+      id: 'note_' + Date.now(),
+      x: Math.round(posX),
+      y: Math.round(posY),
+      width: 220,
+      height: 120,
+      text: '',
+      color: 'yellow'
+    };
+
+    notes.push(newNote);
+    renderNotes();
+    const noteEl = document.getElementById('note-' + newNote.id);
+    if (noteEl) {
+      const ta = noteEl.querySelector('.note-textarea');
+      if (ta) ta.focus();
+    }
+  }
+
+  if (btnAddNote) {
+    btnAddNote.addEventListener('click', () => {
+      addStickyNote();
     });
   }
 
@@ -671,6 +886,7 @@ export function getEfDiagramClientScript(): string {
   }
 
   function togglePropertyVisibility(entityName, propName) {
+    pushHistory();
     if (!hiddenColumnsByEntity[entityName]) {
       hiddenColumnsByEntity[entityName] = new Set();
     }
@@ -684,6 +900,7 @@ export function getEfDiagramClientScript(): string {
   }
 
   function toggleCardMinimize(entityName) {
+    pushHistory();
     if (minimizedCards.has(entityName)) {
       minimizedCards.delete(entityName);
     } else {
@@ -1019,7 +1236,6 @@ export function getEfDiagramClientScript(): string {
       focusCard(rel.toEntity);
     });
 
-    // Make inspector header draggable anywhere on screen
     const inspHeader = popover.querySelector('.rel-inspector-header');
     inspHeader.addEventListener('pointerdown', e => {
       if (e.target.closest('.popover-close-btn')) return;
@@ -1077,6 +1293,7 @@ export function getEfDiagramClientScript(): string {
     });
 
     menu.querySelector('#ctxKeysOnly').addEventListener('click', () => {
+      pushHistory();
       if (!hiddenColumnsByEntity[entity.name]) hiddenColumnsByEntity[entity.name] = new Set();
       const set = hiddenColumnsByEntity[entity.name];
       set.clear();
@@ -1088,6 +1305,7 @@ export function getEfDiagramClientScript(): string {
     });
 
     menu.querySelector('#ctxHideAudit').addEventListener('click', () => {
+      pushHistory();
       if (!hiddenColumnsByEntity[entity.name]) hiddenColumnsByEntity[entity.name] = new Set();
       const set = hiddenColumnsByEntity[entity.name];
       entity.properties.forEach(p => {
@@ -1101,8 +1319,15 @@ export function getEfDiagramClientScript(): string {
 
     menu.querySelectorAll('.color-dot').forEach(dot => {
       dot.addEventListener('click', () => {
+        pushHistory();
         const hex = dot.dataset.hex;
-        colorByEntity[entity.name] = hex;
+        if (selectedEntityNames.has(entity.name)) {
+          selectedEntityNames.forEach(selName => {
+            colorByEntity[selName] = hex;
+          });
+        } else {
+          colorByEntity[entity.name] = hex;
+        }
         closeAllPopovers();
         renderCanvas();
       });
@@ -1218,7 +1443,7 @@ export function getEfDiagramClientScript(): string {
     };
   }
 
-  // Build SVG Elements once
+  // Build SVG Elements once with Smart Color-Coded & Patterned Relationship Lines
   function buildAllSvgElements() {
     linksSvg.innerHTML = '';
     const activeNames = new Set(Object.keys(activePositions));
@@ -1231,7 +1456,7 @@ export function getEfDiagramClientScript(): string {
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         group.id = 'rel-g-' + rel.id;
 
-        // Hitbox
+        // Hitbox for easy clicking
         const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         hitbox.setAttribute('d', geom.pathData);
         hitbox.setAttribute('class', 'rel-hitbox');
@@ -1242,11 +1467,17 @@ export function getEfDiagramClientScript(): string {
         });
         group.appendChild(hitbox);
 
-        // Path
+        // Smart Styling: 1:1, 1:N, N:N and solid vs dashed for optional FK
+        let cardinalityClass = 'rel-1-n';
+        if (rel.cardinality === 'one-to-one') cardinalityClass = 'rel-1-1';
+        else if (rel.cardinality === 'many-to-many') cardinalityClass = 'rel-n-n';
+
+        const optionalClass = rel.isRequired === false ? ' optional-fk' : '';
         const isSelected = activeSelectedRelId === rel.id;
+
         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         pathEl.setAttribute('d', geom.pathData);
-        pathEl.setAttribute('class', 'link-path' + (isSelected ? ' selected' : ''));
+        pathEl.setAttribute('class', \`link-path \${cardinalityClass}\${optionalClass}\` + (isSelected ? ' selected' : ''));
         pathEl.dataset.relId = rel.id;
         pathEl.addEventListener('click', e => {
           e.stopPropagation();
@@ -1254,13 +1485,18 @@ export function getEfDiagramClientScript(): string {
         });
         group.appendChild(pathEl);
 
+        let endpointColor = '#3b82f6';
+        if (rel.cardinality === 'one-to-one') endpointColor = '#a855f7';
+        else if (rel.cardinality === 'many-to-many') endpointColor = '#f59e0b';
+        if (isSelected) endpointColor = '#38bdf8';
+
         // Endpoints
         const c1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         c1.setAttribute('cx', geom.x1);
         c1.setAttribute('cy', geom.y1);
         c1.setAttribute('r', 3.5);
         c1.setAttribute('class', 'link-endpoint');
-        c1.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
+        c1.setAttribute('fill', endpointColor);
         group.appendChild(c1);
 
         const c2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1268,7 +1504,7 @@ export function getEfDiagramClientScript(): string {
         c2.setAttribute('cy', geom.y2);
         c2.setAttribute('r', 4.5);
         c2.setAttribute('class', 'link-crowfoot');
-        c2.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
+        c2.setAttribute('fill', endpointColor);
         group.appendChild(c2);
 
         linksSvg.appendChild(group);
@@ -1303,6 +1539,7 @@ export function getEfDiagramClientScript(): string {
         }
       }
     }
+    updateMinimap();
   }
 
   function scheduleSvgUpdate() {
@@ -1312,6 +1549,123 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
+  // Interactive Canvas Minimap
+  function updateMinimap() {
+    if (!minimapCanvas || !minimapLens) return;
+    const ctx = minimapCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+
+    const activeNames = Object.keys(activePositions);
+    if (activeNames.length === 0 && notes.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    activeNames.forEach(name => {
+      const p = activePositions[name];
+      const s = cardSizeCache[name] || { width: 310, height: 200 };
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + s.width);
+      maxY = Math.max(maxY, p.y + s.height);
+    });
+
+    notes.forEach(n => {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || 220));
+      maxY = Math.max(maxY, n.y + (n.height || 120));
+    });
+
+    minX = Math.min(minX, -panX / zoom);
+    minY = Math.min(minY, -panY / zoom);
+    maxX = Math.max(maxX, (-panX + viewport.clientWidth) / zoom);
+    maxY = Math.max(maxY, (-panY + viewport.clientHeight) / zoom);
+
+    const pad = 100;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const worldW = maxX - minX;
+    const worldH = maxY - minY;
+
+    const scale = Math.min(minimapCanvas.width / worldW, minimapCanvas.height / worldH);
+
+    // Draw Tables on Minimap
+    activeNames.forEach(name => {
+      const p = activePositions[name];
+      const s = cardSizeCache[name] || { width: 310, height: 200 };
+      const mx = (p.x - minX) * scale;
+      const my = (p.y - minY) * scale;
+      const mw = s.width * scale;
+      const mh = s.height * scale;
+
+      ctx.fillStyle = colorByEntity[name] || '#3c4048';
+      ctx.fillRect(mx, my, mw, mh);
+    });
+
+    // Draw Notes on Minimap
+    notes.forEach(n => {
+      const mx = (n.x - minX) * scale;
+      const my = (n.y - minY) * scale;
+      const mw = (n.width || 220) * scale;
+      const mh = (n.height || 120) * scale;
+
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(mx, my, mw, mh);
+    });
+
+    // Update Minimap Lens for Viewport Area
+    const viewWorldX = -panX / zoom;
+    const viewWorldY = -panY / zoom;
+    const viewWorldW = viewport.clientWidth / zoom;
+    const viewWorldH = viewport.clientHeight / zoom;
+
+    const lensX = (viewWorldX - minX) * scale;
+    const lensY = (viewWorldY - minY) * scale;
+    const lensW = Math.max(10, viewWorldW * scale);
+    const lensH = Math.max(10, viewWorldH * scale);
+
+    minimapLens.style.left = Math.max(0, lensX) + 'px';
+    minimapLens.style.top = Math.max(0, lensY) + 'px';
+    minimapLens.style.width = Math.min(minimapCanvas.width, lensW) + 'px';
+    minimapLens.style.height = Math.min(minimapCanvas.height, lensH) + 'px';
+  }
+
+  // Click on Minimap to jump
+  if (canvasMinimap) {
+    canvasMinimap.addEventListener('click', e => {
+      const rect = canvasMinimap.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      const activeNames = Object.keys(activePositions);
+      if (activeNames.length === 0) return;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      activeNames.forEach(name => {
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + s.width);
+        maxY = Math.max(maxY, p.y + s.height);
+      });
+      const pad = 100;
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+      const worldW = maxX - minX;
+      const worldH = maxY - minY;
+      const scale = Math.min(minimapCanvas.width / worldW, minimapCanvas.height / worldH);
+
+      const targetWorldX = minX + clickX / scale;
+      const targetWorldY = minY + clickY / scale;
+
+      panX = viewport.clientWidth / 2 - targetWorldX * zoom;
+      panY = viewport.clientHeight / 2 - targetWorldY * zoom;
+      applyTransform();
+      updateMinimap();
+    });
+  }
+
   // Pan & Zoom
   function applyTransform() {
     canvasTransform.style.transform = \`translate3d(\${panX}px, \${panY}px, 0) scale(\${zoom})\`;
@@ -1319,7 +1673,7 @@ export function getEfDiagramClientScript(): string {
   }
 
   viewport.addEventListener('wheel', e => {
-    const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list, .rel-inspector-body');
+    const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list, .rel-inspector-body, .note-textarea');
 
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -1335,6 +1689,7 @@ export function getEfDiagramClientScript(): string {
       zoom = newZoom;
 
       applyTransform();
+      updateMinimap();
     } else if (scrollableTarget) {
       return;
     } else {
@@ -1346,18 +1701,37 @@ export function getEfDiagramClientScript(): string {
         panX -= e.deltaX;
       }
       applyTransform();
+      updateMinimap();
     }
   }, { passive: false });
 
+  // Pointer Down for Pan / Marquee Selection
   viewport.addEventListener('pointerdown', e => {
     if (e.target === viewport || e.target === canvasTransform || e.target === linksSvg || e.target.closest('#emptyPrompt')) {
-      if (e.button === 0 || e.button === 1) {
-        isPanning = true;
-        viewport.setPointerCapture(e.pointerId);
-        startPanX = e.clientX - panX;
-        startPanY = e.clientY - panY;
-        viewport.style.cursor = 'grabbing';
-        closeAllPopovers();
+      if (e.button === 0) {
+        if (e.shiftKey) {
+          // Marquee Multi-Selection Box
+          isMarqueeSelecting = true;
+          viewport.setPointerCapture(e.pointerId);
+          const vpRect = viewport.getBoundingClientRect();
+          marqueeStartX = e.clientX - vpRect.left;
+          marqueeStartY = e.clientY - vpRect.top;
+          marqueeBox.style.left = marqueeStartX + 'px';
+          marqueeBox.style.top = marqueeStartY + 'px';
+          marqueeBox.style.width = '0px';
+          marqueeBox.style.height = '0px';
+          marqueeBox.style.display = 'block';
+        } else {
+          // Normal Canvas Pan
+          isPanning = true;
+          viewport.setPointerCapture(e.pointerId);
+          startPanX = e.clientX - panX;
+          startPanY = e.clientY - panY;
+          viewport.style.cursor = 'grabbing';
+          selectedEntityNames.clear();
+          cardsLayer.querySelectorAll('.table-card').forEach(c => c.classList.remove('multi-selected'));
+          closeAllPopovers();
+        }
       }
     }
   });
@@ -1367,21 +1741,81 @@ export function getEfDiagramClientScript(): string {
       panX = e.clientX - startPanX;
       panY = e.clientY - startPanY;
       applyTransform();
+      updateMinimap();
+    } else if (isMarqueeSelecting) {
+      const vpRect = viewport.getBoundingClientRect();
+      const curX = e.clientX - vpRect.left;
+      const curY = e.clientY - vpRect.top;
+
+      const left = Math.min(marqueeStartX, curX);
+      const top = Math.min(marqueeStartY, curY);
+      const width = Math.abs(curX - marqueeStartX);
+      const height = Math.abs(curY - marqueeStartY);
+
+      marqueeBox.style.left = left + 'px';
+      marqueeBox.style.top = top + 'px';
+      marqueeBox.style.width = width + 'px';
+      marqueeBox.style.height = height + 'px';
+
+      // Hit-test cards with marquee box
+      const worldBoxLeft = (left - panX) / zoom;
+      const worldBoxTop = (top - panY) / zoom;
+      const worldBoxRight = worldBoxLeft + width / zoom;
+      const worldBoxBottom = worldBoxTop + height / zoom;
+
+      selectedEntityNames.clear();
+      for (const name in activePositions) {
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        const collides = !(p.x + s.width < worldBoxLeft || p.x > worldBoxRight || p.y + s.height < worldBoxTop || p.y > worldBoxBottom);
+        const cardEl = document.getElementById('card-' + name);
+        if (collides) {
+          selectedEntityNames.add(name);
+          if (cardEl) cardEl.classList.add('multi-selected');
+        } else if (cardEl) {
+          cardEl.classList.remove('multi-selected');
+        }
+      }
     } else if (draggedCard) {
       const rect = viewport.getBoundingClientRect();
+      const primaryName = draggedCard.querySelector('.card-header').dataset.entityName;
       const newX = (e.clientX - rect.left - panX) / zoom - dragOffsetX;
       const newY = (e.clientY - rect.top - panY) / zoom - dragOffsetY;
 
-      const roundedX = Math.round(newX);
-      const roundedY = Math.round(newY);
+      const deltaX = Math.round(newX) - (batchDragInitialPositions[primaryName]?.x || activePositions[primaryName].x);
+      const deltaY = Math.round(newY) - (batchDragInitialPositions[primaryName]?.y || activePositions[primaryName].y);
 
-      draggedCard.style.left = roundedX + 'px';
-      draggedCard.style.top = roundedY + 'px';
-
-      const entityName = draggedCard.querySelector('.card-header').dataset.entityName;
-      activePositions[entityName] = { x: roundedX, y: roundedY };
+      // Move all selected cards in batch
+      selectedEntityNames.forEach(selName => {
+        const init = batchDragInitialPositions[selName];
+        if (init) {
+          const cardEl = document.getElementById('card-' + selName);
+          const posX = init.x + deltaX;
+          const posY = init.y + deltaY;
+          activePositions[selName] = { x: posX, y: posY };
+          if (cardEl) {
+            cardEl.style.left = posX + 'px';
+            cardEl.style.top = posY + 'px';
+          }
+        }
+      });
 
       scheduleSvgUpdate();
+    } else if (draggedNote) {
+      const rect = viewport.getBoundingClientRect();
+      const newX = Math.round((e.clientX - rect.left - panX) / zoom - noteDragOffsetX);
+      const newY = Math.round((e.clientY - rect.top - panY) / zoom - noteDragOffsetY);
+
+      draggedNote.style.left = newX + 'px';
+      draggedNote.style.top = newY + 'px';
+
+      const noteId = draggedNote.querySelector('.note-header').dataset.noteId;
+      const note = notes.find(n => n.id === noteId);
+      if (note) {
+        note.x = newX;
+        note.y = newY;
+      }
+      updateMinimap();
     } else if (draggedInspector) {
       const vpRect = viewport.getBoundingClientRect();
       let newLeft = e.clientX - inspectorDragOffsetX;
@@ -1400,10 +1834,20 @@ export function getEfDiagramClientScript(): string {
       isPanning = false;
       viewport.style.cursor = 'grab';
     }
+    if (isMarqueeSelecting) {
+      isMarqueeSelecting = false;
+      marqueeBox.style.display = 'none';
+    }
     if (draggedCard) {
+      pushHistory();
       draggedCard.classList.remove('dragging');
       draggedCard.style.zIndex = '2';
       draggedCard = null;
+    }
+    if (draggedNote) {
+      pushHistory();
+      draggedNote.classList.remove('dragging');
+      draggedNote = null;
     }
     if (draggedInspector) {
       draggedInspector = null;
@@ -1423,8 +1867,52 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  // Scope-Aware Auto Layout
-  function autoLayoutEntities(explicitEntities) {
+  // Alignment & Distribution Tools
+  function alignSelected(type) {
+    if (selectedEntityNames.size < 2) {
+      alert('Please select at least 2 tables (hold Shift and drag on canvas to multi-select).');
+      return;
+    }
+    pushHistory();
+    const names = Array.from(selectedEntityNames);
+
+    if (type === 'left') {
+      const minX = Math.min(...names.map(n => activePositions[n].x));
+      names.forEach(n => {
+        activePositions[n].x = minX;
+        const c = document.getElementById('card-' + n);
+        if (c) c.style.left = minX + 'px';
+      });
+    } else if (type === 'top') {
+      const minY = Math.min(...names.map(n => activePositions[n].y));
+      names.forEach(n => {
+        activePositions[n].y = minY;
+        const c = document.getElementById('card-' + n);
+        if (c) c.style.top = minY + 'px';
+      });
+    } else if (type === 'distributeH') {
+      names.sort((a, b) => activePositions[a].x - activePositions[b].x);
+      const minX = activePositions[names[0]].x;
+      const maxX = activePositions[names[names.length - 1]].x;
+      const step = (maxX - minX) / (names.length - 1);
+      names.forEach((n, idx) => {
+        const x = Math.round(minX + idx * step);
+        activePositions[n].x = x;
+        const c = document.getElementById('card-' + n);
+        if (c) c.style.left = x + 'px';
+      });
+    }
+
+    scheduleSvgUpdate();
+  }
+
+  if (btnAlignLeft) btnAlignLeft.addEventListener('click', () => alignSelected('left'));
+  if (btnAlignTop) btnAlignTop.addEventListener('click', () => alignSelected('top'));
+  if (btnDistributeH) btnDistributeH.addEventListener('click', () => alignSelected('distributeH'));
+
+  // Multi-Layout Engine: Column DAG, Hierarchical Tree, Radial Star, Compact Grid
+  function autoLayoutEntities(explicitEntities, algorithm = 'column') {
+    pushHistory();
     const activeKeys = Object.keys(activePositions);
     let targetEntities = explicitEntities;
 
@@ -1440,71 +1928,408 @@ export function getEfDiagramClientScript(): string {
 
     if (!targetEntities || targetEntities.length === 0) return;
 
-    const inDegree = {};
-    const adj = {};
-    targetEntities.forEach(e => {
-      inDegree[e.name] = 0;
-      adj[e.name] = [];
-    });
-
-    for (const rel of allRelationships) {
-      if (adj[rel.fromEntity] && inDegree[rel.toEntity] !== undefined) {
-        adj[rel.fromEntity].push(rel.toEntity);
-        inDegree[rel.toEntity]++;
-      }
-    }
-
-    const columns = [];
-    const visited = new Set();
-
-    let currentCol = targetEntities.filter(e => inDegree[e.name] === 0).map(e => e.name);
-    if (currentCol.length === 0) {
-      currentCol = [targetEntities[0].name];
-    }
-
-    while (currentCol.length > 0) {
-      columns.push(currentCol);
-      currentCol.forEach(name => visited.add(name));
-
-      const nextCol = [];
-      for (const name of currentCol) {
-        for (const child of (adj[name] || [])) {
-          if (!visited.has(child) && !nextCol.includes(child)) {
-            nextCol.push(child);
-          }
-        }
-      }
-      currentCol = nextCol;
-    }
-
-    const remaining = targetEntities.filter(e => !visited.has(e.name)).map(e => e.name);
-    if (remaining.length > 0) {
-      columns.push(remaining);
-    }
-
-    const colWidth = 440;
-    const rowHeight = 380;
-
-    columns.forEach((colEntities, colIdx) => {
-      colEntities.forEach((name, rowIdx) => {
-        activePositions[name] = {
-          x: 60 + colIdx * colWidth,
-          y: 60 + rowIdx * rowHeight
+    if (algorithm === 'grid') {
+      const cols = Math.ceil(Math.sqrt(targetEntities.length));
+      targetEntities.forEach((e, idx) => {
+        const row = Math.floor(idx / cols);
+        const col = idx % cols;
+        activePositions[e.name] = {
+          x: 60 + col * 360,
+          y: 60 + row * 340
         };
       });
+    } else if (algorithm === 'hierarchical') {
+      // Tree Hierarchy: Roots at top, descendants cascade down
+      const inDegree = {};
+      const adj = {};
+      targetEntities.forEach(e => {
+        inDegree[e.name] = 0;
+        adj[e.name] = [];
+      });
+
+      for (const rel of allRelationships) {
+        if (adj[rel.fromEntity] && inDegree[rel.toEntity] !== undefined) {
+          adj[rel.fromEntity].push(rel.toEntity);
+          inDegree[rel.toEntity]++;
+        }
+      }
+
+      const levels = [];
+      const visited = new Set();
+
+      let currentLevel = targetEntities.filter(e => inDegree[e.name] === 0).map(e => e.name);
+      if (currentLevel.length === 0) currentLevel = [targetEntities[0].name];
+
+      while (currentLevel.length > 0) {
+        levels.push(currentLevel);
+        currentLevel.forEach(name => visited.add(name));
+
+        const nextLevel = [];
+        for (const name of currentLevel) {
+          for (const child of (adj[name] || [])) {
+            if (!visited.has(child) && !nextLevel.includes(child)) {
+              nextLevel.push(child);
+            }
+          }
+        }
+        currentLevel = nextLevel;
+      }
+
+      const remaining = targetEntities.filter(e => !visited.has(e.name)).map(e => e.name);
+      if (remaining.length > 0) levels.push(remaining);
+
+      levels.forEach((levelNodes, levelIdx) => {
+        const totalW = levelNodes.length * 360;
+        const startX = Math.max(60, 600 - totalW / 2);
+        levelNodes.forEach((name, colIdx) => {
+          activePositions[name] = {
+            x: startX + colIdx * 360,
+            y: 60 + levelIdx * 380
+          };
+        });
+      });
+    } else if (algorithm === 'radial') {
+      // Radial Star: Most connected core node in center, satellite entities on ring
+      const degree = {};
+      targetEntities.forEach(e => { degree[e.name] = 0; });
+      for (const rel of allRelationships) {
+        if (degree[rel.fromEntity] !== undefined) degree[rel.fromEntity]++;
+        if (degree[rel.toEntity] !== undefined) degree[rel.toEntity]++;
+      }
+
+      const sorted = [...targetEntities].sort((a, b) => degree[b.name] - degree[a.name]);
+      const centerNode = sorted[0];
+      const satellites = sorted.slice(1);
+
+      activePositions[centerNode.name] = { x: 500, y: 400 };
+
+      const radius = Math.max(380, satellites.length * 55);
+      const angleStep = (2 * Math.PI) / satellites.length;
+
+      satellites.forEach((e, idx) => {
+        const angle = idx * angleStep;
+        activePositions[e.name] = {
+          x: Math.round(500 + radius * Math.cos(angle)),
+          y: Math.round(400 + radius * Math.sin(angle))
+        };
+      });
+    } else {
+      // Default: Column DAG Flow
+      const inDegree = {};
+      const adj = {};
+      targetEntities.forEach(e => {
+        inDegree[e.name] = 0;
+        adj[e.name] = [];
+      });
+
+      for (const rel of allRelationships) {
+        if (adj[rel.fromEntity] && inDegree[rel.toEntity] !== undefined) {
+          adj[rel.fromEntity].push(rel.toEntity);
+          inDegree[rel.toEntity]++;
+        }
+      }
+
+      const columns = [];
+      const visited = new Set();
+
+      let currentCol = targetEntities.filter(e => inDegree[e.name] === 0).map(e => e.name);
+      if (currentCol.length === 0) currentCol = [targetEntities[0].name];
+
+      while (currentCol.length > 0) {
+        columns.push(currentCol);
+        currentCol.forEach(name => visited.add(name));
+
+        const nextCol = [];
+        for (const name of currentCol) {
+          for (const child of (adj[name] || [])) {
+            if (!visited.has(child) && !nextCol.includes(child)) {
+              nextCol.push(child);
+            }
+          }
+        }
+        currentCol = nextCol;
+      }
+
+      const remaining = targetEntities.filter(e => !visited.has(e.name)).map(e => e.name);
+      if (remaining.length > 0) columns.push(remaining);
+
+      columns.forEach((colEntities, colIdx) => {
+        colEntities.forEach((name, rowIdx) => {
+          activePositions[name] = {
+            x: 60 + colIdx * 440,
+            y: 60 + rowIdx * 380
+          };
+        });
+      });
+    }
+
+    renderCanvas();
+    renderNotes();
+  }
+
+  if (btnAutoLayout) {
+    btnAutoLayout.addEventListener('click', () => {
+      const mode = layoutModeSelect ? layoutModeSelect.value : 'column';
+      autoLayoutEntities(null, mode);
     });
   }
 
+  // Export Engine: High-DPI PNG, SVG Vector, Mermaid Syntax
+  function exportDiagram(type) {
+    const activeNames = Object.keys(activePositions);
+    if (activeNames.length === 0 && notes.length === 0) {
+      alert('Cannot export an empty diagram. Please add tables or notes first.');
+      return;
+    }
+
+    if (type === 'mermaid') {
+      let mermaid = 'erDiagram\\n';
+      for (const name of activeNames) {
+        const entity = allEntities.find(e => e.name === name);
+        if (!entity) continue;
+        const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
+
+        mermaid += \`  \${entity.name} {\\n\`;
+        for (const p of entity.properties) {
+          if (hiddenSet.has(p.name)) continue;
+          const cleanType = p.type.replace(/[^A-Za-z0-9_]/g, '_');
+          const keyType = p.isPrimaryKey ? 'PK' : (p.isForeignKey ? 'FK' : '');
+          mermaid += \`    \${cleanType} \${p.name} \${keyType}\\n\`;
+        }
+        mermaid += '  }\\n';
+      }
+
+      for (const rel of allRelationships) {
+        if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
+          mermaid += \`  \${rel.fromEntity} ||--o{ \${rel.toEntity} : contains\\n\`;
+        }
+      }
+
+      navigator.clipboard.writeText(mermaid).then(() => {
+        alert('Mermaid ERD code copied to clipboard!');
+      });
+      return;
+    }
+
+    if (type === 'png-dark' || type === 'png-light') {
+      // Calculate Bounding Box of all tables and notes
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      activeNames.forEach(name => {
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + s.width);
+        maxY = Math.max(maxY, p.y + s.height);
+      });
+
+      notes.forEach(n => {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + (n.width || 220));
+        maxY = Math.max(maxY, n.y + (n.height || 120));
+      });
+
+      const pad = 60;
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      const dpr = 2; // High-DPI 2x
+      const offscreen = document.createElement('canvas');
+      offscreen.width = width * dpr;
+      offscreen.height = height * dpr;
+      const ctx = offscreen.getContext('2d');
+      if (!ctx) return;
+
+      ctx.scale(dpr, dpr);
+
+      const isLight = type === 'png-light';
+      ctx.fillStyle = isLight ? '#ffffff' : '#14161a';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw Grid dots
+      ctx.fillStyle = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+      for (let gx = 0; gx < width; gx += 24) {
+        for (let gy = 0; gy < height; gy += 24) {
+          ctx.beginPath();
+          ctx.arc(gx, gy, 1, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      // Draw SVG Relationship Lines on Canvas
+      for (const rel of allRelationships) {
+        if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
+          const geom = computeRelGeometry(rel);
+          if (geom) {
+            ctx.beginPath();
+            const startX = geom.x1 - minX;
+            const startY = geom.y1 - minY;
+            const endX = geom.x2 - minX;
+            const endY = geom.y2 - minY;
+
+            const dx = Math.max(40, Math.abs(endX - startX) * 0.45);
+            ctx.moveTo(startX, startY);
+            ctx.bezierCurveTo(startX + dx, startY, endX - dx, endY, endX, endY);
+
+            ctx.strokeStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : '#3b82f6';
+            ctx.lineWidth = 2;
+            if (rel.isRequired === false) ctx.setLineDash([6, 4]);
+            else ctx.setLineDash([]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw circle endpoints
+            ctx.fillStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : '#3b82f6';
+            ctx.beginPath(); ctx.arc(startX, startY, 4, 0, 2 * Math.PI); ctx.fill();
+            ctx.beginPath(); ctx.arc(endX, endY, 5, 0, 2 * Math.PI); ctx.fill();
+          }
+        }
+      }
+
+      // Draw Table Cards
+      activeNames.forEach(name => {
+        const entity = allEntities.find(e => e.name === name);
+        if (!entity) return;
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        const x = p.x - minX;
+        const y = p.y - minY;
+        const w = s.width;
+        const h = s.height;
+
+        // Card Container
+        ctx.fillStyle = isLight ? '#f8fafc' : '#21252b';
+        ctx.strokeStyle = isLight ? '#cbd5e1' : '#3c4048';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // Card Top Color Stripe
+        const customColor = colorByEntity[name];
+        if (customColor) {
+          ctx.fillStyle = customColor;
+          ctx.fillRect(x, y, w, 4);
+        }
+
+        // Header Background
+        ctx.fillStyle = isLight ? '#f1f5f9' : '#282c34';
+        ctx.beginPath();
+        ctx.roundRect(x, y + (customColor ? 4 : 0), w, 36, [8, 8, 0, 0]);
+        ctx.fill();
+
+        // Header Text
+        ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
+        ctx.font = 'bold 13px system-ui, sans-serif';
+        ctx.fillText(entity.name, x + 12, y + 23);
+
+        // Properties List
+        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
+        let curY = y + 54;
+        entity.properties.forEach(prop => {
+          if (isPropertyHidden(entity, prop, hiddenSet)) return;
+
+          // Prop Name
+          ctx.font = prop.isPrimaryKey ? 'bold 11px system-ui, sans-serif' : '11px system-ui, sans-serif';
+          ctx.fillStyle = prop.isPrimaryKey ? '#f59e0b' : (isLight ? '#334155' : '#d4d4d4');
+          ctx.fillText((prop.isPrimaryKey ? 'PK ' : prop.isForeignKey ? 'FK ' : '   ') + prop.name, x + 12, curY);
+
+          // Prop Type
+          ctx.font = '10px monospace';
+          ctx.fillStyle = isLight ? '#0284c7' : '#4ec9b0';
+          const typeW = ctx.measureText(prop.type).width;
+          ctx.fillText(prop.type, x + w - typeW - 12, curY);
+
+          curY += 22;
+        });
+      });
+
+      // Draw Notes
+      notes.forEach(n => {
+        const x = n.x - minX;
+        const y = n.y - minY;
+        const w = n.width || 220;
+        const h = n.height || 120;
+
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 6);
+        ctx.fill();
+
+        ctx.fillStyle = '#1f2937';
+        ctx.font = '11.5px system-ui, sans-serif';
+        const lines = (n.text || '').split('\\n');
+        lines.forEach((line, idx) => {
+          ctx.fillText(line, x + 10, y + 26 + idx * 16);
+        });
+      });
+
+      // Trigger Download
+      const dataUrl = offscreen.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.download = \`\${activeDbContext}_\${currentDiagramName}_\${isLight ? 'light' : 'dark'}.png\`;
+      a.href = dataUrl;
+      a.click();
+    }
+  }
+
+  if (exportSelect) {
+    exportSelect.addEventListener('change', () => {
+      const val = exportSelect.value;
+      if (val) {
+        exportDiagram(val);
+        exportSelect.value = '';
+      }
+    });
+  }
+
+  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+S, Delete)
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redo();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      document.getElementById('btnSave')?.click();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedEntityNames.size > 0) {
+        e.preventDefault();
+        pushHistory();
+        selectedEntityNames.forEach(name => {
+          delete activePositions[name];
+          delete cardSizeCache[name];
+          delete cardRowOffsetCache[name];
+        });
+        selectedEntityNames.clear();
+        renderEntityList(searchBox.value);
+        renderCanvas();
+      }
+    }
+  });
+
   // Toolbar Actions
-  document.getElementById('btnNew').addEventListener('click', async () => {
+  document.getElementById('btnNew').addEventListener('click', () => {
+    pushHistory();
     activePositions = {};
+    notes = [];
     minimizedCards.clear();
     hiddenColumnsByEntity = {};
     colorByEntity = {};
+    selectedEntityNames.clear();
     activeSelectedRelId = null;
     currentDiagramName = 'New Diagram';
     renderEntityList(searchBox.value);
     renderCanvas();
+    renderNotes();
   });
 
   document.getElementById('btnSave').addEventListener('click', () => {
@@ -1512,59 +2337,21 @@ export function getEfDiagramClientScript(): string {
     vscode.postMessage({
       type: 'saveDiagram',
       name: \`\${activeDbContext}_\${currentDiagramName}\`,
-      positions: payload
-    });
-  });
-
-  document.getElementById('btnAutoLayout').addEventListener('click', () => {
-    autoLayoutEntities();
-    renderEntityList(searchBox.value);
-    renderCanvas();
-  });
-
-  document.getElementById('btnExportMermaid').addEventListener('click', () => {
-    let mermaid = 'erDiagram\\n';
-    const activeNames = new Set(Object.keys(activePositions));
-
-    for (const name of activeNames) {
-      const entity = allEntities.find(e => e.name === name);
-      if (!entity) continue;
-      const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
-
-      mermaid += \`  \${entity.name} {\\n\`;
-      for (const p of entity.properties) {
-        if (hiddenSet.has(p.name)) continue;
-        const cleanType = p.type.replace(/[^A-Za-z0-9_]/g, '_');
-        const keyType = p.isPrimaryKey ? 'PK' : (p.isForeignKey ? 'FK' : '');
-        mermaid += \`    \${cleanType} \${p.name} \${keyType}\\n\`;
-      }
-      mermaid += '  }\\n';
-    }
-
-    for (const rel of allRelationships) {
-      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
-        mermaid += \`  \${rel.fromEntity} ||--o{ \${rel.toEntity} : contains\\n\`;
-      }
-    }
-
-    navigator.clipboard.writeText(mermaid).then(() => {
-      vscode.postMessage({
-        type: 'saveDiagram',
-        name: 'mermaid_copied',
-        positions: {}
-      });
-      alert('Mermaid ERD code copied to clipboard!');
+      positions: payload,
+      notes: notes
     });
   });
 
   document.getElementById('btnZoomIn').addEventListener('click', () => {
     zoom = Math.min(2.5, zoom * 1.2);
     applyTransform();
+    updateMinimap();
   });
 
   document.getElementById('btnZoomOut').addEventListener('click', () => {
     zoom = Math.max(0.3, zoom / 1.2);
     applyTransform();
+    updateMinimap();
   });
 
   document.getElementById('btnZoomReset').addEventListener('click', () => {
@@ -1572,6 +2359,7 @@ export function getEfDiagramClientScript(): string {
     panX = 40;
     panY = 40;
     applyTransform();
+    updateMinimap();
   });
 
   function escapeHtml(str) {

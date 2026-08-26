@@ -203,25 +203,29 @@ body, html {
   padding: 0 12px;
   z-index: 5;
   flex-shrink: 0;
+  gap: 8px;
 }
 
 .toolbar-left, .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  overflow-x: auto;
 }
 
 .toolbar-divider {
   width: 1px;
   height: 18px;
   background: var(--border);
-  margin: 0 4px;
+  margin: 0 3px;
+  flex-shrink: 0;
 }
 
 .context-picker-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .context-label {
@@ -237,28 +241,29 @@ body, html {
   background: var(--vscode-dropdown-background, #2d2d30);
   color: var(--vscode-dropdown-foreground, #ffffff);
   border: 1px solid var(--vscode-dropdown-border, #3f3f46);
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11.5px;
   outline: none;
   cursor: pointer;
-  height: 28px;
+  height: 27px;
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 4px 10px;
-  font-size: 12px;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11.5px;
   font-weight: 500;
   border-radius: 4px;
   cursor: pointer;
   border: 1px solid transparent;
   outline: none;
-  height: 28px;
+  height: 27px;
   transition: all 0.12s ease;
+  white-space: nowrap;
 }
 
 .btn-primary {
@@ -293,13 +298,19 @@ body, html {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   transition: background 0.12s ease;
+  flex-shrink: 0;
 }
 
 .btn-icon:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.15);
+}
+
+.btn-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .icon-svg {
@@ -324,7 +335,7 @@ body, html {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
-  padding: 3px 8px;
+  padding: 3px 7px;
   border-radius: 3px;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -406,6 +417,7 @@ body, html {
   cursor: pointer;
 }
 
+/* Smart Color-Coded & Patterned Relationship Lines */
 .link-path {
   fill: none;
   stroke: #3b82f6;
@@ -416,8 +428,24 @@ body, html {
   cursor: pointer;
 }
 
+.link-path.rel-1-1 {
+  stroke: #a855f7;
+}
+
+.link-path.rel-1-n {
+  stroke: #3b82f6;
+}
+
+.link-path.rel-n-n {
+  stroke: #f59e0b;
+}
+
+.link-path.optional-fk {
+  stroke-dasharray: 6 4;
+}
+
 .link-path:hover, .link-path.highlighted {
-  stroke: #60a5fa;
+  stroke: #60a5fa !important;
   stroke-width: 3px;
   filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.8));
 }
@@ -439,14 +467,21 @@ body, html {
 }
 
 /* Table Cards Layer */
-#cardsLayer {
+#cardsLayer, #notesLayer {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+#cardsLayer {
   z-index: 2;
+}
+
+#notesLayer {
+  z-index: 3;
 }
 
 /* Modern DataGrip Table Card */
@@ -471,9 +506,9 @@ body, html {
   opacity: 0.96;
 }
 
-.table-card.selected {
-  border-color: var(--card-selected-border);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4), var(--card-shadow);
+.table-card.selected, .table-card.multi-selected {
+  border-color: var(--card-selected-border) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.45), var(--card-shadow) !important;
 }
 
 .table-card.rel-source {
@@ -738,6 +773,141 @@ body, html {
   color: #60a5fa;
 }
 
+/* Sticky Notes on Canvas */
+.sticky-note {
+  position: absolute;
+  width: 220px;
+  min-height: 120px;
+  background: #fef08a;
+  color: #1f2937;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  z-index: 20;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease;
+  touch-action: none;
+}
+
+.sticky-note.dragging {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5);
+  opacity: 0.95;
+}
+
+.sticky-note.note-emerald { background: #a7f3d0; color: #064e3b; }
+.sticky-note.note-blue { background: #bfdbfe; color: #1e3a8a; }
+.sticky-note.note-rose { background: #fecdd3; color: #881337; }
+.sticky-note.note-purple { background: #e9d5ff; color: #581c87; }
+.sticky-note.note-dark { background: #2d3748; color: #f7fafc; }
+
+.note-header {
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.note-header:active {
+  cursor: grabbing;
+}
+
+.note-color-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+
+.note-close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.6;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.note-close-btn:hover {
+  opacity: 1;
+  background: rgba(0,0,0,0.1);
+}
+
+.note-body {
+  flex: 1;
+  padding: 8px;
+}
+
+.note-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 80px;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  color: inherit;
+  resize: none;
+}
+
+/* Marquee Multi-Select Box */
+.marquee-box {
+  position: absolute;
+  border: 1px dashed #3b82f6;
+  background: rgba(59, 130, 246, 0.15);
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
+}
+
+/* Interactive Canvas Minimap */
+.canvas-minimap {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 190px;
+  height: 125px;
+  background: rgba(24, 26, 32, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid #3c4048;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 15;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.minimap-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.minimap-lens {
+  position: absolute;
+  border: 1.5px solid #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
 /* GitNav-Style Floating Column Visibility Popover */
 .columns-popover {
   position: absolute;
@@ -810,7 +980,6 @@ body, html {
   padding: 4px 0;
 }
 
-/* GitNav-Style Column Toggle Row */
 .column-toggle-row {
   display: flex;
   align-items: center;

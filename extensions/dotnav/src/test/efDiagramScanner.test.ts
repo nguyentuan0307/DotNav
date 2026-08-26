@@ -93,6 +93,15 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     assert.ok(appIdProp);
     assert.equal(appIdProp?.isForeignKey, true, 'AppId must be marked as FK');
     assert.equal(appIdProp?.foreignKeyTargetEntity, 'Application', 'AppId must target Application');
+
+    // Test rich relationship metadata extraction
+    const rel = actionCmd?.relationships.find(r => r.toProperty === 'AppId');
+    assert.ok(rel);
+    assert.equal(rel?.deleteBehavior, 'Cascade');
+    assert.equal(rel?.isRequired, true);
+    assert.equal(rel?.cardinality, 'one-to-many');
+    assert.equal(rel?.navigationName, 'Application');
+    assert.equal(rel?.inverseNavigationName, 'ActionCommandSettings');
   });
 
   it('parsePropertiesFromBody pairs FK with navigation property and leaves scalar ManagerId as non-FK', () => {
@@ -147,7 +156,10 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
       entities: {
         Application: { x: 120, y: 150 },
         DeletedOldEntity: { x: 500, y: 500 }
-      }
+      },
+      notes: [
+        { id: 'note-1', x: 200, y: 300, text: 'Custom note', color: 'emerald' }
+      ]
     };
 
     const currentEntities: EntityModel[] = [
@@ -165,5 +177,7 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     assert.deepEqual(synced, {
       Application: { x: 120, y: 150 }
     });
+    assert.equal(saved.notes?.length, 1);
+    assert.equal(saved.notes?.[0].color, 'emerald');
   });
 });
