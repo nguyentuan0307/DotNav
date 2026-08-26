@@ -98,7 +98,7 @@ export function getEfDiagramClientScript(): string {
       // Auto-place first 3 entities
       if (allEntities.length > 0) {
         allEntities.slice(0, 3).forEach((e, idx) => {
-          activePositions[e.name] = { x: 60 + idx * 300, y: 60 };
+          activePositions[e.name] = { x: 60 + idx * 360, y: 60 };
         });
       }
 
@@ -196,22 +196,42 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
-  // Add All Button Click
-  if (btnAddAllToCanvas) {
-    btnAddAllToCanvas.addEventListener('click', () => {
-      let currentCount = Object.keys(activePositions).length;
-      let added = 0;
+  // Find free non-overlapping position near a reference point
+  function findFreeCanvasSlot(preferredX, preferredY) {
+    let targetX = preferredX;
+    let targetY = preferredY;
+    let attempts = 0;
 
-      for (const entity of allEntities) {
-        if (!activePositions[entity.name]) {
-          const idx = currentCount + added;
-          const posX = 60 + (idx % 3) * 320;
-          const posY = 60 + Math.floor(idx / 3) * 340;
-          activePositions[entity.name] = { x: Math.round(posX), y: Math.round(posY) };
-          added++;
+    while (attempts < 20) {
+      let collides = false;
+      for (const name in activePositions) {
+        const p = activePositions[name];
+        if (Math.abs(p.x - targetX) < 280 && Math.abs(p.y - targetY) < 260) {
+          collides = true;
+          break;
         }
       }
 
+      if (!collides) {
+        return { x: targetX, y: targetY };
+      }
+
+      // Try next row or next column
+      targetY += 340;
+      if (targetY > 1200) {
+        targetY = 60;
+        targetX += 380;
+      }
+      attempts++;
+    }
+
+    return { x: targetX, y: targetY };
+  }
+
+  // Add All Button Click
+  if (btnAddAllToCanvas) {
+    btnAddAllToCanvas.addEventListener('click', () => {
+      autoLayoutEntities();
       renderEntityList(searchBox.value);
       renderCanvas();
     });
@@ -224,7 +244,7 @@ export function getEfDiagramClientScript(): string {
   // Add Entity to Canvas
   function addEntityToCanvas(entityName, clientX, clientY) {
     if (activePositions[entityName]) {
-      // Already on canvas, just highlight
+      // Already on canvas, focus/highlight
       const card = document.getElementById('card-' + entityName);
       if (card) {
         card.classList.add('selected');
@@ -233,18 +253,17 @@ export function getEfDiagramClientScript(): string {
       return;
     }
 
-    let posX = 100;
-    let posY = 100;
+    let posX = 80;
+    let posY = 80;
 
     if (clientX !== undefined && clientY !== undefined) {
       const rect = viewport.getBoundingClientRect();
       posX = (clientX - rect.left - panX) / zoom;
       posY = (clientY - rect.top - panY) / zoom;
     } else {
-      // Auto position offset
-      const count = Object.keys(activePositions).length;
-      posX = 60 + (count % 3) * 320;
-      posY = 60 + Math.floor(count / 3) * 340;
+      const slot = findFreeCanvasSlot(80, 80);
+      posX = slot.x;
+      posY = slot.y;
     }
 
     activePositions[entityName] = { x: Math.round(posX), y: Math.round(posY) };
@@ -344,9 +363,10 @@ export function getEfDiagramClientScript(): string {
           const currentTop = parseInt(currentCard.style.top, 10) || 100;
           
           if (!activePositions[targetEntity]) {
+            const slot = findFreeCanvasSlot(currentLeft + 360, currentTop);
             activePositions[targetEntity] = {
-              x: currentLeft + 340,
-              y: currentTop
+              x: slot.x,
+              y: slot.y
             };
             renderEntityList(searchBox.value);
             renderCanvas();
@@ -394,7 +414,7 @@ export function getEfDiagramClientScript(): string {
     \`;
   }
 
-  // Draw Crow's Foot SVG Connectors
+  // Draw Crow's Foot SVG Connectors with Exact Row-Level Pin Anchors
   function updateSvgLinks() {
     linksSvg.innerHTML = '';
     const activeNames = new Set(Object.keys(activePositions));
@@ -413,34 +433,85 @@ export function getEfDiagramClientScript(): string {
 
     const fromPos = activePositions[rel.fromEntity];
     const toPos = activePositions[rel.toEntity];
+    if (!fromPos || !toPos) return;
 
-    const fromWidth = fromCard.offsetWidth;
-    const fromHeight = fromCard.offsetHeight;
-    const toWidth = toCard.offsetWidth;
-    const toHeight = toCard.offsetHeight;
+    const fromWidth = fromCard.offsetWidth || 290;
+    const fromHeight = fromCard.offsetHeight || 200;
+    const toWidth = toCard.offsetWidth || 290;
+    const toHeight = toCard.offsetHeight || 200;
 
-    // Anchor points: left or right side depending on relative position
-    let x1, y1, x2, y2;
-    if (fromPos.x + fromWidth / 2 < toPos.x + toWidth / 2) {
-      // From right to Left
-      x1 = fromPos.x + fromWidth;
-      y1 = fromPos.y + Math.min(60, fromHeight / 2);
-      x2 = toPos.x;
-      y2 = toPos.y + Math.min(60, toHeight / 2);
+    // 1. Calculate Exact Row-Level Anchor Y offsets
+    let fromRowOffsetY = 42; // default fallback
+    let toRowOffsetY = 42;
+
+    const fromTargetProp = rel.fromProperty || 'Id';
+    const fromRowEl = fromCard.querySelector(\`[data-prop-name="\${fromTargetProp}"]\`);
+    if (fromRowEl) {
+      fromRowOffsetY = fromRowEl.offsetTop + fromRowEl.offsetHeight / 2;
     } else {
-      // From left to Right
-      x1 = fromPos.x;
-      y1 = fromPos.y + Math.min(60, fromHeight / 2);
-      x2 = toPos.x + toWidth;
-      y2 = toPos.y + Math.min(60, toHeight / 2);
+      const firstPk = fromCard.querySelector('.prop-row.pk');
+      if (firstPk) fromRowOffsetY = firstPk.offsetTop + firstPk.offsetHeight / 2;
     }
 
-    // Cubic bezier curve path
-    const dx = Math.abs(x2 - x1) * 0.5;
-    const cx1 = x1 < x2 ? x1 + dx : x1 - dx;
-    const cx2 = x1 < x2 ? x2 - dx : x2 + dx;
+    const toTargetProp = rel.toProperty || \`\${rel.fromEntity}Id\`;
+    const toRowEl = toCard.querySelector(\`[data-prop-name="\${toTargetProp}"]\`);
+    if (toRowEl) {
+      toRowOffsetY = toRowEl.offsetTop + toRowEl.offsetHeight / 2;
+    } else {
+      const firstFk = toCard.querySelector('.prop-row.fk');
+      if (firstFk) toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
+    }
 
-    const pathData = \`M \${x1} \${y1} C \${cx1} \${y1}, \${cx2} \${y2}, \${x2} \${y2}\`;
+    // Clamp inside visible card body
+    fromRowOffsetY = Math.max(36, Math.min(fromHeight - 12, fromRowOffsetY));
+    toRowOffsetY = Math.max(36, Math.min(toHeight - 12, toRowOffsetY));
+
+    // 2. Determine Smart Side Routing (Left-to-Right vs Right-to-Left vs Loop)
+    let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
+
+    const fromCenterX = fromPos.x + fromWidth / 2;
+    const toCenterX = toPos.x + toWidth / 2;
+
+    if (fromPos.x + fromWidth + 40 <= toPos.x) {
+      // From is distinctly to the LEFT of To: Exit Right -> Enter Left
+      x1 = fromPos.x + fromWidth;
+      y1 = fromPos.y + fromRowOffsetY;
+      x2 = toPos.x;
+      y2 = toPos.y + toRowOffsetY;
+
+      const dx = Math.max(50, (x2 - x1) * 0.45);
+      cx1 = x1 + dx;
+      cy1 = y1;
+      cx2 = x2 - dx;
+      cy2 = y2;
+    } else if (toPos.x + toWidth + 40 <= fromPos.x) {
+      // From is distinctly to the RIGHT of To: Exit Left -> Enter Right
+      x1 = fromPos.x;
+      y1 = fromPos.y + fromRowOffsetY;
+      x2 = toPos.x + toWidth;
+      y2 = toPos.y + toRowOffsetY;
+
+      const dx = Math.max(50, (x1 - x2) * 0.45);
+      cx1 = x1 - dx;
+      cy1 = y1;
+      cx2 = x2 + dx;
+      cy2 = y2;
+    } else {
+      // Vertically aligned or overlapping: Curve around right side
+      x1 = fromPos.x + fromWidth;
+      y1 = fromPos.y + fromRowOffsetY;
+      x2 = toPos.x + toWidth;
+      y2 = toPos.y + toRowOffsetY;
+
+      const offsetDist = Math.max(70, Math.abs(y2 - y1) * 0.3);
+      cx1 = Math.max(x1, x2) + offsetDist;
+      cy1 = y1;
+      cx2 = Math.max(x1, x2) + offsetDist;
+      cy2 = y2;
+    }
+
+    // 3. Render Smooth Cubic Bezier Path
+    const pathData = \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`;
 
     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     pathEl.setAttribute('d', pathData);
@@ -519,6 +590,7 @@ export function getEfDiagramClientScript(): string {
       const entityName = draggedCard.querySelector('.card-header').dataset.entityName;
       activePositions[entityName] = { x: Math.round(newX), y: Math.round(newY) };
 
+      // Realtime SVG links update during drag
       updateSvgLinks();
     }
   });
@@ -529,7 +601,7 @@ export function getEfDiagramClientScript(): string {
       viewport.style.cursor = 'grab';
     }
     if (draggedCard) {
-      draggedCard.style.zIndex = '1';
+      draggedCard.style.zIndex = '2';
       draggedCard = null;
     }
   });
@@ -548,6 +620,71 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
+  // Smart Topological / DAG Auto Layout
+  function autoLayoutEntities() {
+    const targetEntities = allEntities.length > 0 ? allEntities : Object.keys(activePositions).map(name => allEntities.find(e => e.name === name)).filter(Boolean);
+    if (targetEntities.length === 0) return;
+
+    // Calculate In-Degree (how many FKs point to this entity)
+    const inDegree = {};
+    const adj = {};
+    targetEntities.forEach(e => {
+      inDegree[e.name] = 0;
+      adj[e.name] = [];
+    });
+
+    for (const rel of allRelationships) {
+      if (adj[rel.fromEntity] && inDegree[rel.toEntity] !== undefined) {
+        adj[rel.fromEntity].push(rel.toEntity);
+        inDegree[rel.toEntity]++;
+      }
+    }
+
+    // Topological Column Layers
+    const columns = [];
+    const visited = new Set();
+
+    // Column 0: Root Parents (in-degree 0)
+    let currentCol = targetEntities.filter(e => inDegree[e.name] === 0).map(e => e.name);
+    if (currentCol.length === 0) {
+      currentCol = [targetEntities[0].name];
+    }
+
+    while (currentCol.length > 0) {
+      columns.push(currentCol);
+      currentCol.forEach(name => visited.add(name));
+
+      const nextCol = [];
+      for (const name of currentCol) {
+        for (const child of (adj[name] || [])) {
+          if (!visited.has(child) && !nextCol.includes(child)) {
+            nextCol.push(child);
+          }
+        }
+      }
+      currentCol = nextCol;
+    }
+
+    // Add any unvisited entities to last column
+    const remaining = targetEntities.filter(e => !visited.has(e.name)).map(e => e.name);
+    if (remaining.length > 0) {
+      columns.push(remaining);
+    }
+
+    // Assign Grid Positions with Generous Spacing
+    const colWidth = 420;
+    const rowHeight = 360;
+
+    columns.forEach((colEntities, colIdx) => {
+      colEntities.forEach((name, rowIdx) => {
+        activePositions[name] = {
+          x: 60 + colIdx * colWidth,
+          y: 60 + rowIdx * rowHeight
+        };
+      });
+    });
+  }
+
   // Toolbar Actions
   document.getElementById('btnNew').addEventListener('click', async () => {
     activePositions = {};
@@ -565,12 +702,7 @@ export function getEfDiagramClientScript(): string {
   });
 
   document.getElementById('btnAutoLayout').addEventListener('click', () => {
-    const names = Object.keys(activePositions);
-    names.forEach((name, idx) => {
-      const posX = 60 + (idx % 3) * 320;
-      const posY = 60 + Math.floor(idx / 3) * 340;
-      activePositions[name] = { x: posX, y: posY };
-    });
+    autoLayoutEntities();
     renderCanvas();
   });
 
