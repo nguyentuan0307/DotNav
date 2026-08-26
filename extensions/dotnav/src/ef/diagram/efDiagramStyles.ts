@@ -515,9 +515,43 @@ body, html {
   touch-action: none;
 }
 
+.table-card.layout-transitioning {
+  transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
 .table-card.dragging {
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--card-selected-border);
   opacity: 0.96;
+}
+
+/* Floating Layout Toast Notification */
+.diagram-toast {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-12px);
+  background: rgba(30, 34, 43, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #f1f5f9;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.25);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.diagram-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .table-card.selected, .table-card.multi-selected {

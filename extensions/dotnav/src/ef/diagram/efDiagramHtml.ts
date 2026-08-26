@@ -124,6 +124,9 @@ export function renderEfDiagramHtml(): string {
 
       <!-- Canvas Viewport -->
       <div class="canvas-viewport" id="viewport">
+        <!-- Floating Toast Message -->
+        <div class="diagram-toast" id="diagramToast">✨ Layout Applied</div>
+
         <!-- Marquee Selection Rectangle Box -->
         <div class="marquee-box" id="marqueeBox"></div>
 

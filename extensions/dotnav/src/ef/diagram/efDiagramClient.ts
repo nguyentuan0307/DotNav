@@ -2023,7 +2023,62 @@ export function getEfDiagramClientScript(): string {
   if (btnAlignTop) btnAlignTop.addEventListener('click', () => alignSelected('top'));
   if (btnDistributeH) btnDistributeH.addEventListener('click', () => alignSelected('distributeH'));
 
-  // Multi-Layout Engine: Column DAG, Hierarchical Tree, Radial Star, Compact Grid
+  // Floating Toast Notification
+  const diagramToast = document.getElementById('diagramToast');
+  let toastTimer = null;
+  function showToast(message) {
+    if (!diagramToast) return;
+    diagramToast.textContent = message;
+    diagramToast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      diagramToast.classList.remove('show');
+    }, 1800);
+  }
+
+  // Smart Viewport Auto-Centering & Fit-to-Content
+  function fitToContent(animate = true) {
+    const activeNames = Object.keys(activePositions);
+    if (activeNames.length === 0 && notes.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    activeNames.forEach(name => {
+      const p = activePositions[name];
+      const s = cardSizeCache[name] || { width: 310, height: 200 };
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + s.width);
+      maxY = Math.max(maxY, p.y + s.height);
+    });
+
+    notes.forEach(n => {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || 220));
+      maxY = Math.max(maxY, n.y + (n.height || 120));
+    });
+
+    const contentW = Math.max(300, maxX - minX);
+    const contentH = Math.max(200, maxY - minY);
+    const padding = 80;
+
+    const availableW = Math.max(200, viewport.clientWidth - padding * 2);
+    const availableH = Math.max(200, viewport.clientHeight - padding * 2);
+
+    const fitZoom = Math.min(1.0, Math.max(0.35, Math.min(availableW / contentW, availableH / contentH)));
+    zoom = fitZoom;
+
+    const contentCenterX = minX + contentW / 2;
+    const contentCenterY = minY + contentH / 2;
+
+    panX = Math.round(viewport.clientWidth / 2 - contentCenterX * zoom);
+    panY = Math.round(viewport.clientHeight / 2 - contentCenterY * zoom);
+
+    applyTransform();
+    updateMinimap();
+  }
+
+  // 60FPS Animated Multi-Layout Engine: Column DAG, Hierarchical Tree, Radial Star, Compact Grid
   function autoLayoutEntities(explicitEntities, algorithm = 'column') {
     pushHistory();
     const activeKeys = Object.keys(activePositions);
@@ -2039,14 +2094,19 @@ export function getEfDiagramClientScript(): string {
       }
     }
 
-    if (!targetEntities || targetEntities.length === 0) return;
+    if (!targetEntities || targetEntities.length === 0) {
+      showToast('⚠️ No entities on canvas to arrange');
+      return;
+    }
+
+    const newPositions = {};
 
     if (algorithm === 'grid') {
       const cols = Math.ceil(Math.sqrt(targetEntities.length));
       targetEntities.forEach((e, idx) => {
         const row = Math.floor(idx / cols);
         const col = idx % cols;
-        activePositions[e.name] = {
+        newPositions[e.name] = {
           x: 60 + col * 360,
           y: 60 + row * 340
         };
@@ -2095,7 +2155,7 @@ export function getEfDiagramClientScript(): string {
         const totalW = levelNodes.length * 360;
         const startX = Math.max(60, 600 - totalW / 2);
         levelNodes.forEach((name, colIdx) => {
-          activePositions[name] = {
+          newPositions[name] = {
             x: startX + colIdx * 360,
             y: 60 + levelIdx * 380
           };
@@ -2114,14 +2174,14 @@ export function getEfDiagramClientScript(): string {
       const centerNode = sorted[0];
       const satellites = sorted.slice(1);
 
-      activePositions[centerNode.name] = { x: 500, y: 400 };
+      newPositions[centerNode.name] = { x: 500, y: 400 };
 
-      const radius = Math.max(380, satellites.length * 55);
-      const angleStep = (2 * Math.PI) / satellites.length;
+      const radius = Math.max(380, satellites.length * 60);
+      const angleStep = satellites.length > 0 ? (2 * Math.PI) / satellites.length : 0;
 
       satellites.forEach((e, idx) => {
         const angle = idx * angleStep;
-        activePositions[e.name] = {
+        newPositions[e.name] = {
           x: Math.round(500 + radius * Math.cos(angle)),
           y: Math.round(400 + radius * Math.sin(angle))
         };
@@ -2168,7 +2228,7 @@ export function getEfDiagramClientScript(): string {
 
       columns.forEach((colEntities, colIdx) => {
         colEntities.forEach((name, rowIdx) => {
-          activePositions[name] = {
+          newPositions[name] = {
             x: 60 + colIdx * 440,
             y: 60 + rowIdx * 380
           };
@@ -2176,11 +2236,46 @@ export function getEfDiagramClientScript(): string {
       });
     }
 
-    renderCanvas();
-    renderNotes();
-    Object.keys(activePositions).forEach(name => cacheCardLayout(name));
-    scheduleSvgUpdate();
-    updateMinimap();
+    // Apply calculated positions
+    Object.assign(activePositions, newPositions);
+
+    // Apply smooth 60FPS CSS transition to all cards
+    const cards = document.querySelectorAll('.table-card');
+    cards.forEach(card => card.classList.add('layout-transitioning'));
+
+    Object.entries(newPositions).forEach(([name, pos]) => {
+      const card = document.getElementById('card-' + name);
+      if (card) {
+        card.style.left = pos.x + 'px';
+        card.style.top = pos.y + 'px';
+      }
+    });
+
+    // Animate SVG curves along with moving cards
+    const animStart = performance.now();
+    function animateCurves(time) {
+      scheduleSvgUpdate();
+      if (time - animStart < 460) {
+        requestAnimationFrame(animateCurves);
+      } else {
+        cards.forEach(card => card.classList.remove('layout-transitioning'));
+        Object.keys(activePositions).forEach(name => cacheCardLayout(name));
+        scheduleSvgUpdate();
+        updateMinimap();
+      }
+    }
+    requestAnimationFrame(animateCurves);
+
+    // Fit canvas viewport to center newly arranged diagram
+    fitToContent(true);
+
+    const algoNames = {
+      column: 'Columns (DAG)',
+      hierarchical: 'Tree Hierarchy',
+      radial: 'Radial Star',
+      grid: 'Compact Grid'
+    };
+    showToast(\`✨ Arranged with \${algoNames[algorithm] || algorithm}\`);
   }
 
   if (btnAutoLayout) {
@@ -2676,11 +2771,15 @@ export function getEfDiagramClientScript(): string {
   });
 
   document.getElementById('btnZoomReset').addEventListener('click', () => {
-    zoom = 1.0;
-    panX = 40;
-    panY = 40;
-    applyTransform();
-    updateMinimap();
+    if (Object.keys(activePositions).length > 0 || notes.length > 0) {
+      fitToContent(true);
+    } else {
+      zoom = 1.0;
+      panX = 40;
+      panY = 40;
+      applyTransform();
+      updateMinimap();
+    }
   });
 
   function escapeHtml(str) {
