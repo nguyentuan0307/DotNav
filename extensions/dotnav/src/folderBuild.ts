@@ -51,10 +51,10 @@ export function createFolderBuildProject(projects: readonly ProjectModel[]): str
 ${items}
   </ItemGroup>
   <Target Name="Restore">
-    <MSBuild Projects="@(FolderBuildProject)" Targets="Restore" BuildInParallel="true" />
+    <MSBuild Projects="@(FolderBuildProject)" Targets="Restore" BuildInParallel="true" StopOnFirstFailure="true" />
   </Target>
   <Target Name="Build" DependsOnTargets="Restore">
-    <MSBuild Projects="@(FolderBuildProject)" Targets="Build" BuildInParallel="true" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="@(FolderBuildProject)" Targets="Build" BuildInParallel="true" Properties="Configuration=$(Configuration)" StopOnFirstFailure="true" />
   </Target>
 </Project>
 `;

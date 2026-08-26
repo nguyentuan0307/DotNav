@@ -18,8 +18,9 @@ export class BuildChangeTracker {
     if (isIgnoredBuildPath(filePath)) return;
     const watched = this.watchedInputs.has(normalized);
     const graphInput = isGraphInput(filePath);
+    const codeSource = isCodeSourceFile(filePath);
     this.generation += 1;
-    if (watched) this.changedPaths.set(normalized, this.generation);
+    if (watched || codeSource) this.changedPaths.set(normalized, this.generation);
     // Creates/deletes can change SDK default or custom glob membership. A content
     // edit to an unrelated untracked file cannot change the evaluated graph.
     if (graphInput || eventKind !== 'change') {
@@ -78,6 +79,11 @@ function isGraphInput(filePath: string): boolean {
   const name = path.basename(filePath);
   return /\.(sln|slnx|csproj|fsproj|vbproj|props|targets)$/i.test(name)
     || /^(global\.json|nuget\.config|packages\.lock\.json)$/i.test(name);
+}
+
+function isCodeSourceFile(filePath: string): boolean {
+  const name = path.basename(filePath);
+  return /\.(cs|razor|xaml|fs|vb|json|config|xml|proto|resx)$/i.test(name);
 }
 
 function isIgnoredBuildPath(filePath: string): boolean {

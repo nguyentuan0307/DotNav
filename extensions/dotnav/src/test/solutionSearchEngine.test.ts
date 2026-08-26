@@ -144,3 +144,123 @@ test('searchUniversalSymbols applies active project and MRU affinity boost', () 
   assert.ok(resMRU[0].matchReason.includes('Recent'));
 });
 
+test('searchUniversalSymbols ranks method search like GetFormElementByReferenceIdsAsync above endpoints ending in /{id}', () => {
+  const symbolsWithEndpoints: UniversalSymbol[] = [
+    {
+      id: 'ep-template',
+      name: 'GET /api/cms/app-templates/{id}',
+      kind: 'endpoint',
+      filePath: '/src/TemplateLibraryController.cs',
+      relativePath: 'TemplateLibraryController.cs',
+      projectName: 'Cleeksy.SolutionCanvas',
+      line: 117,
+      column: 1,
+      metadata: { httpMethod: 'GET', routeTemplate: 'cms/app-templates/{id}' }
+    },
+    {
+      id: 'ep-account',
+      name: 'GET /api/cms/accounts/{id}',
+      kind: 'endpoint',
+      filePath: '/src/AccountController.cs',
+      relativePath: 'AccountController.cs',
+      projectName: 'Cleeksy.SolutionCanvas',
+      line: 49,
+      column: 1,
+      metadata: { httpMethod: 'GET', routeTemplate: 'cms/accounts/{id}' }
+    },
+    {
+      id: 'ep-attachment',
+      name: 'GET /api/BaseAttachment/{fileId}',
+      kind: 'endpoint',
+      filePath: '/src/BaseAttachmentController.cs',
+      relativePath: 'BaseAttachmentController.cs',
+      projectName: 'ELDesk.Shared.Service',
+      line: 22,
+      column: 1,
+      metadata: { httpMethod: 'GET', routeTemplate: 'api/BaseAttachment/{fileId}' }
+    },
+    {
+      id: 'method-target',
+      name: 'GetFormElementByReferenceIdsAsync(...)',
+      kind: 'method',
+      filePath: '/src/FormService.Get.cs',
+      relativePath: 'FormService.Get.cs',
+      projectName: 'ELDesk.CustomApp',
+      line: 268,
+      column: 1,
+      metadata: {
+        returnType: 'Task<List<GetFieldInfo>>',
+        parameterSummary: 'GetFormElementByReferenceIdsRequest request, CancellationToken cancellationToken'
+      }
+    }
+  ];
+
+  const results = searchUniversalSymbols(symbolsWithEndpoints, 'GetFormElementByReferenceIdsAsync');
+  assert.ok(results.length >= 1);
+  assert.equal(results[0].symbol.id, 'method-target');
+  assert.equal(results[0].score, 100);
+
+  // Ensure fake placeholder endpoints did not match
+  const matchedEndpointIds = results.filter(r => r.symbol.kind === 'endpoint').map(r => r.symbol.id);
+  assert.equal(matchedEndpointIds.length, 0);
+});
+
+test('searchUniversalSymbols ranks gap route queries like project-views//record-fields accurately', () => {
+  const routeSymbols: UniversalSymbol[] = [
+    {
+      id: 'ep-unrelated-view',
+      name: 'PUT /api/custom-app/project-views/{viewId}',
+      kind: 'endpoint',
+      filePath: '/src/ViewController.cs',
+      relativePath: 'ViewController.cs',
+      projectName: 'ELDesk.CustomApp',
+      line: 77,
+      column: 1,
+      metadata: { httpMethod: 'PUT', routeTemplate: 'custom-app/project-views/{viewId}' }
+    },
+    {
+      id: 'ep-column-size',
+      name: 'GET /api/Project/{projectId}/project-views/{viewId}/column-size',
+      kind: 'endpoint',
+      filePath: '/src/ProjectController.UserPreference.cs',
+      relativePath: 'ProjectController.UserPreference.cs',
+      projectName: 'ELDesk.Work',
+      line: 23,
+      column: 1,
+      metadata: { httpMethod: 'GET', routeTemplate: 'api/Project/{projectId}/project-views/{viewId}/column-size' }
+    },
+    {
+      id: 'ep-target-get',
+      name: 'GET /work/projects/{projectId}/project-views/{viewId}/record-fields',
+      kind: 'endpoint',
+      filePath: '/src/ProjectController.ProjectView.cs',
+      relativePath: 'ProjectController.ProjectView.cs',
+      projectName: 'ELDesk.Work',
+      line: 120,
+      column: 1,
+      metadata: { httpMethod: 'GET', routeTemplate: '{projectId}/project-views/{viewId}/record-fields' }
+    },
+    {
+      id: 'ep-target-put',
+      name: 'PUT /work/projects/{projectId}/project-views/record-fields',
+      kind: 'endpoint',
+      filePath: '/src/ProjectController.ProjectView.cs',
+      relativePath: 'ProjectController.ProjectView.cs',
+      projectName: 'ELDesk.Work',
+      line: 145,
+      column: 1,
+      metadata: { httpMethod: 'PUT', routeTemplate: '{projectId}/project-views/record-fields' }
+    }
+  ];
+
+  const results = searchUniversalSymbols(routeSymbols, 'project-views//record-fields');
+  assert.ok(results.length >= 2);
+  const resultIds = results.map(r => r.symbol.id);
+  assert.ok(resultIds.includes('ep-target-get'));
+  assert.ok(resultIds.includes('ep-target-put'));
+
+  // Ensure endpoints without record-fields are not returned or not ranked above targets
+  assert.equal(resultIds.includes('ep-unrelated-view'), false);
+  assert.equal(resultIds.includes('ep-column-size'), false);
+});
+
