@@ -12,7 +12,10 @@ export function getEfDiagramClientScript(): string {
   let allEntities = [];
   let allRelationships = [];
   let activePositions = {};
+  let minimizedCards = new Set();
   let currentDiagramName = 'Default';
+  let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
+
   let zoom = 1.0;
   let panX = 40;
   let panY = 40;
@@ -23,7 +26,12 @@ export function getEfDiagramClientScript(): string {
   let dragOffsetX = 0;
   let dragOffsetY = 0;
 
+  // Sidebar Resizing State
+  let isResizingSidebar = false;
+
   // DOM Elements
+  const sidebar = document.getElementById('sidebar');
+  const sidebarResizer = document.getElementById('sidebarResizer');
   const viewport = document.getElementById('viewport');
   const canvasTransform = document.getElementById('canvasTransform');
   const linksSvg = document.getElementById('linksSvg');
@@ -36,6 +44,17 @@ export function getEfDiagramClientScript(): string {
   const btnAddAllToCanvas = document.getElementById('btnAddAllToCanvas');
   const emptyPrompt = document.getElementById('emptyPrompt');
   const zoomDisplay = document.getElementById('zoomDisplay');
+
+  // Filter Chips
+  const chipAll = document.getElementById('chipAll');
+  const chipKeys = document.getElementById('chipKeys');
+  const chipNoAudit = document.getElementById('chipNoAudit');
+
+  const AUDIT_FIELD_NAMES = new Set([
+    'createdby', 'createdon', 'createdat', 'createddate',
+    'updatedby', 'updatedon', 'updatedat', 'updateddate', 'modifiedby', 'modifiedon',
+    'deletedby', 'deletedon', 'deletedat', 'deleteddate', 'isdeleted', 'deleteruserid'
+  ]);
 
   // Initialize
   window.addEventListener('message', event => {
@@ -74,6 +93,46 @@ export function getEfDiagramClientScript(): string {
 
   vscode.postMessage({ type: 'ready' });
 
+  // Sidebar Resizing Logic
+  if (sidebarResizer && sidebar) {
+    sidebarResizer.addEventListener('mousedown', e => {
+      isResizingSidebar = true;
+      sidebarResizer.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (isResizingSidebar) {
+        const newWidth = Math.max(200, Math.min(650, e.clientX));
+        sidebar.style.width = newWidth + 'px';
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isResizingSidebar) {
+        isResizingSidebar = false;
+        sidebarResizer.classList.remove('resizing');
+        document.body.style.cursor = '';
+      }
+    });
+  }
+
+  // Column View Filter Chips
+  function setFilterMode(mode) {
+    activeFilterMode = mode;
+    [chipAll, chipKeys, chipNoAudit].forEach(chip => {
+      if (chip) {
+        chip.classList.toggle('active', chip.dataset.mode === mode);
+      }
+    });
+    renderCanvas();
+  }
+
+  if (chipAll) chipAll.addEventListener('click', () => setFilterMode('all'));
+  if (chipKeys) chipKeys.addEventListener('click', () => setFilterMode('keys'));
+  if (chipNoAudit) chipNoAudit.addEventListener('click', () => setFilterMode('no-audit'));
+
   // Update DbContext Dropdown
   function updateDbContextSelect() {
     if (!dbContextSelect) return;
@@ -94,6 +153,7 @@ export function getEfDiagramClientScript(): string {
       allEntities = entitiesByContext[activeDbContext] || [];
       allRelationships = relationshipsByContext[activeDbContext] || [];
       activePositions = {};
+      minimizedCards.clear();
 
       // Auto-place first 3 entities
       if (allEntities.length > 0) {
@@ -171,10 +231,12 @@ export function getEfDiagramClientScript(): string {
 
       item.innerHTML = \`
         <div class="entity-item-info">
-          <span style="color: var(--pk-color);">🔑</span>
+          <svg class="icon-svg" style="color: var(--pk-color); flex-shrink: 0;" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5-.5a.5.5 0 0 0-.5.5v1h10v-1a.5.5 0 0 0-.5-.5h-9z"/>
+          </svg>
           <div style="display: flex; flex-direction: column; overflow: hidden;">
             <span class="entity-item-name">\${escapeHtml(entity.name)}</span>
-            \${tableLabel ? \`<span style="font-size: 10px; color: var(--text-muted);">\${escapeHtml(tableLabel)}</span>\` : ''}
+            \${tableLabel ? \`<span style="font-size: 10px; color: var(--text-muted); font-family: monospace;">\${escapeHtml(tableLabel)}</span>\` : ''}
           </div>
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
@@ -239,7 +301,7 @@ export function getEfDiagramClientScript(): string {
       let collides = false;
       for (const name in activePositions) {
         const p = activePositions[name];
-        if (Math.abs(p.x - targetX) < 300 && Math.abs(p.y - targetY) < 280) {
+        if (Math.abs(p.x - targetX) < 320 && Math.abs(p.y - targetY) < 280) {
           collides = true;
           break;
         }
@@ -306,6 +368,7 @@ export function getEfDiagramClientScript(): string {
   // Remove Entity from Canvas
   function removeEntityFromCanvas(entityName) {
     delete activePositions[entityName];
+    minimizedCards.delete(entityName);
     renderEntityList(searchBox.value);
     renderCanvas();
   }
@@ -329,8 +392,10 @@ export function getEfDiagramClientScript(): string {
       if (!entity) continue;
 
       const pos = activePositions[name];
+      const isMinimized = minimizedCards.has(entity.name);
+
       const card = document.createElement('div');
-      card.className = 'table-card';
+      card.className = 'table-card' + (isMinimized ? ' minimized' : '');
       card.id = 'card-' + entity.name;
       card.style.left = pos.x + 'px';
       card.style.top = pos.y + 'px';
@@ -341,26 +406,35 @@ export function getEfDiagramClientScript(): string {
         <div class="card-header" data-entity-name="\${escapeHtml(entity.name)}">
           <div class="card-title-group">
             <span class="card-title">
-              <span style="color: var(--pk-color);">🔑</span> \${escapeHtml(entity.name)}
+              <svg class="icon-svg" style="color: var(--pk-color); flex-shrink: 0;" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5-.5a.5.5 0 0 0-.5.5v1h10v-1a.5.5 0 0 0-.5-.5h-9z"/>
+              </svg>
+              \${escapeHtml(entity.name)}
             </span>
             <span class="card-subtitle">\${escapeHtml(tableDisplay)}</span>
           </div>
-          <button class="card-close-btn" title="Remove from Diagram">✕</button>
+          <div class="card-actions">
+            <button class="card-action-btn card-minimize-btn" title="\${isMinimized ? 'Expand' : 'Minimize'}">\${isMinimized ? '▢' : '—'}</button>
+            <button class="card-action-btn card-close-btn" title="Remove from Diagram">✕</button>
+          </div>
         </div>
         <div class="card-body">
           \${entity.properties.map(p => renderPropertyRow(entity, p)).join('')}
         </div>
       \`;
 
-      // Header double-click to open C# code
+      // Header double-click to toggle minimize
       const header = card.querySelector('.card-header');
       header.addEventListener('dblclick', e => {
         e.stopPropagation();
-        vscode.postMessage({
-          type: 'openFile',
-          filePath: entity.filePath,
-          line: entity.line
-        });
+        toggleCardMinimize(entity.name);
+      });
+
+      // Minimize button
+      const minBtn = card.querySelector('.card-minimize-btn');
+      minBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        toggleCardMinimize(entity.name);
       });
 
       // Close button
@@ -372,7 +446,7 @@ export function getEfDiagramClientScript(): string {
 
       // Card dragging
       header.addEventListener('mousedown', e => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || e.target.closest('.card-actions')) return;
         draggedCard = card;
         const rect = card.getBoundingClientRect();
         dragOffsetX = (e.clientX - rect.left) / zoom;
@@ -380,6 +454,14 @@ export function getEfDiagramClientScript(): string {
         card.style.zIndex = '100';
         e.stopPropagation();
       });
+
+      // Resize observer to update SVG links when card width is dragged
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => {
+          updateSvgLinks();
+        });
+        ro.observe(card);
+      }
 
       cardsLayer.appendChild(card);
     }
@@ -411,7 +493,27 @@ export function getEfDiagramClientScript(): string {
     requestAnimationFrame(updateSvgLinks);
   }
 
+  function toggleCardMinimize(entityName) {
+    if (minimizedCards.has(entityName)) {
+      minimizedCards.delete(entityName);
+    } else {
+      minimizedCards.add(entityName);
+    }
+    renderCanvas();
+  }
+
   function renderPropertyRow(entity, prop) {
+    // Check Active Column Filter Mode
+    if (activeFilterMode === 'keys') {
+      if (!prop.isPrimaryKey && !prop.isForeignKey) {
+        return '';
+      }
+    } else if (activeFilterMode === 'no-audit') {
+      if (!prop.isPrimaryKey && !prop.isForeignKey && AUDIT_FIELD_NAMES.has(prop.name.toLowerCase())) {
+        return '';
+      }
+    }
+
     let badge = '';
     let rowClass = 'prop-row';
     let expandBtn = '';
@@ -423,12 +525,12 @@ export function getEfDiagramClientScript(): string {
       rowClass += ' fk';
       badge = '<span class="prop-badge fk">FK</span>';
       if (prop.foreignKeyTargetEntity && allEntities.some(e => e.name === prop.foreignKeyTargetEntity)) {
-        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.foreignKeyTargetEntity)}" title="Add \${escapeHtml(prop.foreignKeyTargetEntity)} to canvas">➕</button>\`;
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.foreignKeyTargetEntity)}" title="Add \${escapeHtml(prop.foreignKeyTargetEntity)} to canvas">+</button>\`;
       }
     } else if (prop.isNavigation) {
       badge = '<span class="prop-badge nav">NAV</span>';
       if (prop.navigationTargetEntity && allEntities.some(e => e.name === prop.navigationTargetEntity)) {
-        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.navigationTargetEntity)}" title="Add \${escapeHtml(prop.navigationTargetEntity)} to canvas">➕</button>\`;
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.navigationTargetEntity)}" title="Add \${escapeHtml(prop.navigationTargetEntity)} to canvas">+</button>\`;
       }
     }
 
@@ -467,35 +569,42 @@ export function getEfDiagramClientScript(): string {
     const toPos = activePositions[rel.toEntity];
     if (!fromPos || !toPos) return;
 
-    const fromWidth = fromCard.offsetWidth || 290;
+    const fromMinimized = fromCard.classList.contains('minimized');
+    const toMinimized = toCard.classList.contains('minimized');
+
+    const fromWidth = fromCard.offsetWidth || 310;
     const fromHeight = fromCard.offsetHeight || 200;
-    const toWidth = toCard.offsetWidth || 290;
+    const toWidth = toCard.offsetWidth || 310;
     const toHeight = toCard.offsetHeight || 200;
 
     // 1. Calculate Exact Row-Level Anchor Y offsets
-    let fromRowOffsetY = 42;
-    let toRowOffsetY = 42;
+    let fromRowOffsetY = fromMinimized ? 18 : 42;
+    let toRowOffsetY = toMinimized ? 18 : 42;
 
-    const fromTargetProp = rel.fromProperty || 'Id';
-    const fromRowEl = fromCard.querySelector(\`[data-prop-name="\${fromTargetProp}"]\`);
-    if (fromRowEl) {
-      fromRowOffsetY = fromRowEl.offsetTop + fromRowEl.offsetHeight / 2;
-    } else {
-      const firstPk = fromCard.querySelector('.prop-row.pk');
-      if (firstPk) fromRowOffsetY = firstPk.offsetTop + firstPk.offsetHeight / 2;
+    if (!fromMinimized) {
+      const fromTargetProp = rel.fromProperty || 'Id';
+      const fromRowEl = fromCard.querySelector(\`[data-prop-name="\${fromTargetProp}"]\`);
+      if (fromRowEl) {
+        fromRowOffsetY = fromRowEl.offsetTop + fromRowEl.offsetHeight / 2;
+      } else {
+        const firstPk = fromCard.querySelector('.prop-row.pk');
+        if (firstPk) fromRowOffsetY = firstPk.offsetTop + firstPk.offsetHeight / 2;
+      }
     }
 
-    const toTargetProp = rel.toProperty || \`\${rel.fromEntity}Id\`;
-    const toRowEl = toCard.querySelector(\`[data-prop-name="\${toTargetProp}"]\`);
-    if (toRowEl) {
-      toRowOffsetY = toRowEl.offsetTop + toRowEl.offsetHeight / 2;
-    } else {
-      const firstFk = toCard.querySelector('.prop-row.fk');
-      if (firstFk) toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
+    if (!toMinimized) {
+      const toTargetProp = rel.toProperty || \`\${rel.fromEntity}Id\`;
+      const toRowEl = toCard.querySelector(\`[data-prop-name="\${toTargetProp}"]\`);
+      if (toRowEl) {
+        toRowOffsetY = toRowEl.offsetTop + toRowEl.offsetHeight / 2;
+      } else {
+        const firstFk = toCard.querySelector('.prop-row.fk');
+        if (firstFk) toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
+      }
     }
 
-    fromRowOffsetY = Math.max(36, Math.min(fromHeight - 12, fromRowOffsetY));
-    toRowOffsetY = Math.max(36, Math.min(toHeight - 12, toRowOffsetY));
+    fromRowOffsetY = Math.max(16, Math.min(fromHeight - 8, fromRowOffsetY));
+    toRowOffsetY = Math.max(16, Math.min(toHeight - 8, toRowOffsetY));
 
     // 2. Determine Smart Side Routing
     let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
@@ -644,7 +753,7 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  // Scope-Aware Auto Layout (Only arranges active tables by default!)
+  // Scope-Aware Auto Layout
   function autoLayoutEntities(explicitEntities) {
     const activeKeys = Object.keys(activePositions);
     let targetEntities = explicitEntities;
@@ -655,7 +764,6 @@ export function getEfDiagramClientScript(): string {
           .map(name => allEntities.find(e => e.name === name))
           .filter(Boolean);
       } else {
-        // If canvas is empty, take first 5 tables
         targetEntities = allEntities.slice(0, 5);
       }
     }
@@ -681,7 +789,6 @@ export function getEfDiagramClientScript(): string {
     const columns = [];
     const visited = new Set();
 
-    // Column 0: Root Parents (in-degree 0)
     let currentCol = targetEntities.filter(e => inDegree[e.name] === 0).map(e => e.name);
     if (currentCol.length === 0) {
       currentCol = [targetEntities[0].name];
@@ -702,15 +809,13 @@ export function getEfDiagramClientScript(): string {
       currentCol = nextCol;
     }
 
-    // Add any unvisited entities to last column
     const remaining = targetEntities.filter(e => !visited.has(e.name)).map(e => e.name);
     if (remaining.length > 0) {
       columns.push(remaining);
     }
 
-    // Assign Grid Positions with Generous Spacing
-    const colWidth = 420;
-    const rowHeight = 360;
+    const colWidth = 440;
+    const rowHeight = 380;
 
     columns.forEach((colEntities, colIdx) => {
       colEntities.forEach((name, rowIdx) => {
@@ -725,6 +830,7 @@ export function getEfDiagramClientScript(): string {
   // Toolbar Actions
   document.getElementById('btnNew').addEventListener('click', async () => {
     activePositions = {};
+    minimizedCards.clear();
     currentDiagramName = 'New Diagram';
     renderEntityList(searchBox.value);
     renderCanvas();
