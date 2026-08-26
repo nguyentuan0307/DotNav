@@ -162,3 +162,50 @@ export function liveSyncDiagramWithCode(
 
   return syncedPositions;
 }
+
+export async function deleteDiagramFile(
+  diagramName: string,
+  storageRoot?: string,
+  workspaceRoot?: string
+): Promise<boolean> {
+  const dir = getDiagramStorageDirectory(storageRoot, workspaceRoot);
+  if (!dir) return false;
+
+  const cleanName = diagramName.trim().replace(/[^a-zA-Z0-9_\-\. ]/g, '_');
+  const filePath = path.join(dir, `${cleanName}.diagram.json`);
+  const altPath = path.join(dir, `${cleanName}.json`);
+
+  let deleted = false;
+  try {
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+      deleted = true;
+    }
+    if (fs.existsSync(altPath)) {
+      await fs.promises.unlink(altPath);
+      deleted = true;
+    }
+  } catch {
+    // Ignore unlink error
+  }
+
+  // Also check legacy path
+  if (storageRoot) {
+    const legacyDir = path.join(workspaceRoot || getWorkspaceFolderRoot() || '', '.dotnav', 'diagrams');
+    const legacyPath = path.join(legacyDir, `${cleanName}.diagram.json`);
+    const legacyAlt = path.join(legacyDir, `${cleanName}.json`);
+    try {
+      if (fs.existsSync(legacyPath)) {
+        await fs.promises.unlink(legacyPath);
+        deleted = true;
+      }
+      if (fs.existsSync(legacyAlt)) {
+        await fs.promises.unlink(legacyAlt);
+        deleted = true;
+      }
+    } catch {}
+  }
+
+  return deleted;
+}
+

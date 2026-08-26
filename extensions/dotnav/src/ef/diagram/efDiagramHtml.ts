@@ -54,9 +54,13 @@ export function renderEfDiagramHtml(): string {
       <!-- Top Toolbar -->
       <div class="toolbar">
         <div class="toolbar-left">
-          <select class="diagram-select" id="diagramSelect" title="Select Saved Diagram">
-            <option value="Default">Default Diagram</option>
+          <select class="diagram-select" id="diagramSelect" title="Select Saved Diagram" style="min-width: 130px;">
+            <option value="">(No Diagram)</option>
           </select>
+
+          <button class="btn-icon btn-danger-icon" id="btnDeleteDiagram" title="Delete Active Diagram">
+            <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+          </button>
 
           <button class="btn btn-secondary" id="btnNew" title="Create New Diagram">
             <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/></svg>
@@ -179,11 +183,39 @@ export function renderEfDiagramHtml(): string {
           <div class="minimap-lens" id="minimapLens"></div>
         </div>
 
-        <!-- Empty Canvas Prompt -->
+        <!-- Empty Canvas Prompt (When diagram exists but has no entities) -->
         <div class="empty-canvas-prompt" id="emptyPrompt">
           <div class="empty-icon">🗄️</div>
           <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">No Entities on Canvas</div>
           <div style="font-size: 12px; max-width: 300px; color: var(--text-muted); line-height: 1.5;">Drag tables from the palette on the left or click <b>Add All to Canvas</b> to explore your interactive ERD diagram.</div>
+        </div>
+
+        <!-- Empty Diagram Hero (Shown when NO diagram exists yet) -->
+        <div class="empty-diagram-hero" id="emptyDiagramHero" style="display: none;">
+          <div class="empty-hero-icon">📐</div>
+          <div class="empty-hero-title">No Diagram Selected</div>
+          <div class="empty-hero-desc">Create a new diagram to start mapping entity relationships, layouts, and custom architecture.</div>
+          <button class="btn btn-primary" id="btnHeroCreateDiagram" style="padding: 7px 20px; font-size: 12.5px; margin-top: 10px;">
+            ➕ Create New Diagram
+          </button>
+        </div>
+
+        <!-- Create Diagram Modal Dialog -->
+        <div class="modal-backdrop" id="createDiagramModal">
+          <div class="modal-card">
+            <div class="modal-header">
+              <span class="modal-title">Create New Diagram</span>
+              <button class="btn-icon" id="btnModalClose" title="Close">✕</button>
+            </div>
+            <div class="modal-body">
+              <label class="modal-label" for="modalDiagramNameInput">Diagram Name:</label>
+              <input type="text" class="modal-input" id="modalDiagramNameInput" placeholder="e.g. Overview, OrderModule, Auth..." autocomplete="off" />
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" id="btnModalCancel">Cancel</button>
+              <button class="btn btn-primary" id="btnModalConfirmCreate">Create Diagram</button>
+            </div>
+          </div>
         </div>
 
         <!-- High-Fidelity Glassmorphism Loading & Error Overlay -->

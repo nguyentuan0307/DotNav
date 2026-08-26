@@ -33,7 +33,7 @@ export function getEfDiagramClientScript(): string {
   const cardSizeCache = {}; // { [name]: { width: number, height: number } }
   const cardRowOffsetCache = {}; // { [name]: { [propName]: number, pkDefault: number, fkDefault: number } }
 
-  let currentDiagramName = 'Default';
+  let currentDiagramName = '';
   let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
 
   let zoom = 1.0;
@@ -121,11 +121,23 @@ export function getEfDiagramClientScript(): string {
   // Toolbar Controls
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
+  const btnNew = document.getElementById('btnNew');
+  const btnSave = document.getElementById('btnSave');
+  const btnDeleteDiagram = document.getElementById('btnDeleteDiagram');
   const btnArrangeDropdown = document.getElementById('btnArrangeDropdown');
   const arrangeDropdownMenu = document.getElementById('arrangeDropdownMenu');
   const arrangeDropdownWrapper = document.getElementById('arrangeDropdownWrapper');
   const btnAddNote = document.getElementById('btnAddNote');
   const exportSelect = document.getElementById('exportSelect');
+
+  // Modal & Hero Controls
+  const emptyDiagramHero = document.getElementById('emptyDiagramHero');
+  const btnHeroCreateDiagram = document.getElementById('btnHeroCreateDiagram');
+  const createDiagramModal = document.getElementById('createDiagramModal');
+  const modalDiagramNameInput = document.getElementById('modalDiagramNameInput');
+  const btnModalClose = document.getElementById('btnModalClose');
+  const btnModalCancel = document.getElementById('btnModalCancel');
+  const btnModalConfirmCreate = document.getElementById('btnModalConfirmCreate');
 
   // Filter Chips
   const chipAll = document.getElementById('chipAll');
@@ -241,7 +253,7 @@ export function getEfDiagramClientScript(): string {
         activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
-        currentDiagramName = msg.activeDiagramName || 'Default';
+        currentDiagramName = msg.activeDiagramName || '';
 
         updateDbContextSelect();
         updateDiagramSelect(msg.savedDiagramNames || []);
@@ -249,6 +261,7 @@ export function getEfDiagramClientScript(): string {
         renderEntityList();
         renderCanvas();
         renderNotes();
+        updateDiagramUIState();
         hideLoading();
         break;
 
@@ -262,12 +275,53 @@ export function getEfDiagramClientScript(): string {
         activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
-        currentDiagramName = msg.diagramName || 'Default';
+        currentDiagramName = msg.diagramName || '';
         renderEntityList();
         renderCanvas();
         renderNotes();
+        updateDiagramUIState();
         hideLoading();
         break;
+
+      case 'diagramCreated': {
+        currentDiagramName = msg.diagramName;
+        activePositions = {};
+        notes = [];
+        hiddenColumnsByEntity = {};
+        colorByEntity = {};
+        minimizedCards.clear();
+        selectedEntityNames.clear();
+        activeSelectedRelId = null;
+
+        updateDiagramSelect(msg.savedDiagramNames || []);
+        renderEntityList();
+        renderCanvas();
+        renderNotes();
+        updateDiagramUIState();
+        showToast(\`✨ Diagram Created: \${getDisplayDiagramName(msg.diagramName)}\`);
+        break;
+      }
+
+      case 'diagramDeleted': {
+        const remaining = (msg.savedDiagramNames || []).filter(n => !activeDbContext || n.startsWith(activeDbContext + '_') || !n.includes('_'));
+        if (remaining.length > 0) {
+          const next = remaining[0];
+          currentDiagramName = next;
+          updateDiagramSelect(msg.savedDiagramNames || []);
+          vscode.postMessage({ type: 'loadDiagram', name: next, dbContext: activeDbContext });
+        } else {
+          currentDiagramName = '';
+          activePositions = {};
+          notes = [];
+          updateDiagramSelect(msg.savedDiagramNames || []);
+          renderEntityList();
+          renderCanvas();
+          renderNotes();
+          updateDiagramUIState();
+          showToast('🗑️ Diagram deleted');
+        }
+        break;
+      }
 
       case 'diagramListUpdated':
         updateDiagramSelect(msg.savedDiagramNames || []);
@@ -379,16 +433,11 @@ export function getEfDiagramClientScript(): string {
       selectedEntityNames.clear();
       activeSelectedRelId = null;
 
-      if (allEntities.length > 0) {
-        allEntities.slice(0, 3).forEach((e, idx) => {
-          activePositions[e.name] = { x: 60 + idx * 360, y: 60 };
-        });
-      }
-
       updateSidebarTitle();
       renderEntityList();
       renderCanvas();
       renderNotes();
+      updateDiagramUIState();
     });
   }
 
@@ -398,28 +447,130 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
+  function getDisplayDiagramName(rawName) {
+    if (!rawName) return '';
+    if (activeDbContext && rawName.startsWith(activeDbContext + '_')) {
+      return rawName.slice(activeDbContext.length + 1);
+    }
+    return rawName;
+  }
+
+  function updateDiagramUIState() {
+    const hasActiveDiagram = !!currentDiagramName;
+    if (emptyDiagramHero) {
+      emptyDiagramHero.style.display = hasActiveDiagram ? 'none' : 'flex';
+    }
+    if (btnSave) btnSave.disabled = !hasActiveDiagram;
+    if (btnDeleteDiagram) btnDeleteDiagram.disabled = !hasActiveDiagram;
+    if (diagramSelect) diagramSelect.disabled = !hasActiveDiagram && diagramSelect.options.length <= 1;
+
+    if (!hasActiveDiagram) {
+      if (emptyPrompt) emptyPrompt.style.display = 'none';
+      if (cardsLayer) cardsLayer.innerHTML = '';
+      if (notesLayer) notesLayer.innerHTML = '';
+      if (linksSvg) linksSvg.innerHTML = '';
+    } else {
+      if (emptyPrompt) {
+        emptyPrompt.style.display = Object.keys(activePositions).length === 0 ? 'flex' : 'none';
+      }
+    }
+  }
+
+  function openCreateModal() {
+    if (!createDiagramModal) return;
+    createDiagramModal.classList.add('show');
+    if (modalDiagramNameInput) {
+      modalDiagramNameInput.value = 'Overview';
+      setTimeout(() => {
+        modalDiagramNameInput.focus();
+        modalDiagramNameInput.select();
+      }, 50);
+    }
+  }
+
+  function closeCreateModal() {
+    if (!createDiagramModal) return;
+    createDiagramModal.classList.remove('show');
+  }
+
+  function submitCreateDiagram() {
+    const raw = modalDiagramNameInput ? modalDiagramNameInput.value.trim() : '';
+    const cleanName = raw || 'Overview';
+    const fullName = activeDbContext ? \`\${activeDbContext}_\${cleanName}\` : cleanName;
+    closeCreateModal();
+    vscode.postMessage({
+      type: 'createDiagram',
+      name: fullName,
+      dbContext: activeDbContext
+    });
+  }
+
+  if (btnNew) btnNew.addEventListener('click', openCreateModal);
+  if (btnHeroCreateDiagram) btnHeroCreateDiagram.addEventListener('click', openCreateModal);
+  if (btnModalClose) btnModalClose.addEventListener('click', closeCreateModal);
+  if (btnModalCancel) btnModalCancel.addEventListener('click', closeCreateModal);
+  if (btnModalConfirmCreate) btnModalConfirmCreate.addEventListener('click', submitCreateDiagram);
+
+  if (modalDiagramNameInput) {
+    modalDiagramNameInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitCreateDiagram();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCreateModal();
+      }
+    });
+  }
+
+  if (btnDeleteDiagram) {
+    btnDeleteDiagram.addEventListener('click', () => {
+      if (!currentDiagramName) return;
+      const displayName = getDisplayDiagramName(currentDiagramName);
+      if (confirm(\`Are you sure you want to delete diagram "\${displayName}"?\`)) {
+        vscode.postMessage({
+          type: 'deleteDiagram',
+          name: currentDiagramName,
+          dbContext: activeDbContext
+        });
+      }
+    });
+  }
+
   // Update Diagram Dropdown
   function updateDiagramSelect(savedNames) {
     diagramSelect.innerHTML = '';
-    const defOpt = document.createElement('option');
-    defOpt.value = 'Default';
-    defOpt.textContent = 'Default Diagram';
-    diagramSelect.appendChild(defOpt);
+    const currentContextDiagrams = savedNames.filter(n => !activeDbContext || n.startsWith(activeDbContext + '_') || !n.includes('_'));
 
-    for (const name of savedNames) {
-      if (name !== 'Default') {
+    if (currentContextDiagrams.length === 0) {
+      const emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = '(No Diagram)';
+      diagramSelect.appendChild(emptyOpt);
+      diagramSelect.value = '';
+      currentDiagramName = '';
+    } else {
+      for (const name of currentContextDiagrams) {
         const opt = document.createElement('option');
         opt.value = name;
-        opt.textContent = name;
+        opt.textContent = getDisplayDiagramName(name);
         diagramSelect.appendChild(opt);
       }
+      if (currentDiagramName && currentContextDiagrams.includes(currentDiagramName)) {
+        diagramSelect.value = currentDiagramName;
+      } else {
+        currentDiagramName = currentContextDiagrams[0];
+        diagramSelect.value = currentDiagramName;
+      }
     }
-    diagramSelect.value = currentDiagramName;
+    updateDiagramUIState();
   }
 
   diagramSelect.addEventListener('change', () => {
     const val = diagramSelect.value;
-    vscode.postMessage({ type: 'loadDiagram', name: val, dbContext: activeDbContext });
+    if (val) {
+      vscode.postMessage({ type: 'loadDiagram', name: val, dbContext: activeDbContext });
+    }
   });
 
   // Render Sidebar Entity List
@@ -544,6 +695,10 @@ export function getEfDiagramClientScript(): string {
 
   if (btnAddAllToCanvas) {
     btnAddAllToCanvas.addEventListener('click', () => {
+      if (!currentDiagramName) {
+        openCreateModal();
+        return;
+      }
       pushHistory();
       for (const e of allEntities) {
         if (!activePositions[e.name]) {
@@ -561,6 +716,10 @@ export function getEfDiagramClientScript(): string {
   });
 
   function addEntityToCanvas(entityName, worldX, worldY) {
+    if (!currentDiagramName) {
+      openCreateModal();
+      return;
+    }
     if (activePositions[entityName]) {
       focusCard(entityName);
       return;
@@ -2740,30 +2899,22 @@ export function getEfDiagramClientScript(): string {
   });
 
   // Toolbar Actions
-  document.getElementById('btnNew').addEventListener('click', () => {
-    pushHistory();
-    activePositions = {};
-    notes = [];
-    minimizedCards.clear();
-    hiddenColumnsByEntity = {};
-    colorByEntity = {};
-    selectedEntityNames.clear();
-    activeSelectedRelId = null;
-    currentDiagramName = 'New Diagram';
-    renderEntityList(searchBox.value);
-    renderCanvas();
-    renderNotes();
-  });
-
-  document.getElementById('btnSave').addEventListener('click', () => {
-    const payload = getSerializablePositions();
-    vscode.postMessage({
-      type: 'saveDiagram',
-      name: \`\${activeDbContext}_\${currentDiagramName}\`,
-      positions: payload,
-      notes: notes
+  if (btnSave) {
+    btnSave.addEventListener('click', () => {
+      if (!currentDiagramName) {
+        openCreateModal();
+        return;
+      }
+      const payload = getSerializablePositions();
+      const saveName = currentDiagramName.startsWith(activeDbContext + '_') ? currentDiagramName : \`\${activeDbContext}_\${currentDiagramName}\`;
+      vscode.postMessage({
+        type: 'saveDiagram',
+        name: saveName,
+        positions: payload,
+        notes: notes
+      });
     });
-  });
+  }
 
   document.getElementById('btnZoomIn').addEventListener('click', () => {
     zoom = Math.min(2.5, zoom * 1.2);

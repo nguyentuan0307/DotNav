@@ -13,6 +13,7 @@ import {
   SnapshotContextResult
 } from './efDiagramScanner';
 import {
+  deleteDiagramFile,
   listSavedDiagrams,
   loadDiagramFromFile,
   liveSyncDiagramWithCode,
@@ -204,22 +205,21 @@ export async function openEfDiagramPanel(
           const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
           let activePositions: Record<string, { x: number; y: number }> = {};
           let savedNotes: any[] = [];
+          let activeDiagramName = '';
 
           if (initialEntityName) {
             activePositions[initialEntityName] = { x: 120, y: 120 };
-          } else {
-            // Load default diagram if exists
-            const saved = await loadDiagramFromFile(`${activeCtx}_Default`, storageRoot, workspaceRoot) || await loadDiagramFromFile('Default', storageRoot, workspaceRoot);
+            activeDiagramName = 'Quick View';
+          } else if (savedDiagrams.length > 0) {
+            // Find diagram for active context or first saved diagram
+            const matching = savedDiagrams.find(d => d.startsWith(`${activeCtx}_`)) || savedDiagrams[0];
+            activeDiagramName = matching;
+            const saved = await loadDiagramFromFile(matching, storageRoot, workspaceRoot);
             if (saved) {
               activePositions = liveSyncDiagramWithCode(saved, entities);
               if (saved.notes) {
                 savedNotes = Array.from(saved.notes);
               }
-            } else if (entities.length > 0) {
-              // Pick first 3 entities as initial showcase
-              entities.slice(0, 3).forEach((e, idx) => {
-                activePositions[e.name] = { x: 60 + idx * 360, y: 60 };
-              });
             }
           }
 
@@ -231,7 +231,7 @@ export async function openEfDiagramPanel(
             relationshipsByContext: model.relationshipsByContext,
             allEntities: entities,
             relationships,
-            activeDiagramName: 'Default',
+            activeDiagramName,
             activePositions,
             savedDiagramNames: savedDiagrams,
             notes: savedNotes
@@ -267,6 +267,42 @@ export async function openEfDiagramPanel(
             type: 'error',
             message: err?.message || `Failed to load diagram "${msg.name}".`
           });
+        }
+        break;
+      }
+
+      case 'createDiagram': {
+        const diagramName = msg.name?.trim();
+        if (!diagramName) break;
+        const success = await saveDiagramToFile(diagramName, {}, storageRoot, workspaceRoot, []);
+        if (success) {
+          vscode.window.showInformationMessage(`Diagram "${diagramName}" created successfully.`);
+          const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
+          panel.webview.postMessage({
+            type: 'diagramCreated',
+            diagramName,
+            savedDiagramNames: savedDiagrams
+          });
+        } else {
+          vscode.window.showErrorMessage(`Failed to create diagram "${diagramName}".`);
+        }
+        break;
+      }
+
+      case 'deleteDiagram': {
+        const diagramName = msg.name?.trim();
+        if (!diagramName) break;
+        const deleted = await deleteDiagramFile(diagramName, storageRoot, workspaceRoot);
+        if (deleted) {
+          vscode.window.showInformationMessage(`Diagram "${diagramName}" deleted.`);
+          const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
+          panel.webview.postMessage({
+            type: 'diagramDeleted',
+            deletedDiagramName: diagramName,
+            savedDiagramNames: savedDiagrams
+          });
+        } else {
+          vscode.window.showErrorMessage(`Failed to delete diagram "${diagramName}".`);
         }
         break;
       }
