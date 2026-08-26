@@ -154,12 +154,20 @@ export function getEfDiagramClientScript(): string {
     }
 
     for (const entity of filtered) {
+      const isInDiagram = !!activePositions[entity.name];
       const item = document.createElement('div');
-      item.className = 'entity-list-item' + (activePositions[entity.name] ? ' in-diagram' : '');
-      item.draggable = true;
+      item.className = 'entity-list-item' + (isInDiagram ? ' in-diagram' : '');
+      item.draggable = !isInDiagram;
       item.dataset.entityName = entity.name;
 
       const tableLabel = entity.tableName ? (entity.schemaName ? entity.schemaName + '.' + entity.tableName : entity.tableName) : '';
+      const actionBadge = isInDiagram 
+        ? '<span class="entity-item-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: 500;">✓ In Diagram</span>'
+        : \`<span class="entity-item-badge">\${entity.properties.length} cols</span>\`;
+
+      const actionBtn = isInDiagram
+        ? '<button class="entity-remove-btn" title="Remove from Diagram" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;">✕</button>'
+        : '<button class="entity-add-btn" title="Add to Diagram" style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:12px;">➕</button>';
 
       item.innerHTML = \`
         <div class="entity-item-info">
@@ -169,30 +177,55 @@ export function getEfDiagramClientScript(): string {
             \${tableLabel ? \`<span style="font-size: 10px; color: var(--text-muted);">\${escapeHtml(tableLabel)}</span>\` : ''}
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 4px;">
-          <span class="entity-item-badge">\${entity.properties.length} cols</span>
-          <button class="entity-add-btn" title="Add to Diagram">➕</button>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          \${actionBadge}
+          \${actionBtn}
         </div>
       \`;
 
       // Drag start from sidebar
-      item.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', entity.name);
-      });
+      if (!isInDiagram) {
+        item.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', entity.name);
+        });
+      }
 
-      // Click add button
+      // Click action button
       const addBtn = item.querySelector('.entity-add-btn');
-      addBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        addEntityToCanvas(entity.name);
-      });
+      if (addBtn) {
+        addBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          addEntityToCanvas(entity.name);
+        });
+      }
 
-      // Double-click to add
-      item.addEventListener('dblclick', () => {
-        addEntityToCanvas(entity.name);
+      const removeBtn = item.querySelector('.entity-remove-btn');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          removeEntityFromCanvas(entity.name);
+        });
+      }
+
+      // Click item to add or focus
+      item.addEventListener('click', () => {
+        if (isInDiagram) {
+          focusCard(entity.name);
+        } else {
+          addEntityToCanvas(entity.name);
+        }
       });
 
       entityListEl.appendChild(item);
+    }
+  }
+
+  function focusCard(entityName) {
+    const card = document.getElementById('card-' + entityName);
+    if (card) {
+      card.classList.add('selected');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      setTimeout(() => card.classList.remove('selected'), 1200);
     }
   }
 
@@ -202,11 +235,11 @@ export function getEfDiagramClientScript(): string {
     let targetY = preferredY;
     let attempts = 0;
 
-    while (attempts < 20) {
+    while (attempts < 25) {
       let collides = false;
       for (const name in activePositions) {
         const p = activePositions[name];
-        if (Math.abs(p.x - targetX) < 280 && Math.abs(p.y - targetY) < 260) {
+        if (Math.abs(p.x - targetX) < 300 && Math.abs(p.y - targetY) < 280) {
           collides = true;
           break;
         }
@@ -216,11 +249,10 @@ export function getEfDiagramClientScript(): string {
         return { x: targetX, y: targetY };
       }
 
-      // Try next row or next column
-      targetY += 340;
-      if (targetY > 1200) {
+      targetY += 360;
+      if (targetY > 1400) {
         targetY = 60;
-        targetX += 380;
+        targetX += 420;
       }
       attempts++;
     }
@@ -228,10 +260,15 @@ export function getEfDiagramClientScript(): string {
     return { x: targetX, y: targetY };
   }
 
-  // Add All Button Click
+  // Add All Button Click (In Sidebar)
   if (btnAddAllToCanvas) {
     btnAddAllToCanvas.addEventListener('click', () => {
-      autoLayoutEntities();
+      for (const e of allEntities) {
+        if (!activePositions[e.name]) {
+          activePositions[e.name] = { x: 0, y: 0 };
+        }
+      }
+      autoLayoutEntities(allEntities);
       renderEntityList(searchBox.value);
       renderCanvas();
     });
@@ -244,12 +281,7 @@ export function getEfDiagramClientScript(): string {
   // Add Entity to Canvas
   function addEntityToCanvas(entityName, clientX, clientY) {
     if (activePositions[entityName]) {
-      // Already on canvas, focus/highlight
-      const card = document.getElementById('card-' + entityName);
-      if (card) {
-        card.classList.add('selected');
-        setTimeout(() => card.classList.remove('selected'), 1000);
-      }
+      focusCard(entityName);
       return;
     }
 
@@ -441,7 +473,7 @@ export function getEfDiagramClientScript(): string {
     const toHeight = toCard.offsetHeight || 200;
 
     // 1. Calculate Exact Row-Level Anchor Y offsets
-    let fromRowOffsetY = 42; // default fallback
+    let fromRowOffsetY = 42;
     let toRowOffsetY = 42;
 
     const fromTargetProp = rel.fromProperty || 'Id';
@@ -462,18 +494,13 @@ export function getEfDiagramClientScript(): string {
       if (firstFk) toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
     }
 
-    // Clamp inside visible card body
     fromRowOffsetY = Math.max(36, Math.min(fromHeight - 12, fromRowOffsetY));
     toRowOffsetY = Math.max(36, Math.min(toHeight - 12, toRowOffsetY));
 
-    // 2. Determine Smart Side Routing (Left-to-Right vs Right-to-Left vs Loop)
+    // 2. Determine Smart Side Routing
     let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
 
-    const fromCenterX = fromPos.x + fromWidth / 2;
-    const toCenterX = toPos.x + toWidth / 2;
-
     if (fromPos.x + fromWidth + 40 <= toPos.x) {
-      // From is distinctly to the LEFT of To: Exit Right -> Enter Left
       x1 = fromPos.x + fromWidth;
       y1 = fromPos.y + fromRowOffsetY;
       x2 = toPos.x;
@@ -485,7 +512,6 @@ export function getEfDiagramClientScript(): string {
       cx2 = x2 - dx;
       cy2 = y2;
     } else if (toPos.x + toWidth + 40 <= fromPos.x) {
-      // From is distinctly to the RIGHT of To: Exit Left -> Enter Right
       x1 = fromPos.x;
       y1 = fromPos.y + fromRowOffsetY;
       x2 = toPos.x + toWidth;
@@ -497,7 +523,6 @@ export function getEfDiagramClientScript(): string {
       cx2 = x2 + dx;
       cy2 = y2;
     } else {
-      // Vertically aligned or overlapping: Curve around right side
       x1 = fromPos.x + fromWidth;
       y1 = fromPos.y + fromRowOffsetY;
       x2 = toPos.x + toWidth;
@@ -590,7 +615,6 @@ export function getEfDiagramClientScript(): string {
       const entityName = draggedCard.querySelector('.card-header').dataset.entityName;
       activePositions[entityName] = { x: Math.round(newX), y: Math.round(newY) };
 
-      // Realtime SVG links update during drag
       updateSvgLinks();
     }
   });
@@ -620,10 +644,23 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  // Smart Topological / DAG Auto Layout
-  function autoLayoutEntities() {
-    const targetEntities = allEntities.length > 0 ? allEntities : Object.keys(activePositions).map(name => allEntities.find(e => e.name === name)).filter(Boolean);
-    if (targetEntities.length === 0) return;
+  // Scope-Aware Auto Layout (Only arranges active tables by default!)
+  function autoLayoutEntities(explicitEntities) {
+    const activeKeys = Object.keys(activePositions);
+    let targetEntities = explicitEntities;
+
+    if (!targetEntities) {
+      if (activeKeys.length > 0) {
+        targetEntities = activeKeys
+          .map(name => allEntities.find(e => e.name === name))
+          .filter(Boolean);
+      } else {
+        // If canvas is empty, take first 5 tables
+        targetEntities = allEntities.slice(0, 5);
+      }
+    }
+
+    if (!targetEntities || targetEntities.length === 0) return;
 
     // Calculate In-Degree (how many FKs point to this entity)
     const inDegree = {};
@@ -703,6 +740,7 @@ export function getEfDiagramClientScript(): string {
 
   document.getElementById('btnAutoLayout').addEventListener('click', () => {
     autoLayoutEntities();
+    renderEntityList(searchBox.value);
     renderCanvas();
   });
 
