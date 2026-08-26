@@ -2,7 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { EntityModel, EntityRelationship } from './efDiagramModel';
-import { buildRelationships, parseEntityPropertiesFromCSharp, parseFluentConfigurations } from './efDiagramScanner';
+import {
+  buildRelationships,
+  buildStrictWorkspaceEntities,
+  parseDbContextDbSets,
+  parseFluentConfigurations,
+  parseRawClassesFromCSharp,
+  RawClassInfo,
+  FluentConfigRule
+} from './efDiagramScanner';
 import {
   listSavedDiagrams,
   loadDiagramFromFile,
@@ -25,10 +33,12 @@ export async function scanWorkspaceEntities(): Promise<{
   const csFiles = await vscode.workspace.findFiles(
     '**/*.cs',
     '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
-    2000
+    2500
   );
 
-  const rawCandidates: import('./efDiagramScanner').RawEntityCandidate[] = [];
+  const rawClasses: RawClassInfo[] = [];
+  const fluentRules: FluentConfigRule[] = [];
+  const dbContextSets: { dbContextName: string; entityTypes: string[] }[] = [];
 
   for (const uri of csFiles) {
     try {
@@ -36,11 +46,27 @@ export async function scanWorkspaceEntities(): Promise<{
       const relPath = path.relative(workspaceRoot, uri.fsPath);
       const projName = relPath.split(path.sep)[0] || 'Workspace';
 
-      // Fast guard: only parse if class or record is declared
+      // 1. Check for DbSets
+      if (content.includes('DbSet<')) {
+        const foundSets = parseDbContextDbSets(content);
+        if (foundSets.length > 0) {
+          dbContextSets.push(...foundSets);
+        }
+      }
+
+      // 2. Check for IEntityTypeConfiguration<T>
+      if (content.includes('IEntityTypeConfiguration<')) {
+        const foundRules = parseFluentConfigurations(content);
+        if (foundRules.length > 0) {
+          fluentRules.push(...foundRules);
+        }
+      }
+
+      // 3. Collect Raw Classes
       if (content.includes('class ') || content.includes('record ')) {
-        const found = parseEntityPropertiesFromCSharp(content, uri.fsPath, projName);
-        if (found.length > 0) {
-          rawCandidates.push(...found);
+        const foundClasses = parseRawClassesFromCSharp(content, uri.fsPath, projName);
+        if (foundClasses.length > 0) {
+          rawClasses.push(...foundClasses);
         }
       }
     } catch {
@@ -48,18 +74,7 @@ export async function scanWorkspaceEntities(): Promise<{
     }
   }
 
-  const entities: EntityModel[] = rawCandidates.map(c => ({
-    id: `${c.filePath}:${c.line}:${c.name}`,
-    name: c.name,
-    tableName: c.tableName,
-    schemaName: c.schemaName,
-    filePath: c.filePath,
-    line: c.line,
-    projectName: c.projectName,
-    properties: c.properties,
-    dbContextNames: Array.from(c.dbContexts)
-  }));
-
+  const entities = buildStrictWorkspaceEntities(rawClasses, fluentRules, dbContextSets);
   const relationships = buildRelationships(entities);
 
   return { entities, relationships };

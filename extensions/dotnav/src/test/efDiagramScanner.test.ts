@@ -1,15 +1,17 @@
 import * as assert from 'assert';
 import { describe, it } from 'node:test';
 import {
-  parseEntityPropertiesFromCSharp,
+  parseRawClassesFromCSharp,
   parseFluentConfigurations,
+  parseDbContextDbSets,
+  buildStrictWorkspaceEntities,
   buildRelationships
 } from '../ef/diagram/efDiagramScanner';
 import { liveSyncDiagramWithCode } from '../ef/diagram/efDiagramStorage';
 import { DiagramFile, EntityModel } from '../ef/diagram/efDiagramModel';
 
-describe('EF Core Diagram Scanner & Storage', () => {
-  it('parseEntityPropertiesFromCSharp extracts scalar, PK, FK, and navigation properties', () => {
+describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
+  it('parseRawClassesFromCSharp extracts scalar, PK, FK, and navigation properties', () => {
     const code = `
       namespace ELDesk.CustomApp.Domain.Entities;
 
@@ -28,10 +30,10 @@ describe('EF Core Diagram Scanner & Storage', () => {
       }
     `;
 
-    const candidates = parseEntityPropertiesFromCSharp(code, '/src/AppForm.cs', 'ELDesk.CustomApp');
-    assert.equal(candidates.length, 1);
+    const rawClasses = parseRawClassesFromCSharp(code, '/src/AppForm.cs', 'ELDesk.CustomApp');
+    assert.equal(rawClasses.length, 1);
 
-    const form = candidates[0];
+    const form = rawClasses[0];
     assert.equal(form.name, 'AppForm');
     assert.equal(form.tableName, 'AppForms');
     assert.equal(form.schemaName, 'custom');
@@ -59,6 +61,84 @@ describe('EF Core Diagram Scanner & Storage', () => {
     assert.equal(fieldsProp?.isNavigation, true);
     assert.equal(fieldsProp?.isCollectionNavigation, true);
     assert.equal(fieldsProp?.navigationTargetEntity, 'AppFormField');
+  });
+
+  it('buildStrictWorkspaceEntities filters out Managers/Services/DTOs and inherits base class properties', () => {
+    const rawClasses = [
+      // 1. Base Entity
+      ...parseRawClassesFromCSharp(
+        `public class TenantEntity : BaseEntity { public int Id { get; set; } public int TenantId { get; set; } }`,
+        '/src/TenantEntity.cs',
+        'Shared'
+      ),
+      // 2. Domain Entity derived from TenantEntity
+      ...parseRawClassesFromCSharp(
+        `public class AppForm : TenantEntity { public string Title { get; set; } }`,
+        '/src/Domain/Entities/AppForm.cs',
+        'CustomApp'
+      ),
+      // 3. Entity configured via Fluent Config
+      ...parseRawClassesFromCSharp(
+        `public class DataEntity { public int Id { get; set; } public string Name { get; set; } }`,
+        '/src/DataEntity.cs',
+        'CustomApp'
+      ),
+      // 4. Non-Entity Classes that must be EXCLUDED
+      ...parseRawClassesFromCSharp(
+        `public class InternalClientManager { public int Timeout { get; set; } }`,
+        '/src/InternalClientManager.cs',
+        'CustomApp'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class SolutionReleaseNotifier { public string Version { get; set; } }`,
+        '/src/SolutionReleaseNotifier.cs',
+        'CustomApp'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class LoginResult { public string Token { get; set; } }`,
+        '/src/LoginResult.cs',
+        'CustomApp'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class TracingSettings { public bool Enabled { get; set; } }`,
+        '/src/TracingSettings.cs',
+        'CustomApp'
+      )
+    ];
+
+    const fluentRules = parseFluentConfigurations(`
+      public class DataEntityConfig : IEntityTypeConfiguration<DataEntity>
+      {
+          public void Configure(EntityTypeBuilder<DataEntity> builder) { builder.ToTable("DataEntities"); }
+      }
+    `);
+
+    const dbContextSets = parseDbContextDbSets(`
+      public class AppDbContext : DbContext
+      {
+          public DbSet<AppForm> AppForms { get; set; }
+      }
+    `);
+
+    const entities = buildStrictWorkspaceEntities(rawClasses, fluentRules, dbContextSets);
+    const entityNames = entities.map(e => e.name);
+
+    // MUST include valid entities
+    assert.ok(entityNames.includes('AppForm'), 'Must include AppForm');
+    assert.ok(entityNames.includes('DataEntity'), 'Must include DataEntity');
+    assert.ok(entityNames.includes('TenantEntity'), 'Must include TenantEntity');
+
+    // MUST strictly exclude non-entities
+    assert.ok(!entityNames.includes('InternalClientManager'), 'Must exclude InternalClientManager');
+    assert.ok(!entityNames.includes('SolutionReleaseNotifier'), 'Must exclude SolutionReleaseNotifier');
+    assert.ok(!entityNames.includes('LoginResult'), 'Must exclude LoginResult');
+    assert.ok(!entityNames.includes('TracingSettings'), 'Must exclude TracingSettings');
+
+    // Verify AppForm inherited TenantId and Id from TenantEntity
+    const appForm = entities.find(e => e.name === 'AppForm')!;
+    assert.ok(appForm.properties.some(p => p.name === 'Title'), 'Must have own property Title');
+    assert.ok(appForm.properties.some(p => p.name === 'TenantId'), 'Must inherit TenantId from TenantEntity');
+    assert.ok(appForm.properties.some(p => p.name === 'Id'), 'Must inherit Id from TenantEntity');
   });
 
   it('parseFluentConfigurations extracts table name, keys, and HasMany relationships', () => {

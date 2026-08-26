@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EntityModel, EntityProperty, EntityRelationship } from './efDiagramModel';
 
-export interface RawEntityCandidate {
+export interface RawClassInfo {
   name: string;
   tableName?: string;
   schemaName?: string;
@@ -10,8 +10,10 @@ export interface RawEntityCandidate {
   line: number;
   projectName: string;
   properties: EntityProperty[];
-  baseType?: string;
-  dbContexts: Set<string>;
+  baseTypes: string[];
+  attributes: string;
+  hasTableAttribute: boolean;
+  isDbContext: boolean;
 }
 
 export interface FluentConfigRule {
@@ -30,48 +32,50 @@ export interface FluentConfigRule {
   }>;
 }
 
-export function parseEntityPropertiesFromCSharp(
+const STRICT_EXCLUDE_SUFFIXES = [
+  'Controller', 'Service', 'Repository', 'Handler', 'Command', 'Query',
+  'Validator', 'Config', 'Configuration', 'Tests', 'Test', 'Manager',
+  'Provider', 'Notifier', 'Cloner', 'Extension', 'Extensions', 'Settings',
+  'Setting', 'Options', 'Option', 'Result', 'Results', 'Response', 'Request',
+  'Token', 'Middleware', 'Filter', 'Hub', 'Factory', 'Context', 'DTO', 'Dto', 'ViewModel'
+];
+
+const KNOWN_BASE_ENTITY_NAMES = new Set([
+  'entity', 'baseentity', 'tenantentity', 'aggregateroot',
+  'fulllauditedentity', 'auditedentity', 'creationauditedentity',
+  'idomainentity', 'domainentity', 'identityuser', 'identityrole'
+]);
+
+export function parseRawClassesFromCSharp(
   code: string,
   filePath: string,
   projectName: string
-): RawEntityCandidate[] {
-  const candidates: RawEntityCandidate[] = [];
+): RawClassInfo[] {
+  const classes: RawClassInfo[] = [];
 
-  // Match classes / records: class AppForm : TenantEntity
+  // Match class / record declarations: class AppForm : TenantEntity
   const classRegex = /(?:\[([^\]]+)\]\s*)*(?:public|internal|protected|private)?\s*(?:static|abstract|sealed|partial)*\s*(?:class|record)\s+([A-Za-z0-9_]+)(?:<[^>]+>)?(?:\s*:\s*([^{;\r\n]+))?\s*\{/g;
   let match: RegExpExecArray | null;
 
   while ((match = classRegex.exec(code)) !== null) {
     const attributes = match[1] || '';
     const className = match[2];
-    const baseTypeList = match[3] ? match[3].trim() : '';
+    const rawBaseTypes = match[3] ? match[3].trim() : '';
     const classStartIndex = match.index + match[0].length;
     const line = code.substring(0, match.index).split(/\r?\n/).length;
 
-    // Extract table name from [Table("Forms", Schema = "custom")]
     let tableName = className;
     let schemaName: string | undefined;
+    let hasTableAttribute = false;
+
     const tableAttrMatch = attributes.match(/Table\s*\(\s*["']([^"']+)["'](?:\s*,\s*Schema\s*=\s*["']([^"']+)["'])?\s*\)/i);
     if (tableAttrMatch) {
       tableName = tableAttrMatch[1];
       schemaName = tableAttrMatch[2];
+      hasTableAttribute = true;
     }
 
-    // Heuristic: skip non-entity helper / test / controller classes
-    if (
-      className.endsWith('Controller') ||
-      className.endsWith('Service') ||
-      className.endsWith('Repository') ||
-      className.endsWith('Handler') ||
-      className.endsWith('Command') ||
-      className.endsWith('Query') ||
-      className.endsWith('Validator') ||
-      className.endsWith('Config') ||
-      className.endsWith('Configuration') ||
-      className.endsWith('Tests')
-    ) {
-      continue;
-    }
+    const isDbContext = /\bDbContext\b/.test(rawBaseTypes) || className.endsWith('DbContext');
 
     // Find class closing brace
     let braceDepth = 1;
@@ -90,22 +94,27 @@ export function parseEntityPropertiesFromCSharp(
     const classBody = code.substring(classStartIndex, classEndIndex);
     const properties = parsePropertiesFromBody(classBody, className);
 
-    if (properties.length > 0) {
-      candidates.push({
-        name: className,
-        tableName,
-        schemaName,
-        filePath,
-        line,
-        projectName,
-        properties,
-        baseType: baseTypeList,
-        dbContexts: new Set<string>()
-      });
-    }
+    const baseTypes = rawBaseTypes
+      .split(',')
+      .map(b => b.trim().replace(/<[^>]+>/g, '').trim())
+      .filter(Boolean);
+
+    classes.push({
+      name: className,
+      tableName,
+      schemaName,
+      filePath,
+      line,
+      projectName,
+      properties,
+      baseTypes,
+      attributes,
+      hasTableAttribute,
+      isDbContext
+    });
   }
 
-  return candidates;
+  return classes;
 }
 
 export function parsePropertiesFromBody(body: string, className: string): EntityProperty[] {
@@ -276,6 +285,139 @@ export function parseDbContextDbSets(code: string): { dbContextName: string; ent
   }
 
   return results;
+}
+
+export function buildStrictWorkspaceEntities(
+  rawClasses: RawClassInfo[],
+  fluentRules: FluentConfigRule[],
+  dbContextSets: { dbContextName: string; entityTypes: string[] }[]
+): EntityModel[] {
+  const classMap = new Map<string, RawClassInfo>();
+  for (const c of rawClasses) {
+    classMap.set(c.name.toLowerCase(), c);
+  }
+
+  // 1. Pass 1: Build Authoritative Entity Whitelist
+  const authoritativeNames = new Set<string>();
+  const entityDbContexts = new Map<string, Set<string>>();
+
+  // 1a. From DbSets
+  for (const db of dbContextSets) {
+    for (const type of db.entityTypes) {
+      const lower = type.toLowerCase();
+      authoritativeNames.add(lower);
+      if (!entityDbContexts.has(lower)) {
+        entityDbContexts.set(lower, new Set());
+      }
+      entityDbContexts.get(lower)!.add(db.dbContextName);
+    }
+  }
+
+  // 1b. From IEntityTypeConfiguration<T>
+  for (const rule of fluentRules) {
+    authoritativeNames.add(rule.entityName.toLowerCase());
+  }
+
+  // 1c. From [Table] attributes or Base Entity Inheritance or Entity directory location
+  for (const c of rawClasses) {
+    const lowerName = c.name.toLowerCase();
+
+    // Skip strict excluded suffixes unless registered via DbSet/Fluent
+    if (!authoritativeNames.has(lowerName)) {
+      const isExcluded = STRICT_EXCLUDE_SUFFIXES.some(s => c.name.endsWith(s));
+      if (isExcluded) {
+        continue;
+      }
+    }
+
+    // Has [Table] attribute
+    if (c.hasTableAttribute) {
+      authoritativeNames.add(lowerName);
+    }
+
+    // Derives from known base entity
+    const derivesFromBaseEntity = c.baseTypes.some(b => {
+      const lower = b.toLowerCase();
+      return KNOWN_BASE_ENTITY_NAMES.has(lower) || lower.endsWith('entity') || lower.endsWith('model');
+    });
+
+    if (derivesFromBaseEntity) {
+      authoritativeNames.add(lowerName);
+    }
+
+    // File in Domain/Entities directory with an Id property
+    const normPath = c.filePath.replace(/\\/g, '/');
+    if (
+      (normPath.includes('/Domain/Entities/') || normPath.includes('/Entities/') || normPath.includes('/Models/Entities/')) &&
+      c.properties.some(p => p.isPrimaryKey || p.name === 'Id')
+    ) {
+      authoritativeNames.add(lowerName);
+    }
+  }
+
+  // 2. Pass 2: Property Extraction & Base Class Inheritance
+  const entities: EntityModel[] = [];
+
+  for (const c of rawClasses) {
+    const lowerName = c.name.toLowerCase();
+    if (!authoritativeNames.has(lowerName)) {
+      continue;
+    }
+
+    // Resolve inherited properties from base classes
+    const resolvedProps: EntityProperty[] = [...c.properties];
+    const seenPropNames = new Set(resolvedProps.map(p => p.name.toLowerCase()));
+
+    // Walk base class chain
+    const visited = new Set<string>();
+    const queue = [...c.baseTypes];
+
+    while (queue.length > 0) {
+      const baseName = queue.shift()!;
+      const baseLower = baseName.toLowerCase();
+      if (visited.has(baseLower)) continue;
+      visited.add(baseLower);
+
+      const baseClass = classMap.get(baseLower);
+      if (baseClass) {
+        for (const p of baseClass.properties) {
+          if (!seenPropNames.has(p.name.toLowerCase())) {
+            seenPropNames.add(p.name.toLowerCase());
+            resolvedProps.push(p);
+          }
+        }
+        queue.push(...baseClass.baseTypes);
+      }
+    }
+
+    // Apply Fluent Rule table name / schema / keys override if present
+    const matchingRule = fluentRules.find(r => r.entityName.toLowerCase() === lowerName);
+    let tableName = matchingRule?.tableName || c.tableName || c.name;
+    let schemaName = matchingRule?.schemaName || c.schemaName;
+
+    if (matchingRule?.primaryKeys && matchingRule.primaryKeys.length > 0) {
+      const pkSet = new Set(matchingRule.primaryKeys.map(k => k.toLowerCase()));
+      for (let i = 0; i < resolvedProps.length; i++) {
+        if (pkSet.has(resolvedProps[i].name.toLowerCase())) {
+          resolvedProps[i] = { ...resolvedProps[i], isPrimaryKey: true };
+        }
+      }
+    }
+
+    entities.push({
+      id: `${c.filePath}:${c.line}:${c.name}`,
+      name: c.name,
+      tableName,
+      schemaName,
+      filePath: c.filePath,
+      line: c.line,
+      projectName: c.projectName,
+      properties: resolvedProps,
+      dbContextNames: Array.from(entityDbContexts.get(lowerName) || [])
+    });
+  }
+
+  return entities.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function buildRelationships(entities: readonly EntityModel[]): EntityRelationship[] {
