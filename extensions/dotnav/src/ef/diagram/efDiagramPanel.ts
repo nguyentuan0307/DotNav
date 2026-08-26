@@ -22,11 +22,22 @@ import { renderEfDiagramHtml } from './efDiagramHtml';
 
 let currentDiagramPanel: vscode.WebviewPanel | undefined;
 
-export async function scanWorkspaceDbContextsAndEntities(): Promise<{
+let cachedWorkspaceModel: {
+  availableDbContexts: string[];
+  entitiesByContext: Record<string, EntityModel[]>;
+  relationshipsByContext: Record<string, EntityRelationship[]>;
+  timestamp: number;
+} | undefined;
+
+export async function scanWorkspaceDbContextsAndEntities(forceRefresh = false): Promise<{
   availableDbContexts: string[];
   entitiesByContext: Record<string, EntityModel[]>;
   relationshipsByContext: Record<string, EntityRelationship[]>;
 }> {
+  if (!forceRefresh && cachedWorkspaceModel && (Date.now() - cachedWorkspaceModel.timestamp < 30000)) {
+    return cachedWorkspaceModel;
+  }
+
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     return { availableDbContexts: [], entitiesByContext: {}, relationshipsByContext: {} };
@@ -57,7 +68,9 @@ export async function scanWorkspaceDbContextsAndEntities(): Promise<{
 
   // If snapshots cover the database, build model immediately (< 25ms total!)
   if (snapshots.length > 0) {
-    return buildDbContextScopedModel([], [], [], snapshots);
+    const res = buildDbContextScopedModel([], [], [], snapshots);
+    cachedWorkspaceModel = { ...res, timestamp: Date.now() };
+    return res;
   }
 
   // Tier 2: Fallback for projects without migrations / snapshots (Parallel Read)
@@ -112,7 +125,9 @@ export async function scanWorkspaceDbContextsAndEntities(): Promise<{
     })
   );
 
-  return buildDbContextScopedModel(rawClasses, fluentRules, dbContextSets, snapshots);
+  const res = buildDbContextScopedModel(rawClasses, fluentRules, dbContextSets, snapshots);
+  cachedWorkspaceModel = { ...res, timestamp: Date.now() };
+  return res;
 }
 
 export async function openEfDiagramPanel(
@@ -134,25 +149,17 @@ export async function openEfDiagramPanel(
   }
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    vscode.window.showWarningMessage('Please open a workspace folder to use EF Core Entity Relationship Diagram.');
+    return;
+  }
 
   if (currentDiagramPanel) {
     currentDiagramPanel.reveal(vscode.ViewColumn.One);
-    if (initialEntityName || initialDbContextFilter) {
-      const model = await scanWorkspaceDbContextsAndEntities();
-      const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
-      const entities = model.entitiesByContext[activeCtx] || [];
-      const relationships = model.relationshipsByContext[activeCtx] || [];
-
+    if (initialEntityName) {
       currentDiagramPanel.webview.postMessage({
-        type: 'init',
-        availableDbContexts: model.availableDbContexts,
-        activeDbContext: activeCtx,
-        entitiesByContext: model.entitiesByContext,
-        relationshipsByContext: model.relationshipsByContext,
-        allEntities: entities,
-        relationships,
-        activeDiagramName: 'Default',
-        activePositions: initialEntityName ? { [initialEntityName]: { x: 120, y: 120 } } : undefined
+        type: 'focusEntity',
+        entityName: initialEntityName
       });
     }
     return;
@@ -181,61 +188,86 @@ export async function openEfDiagramPanel(
 
   panel.webview.onDidReceiveMessage(async msg => {
     switch (msg.type) {
-      case 'ready': {
-        const model = await scanWorkspaceDbContextsAndEntities();
-        const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
-        const entities = model.entitiesByContext[activeCtx] || [];
-        const relationships = model.relationshipsByContext[activeCtx] || [];
-        const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
-        let activePositions: Record<string, { x: number; y: number }> = {};
-        let savedNotes: any[] = [];
+      case 'ready':
+      case 'rescan': {
+        try {
+          panel.webview.postMessage({
+            type: 'loading',
+            message: 'Scanning solution EF Core models and relationships...'
+          });
 
-        if (initialEntityName) {
-          activePositions[initialEntityName] = { x: 120, y: 120 };
-        } else {
-          // Load default diagram if exists
-          const saved = await loadDiagramFromFile(`${activeCtx}_Default`, storageRoot, workspaceRoot) || await loadDiagramFromFile('Default', storageRoot, workspaceRoot);
-          if (saved) {
-            activePositions = liveSyncDiagramWithCode(saved, entities);
-            if (saved.notes) {
-              savedNotes = Array.from(saved.notes);
+          const forceRefresh = msg.type === 'rescan';
+          const model = await scanWorkspaceDbContextsAndEntities(forceRefresh);
+          const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
+          const entities = model.entitiesByContext[activeCtx] || [];
+          const relationships = model.relationshipsByContext[activeCtx] || [];
+          const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
+          let activePositions: Record<string, { x: number; y: number }> = {};
+          let savedNotes: any[] = [];
+
+          if (initialEntityName) {
+            activePositions[initialEntityName] = { x: 120, y: 120 };
+          } else {
+            // Load default diagram if exists
+            const saved = await loadDiagramFromFile(`${activeCtx}_Default`, storageRoot, workspaceRoot) || await loadDiagramFromFile('Default', storageRoot, workspaceRoot);
+            if (saved) {
+              activePositions = liveSyncDiagramWithCode(saved, entities);
+              if (saved.notes) {
+                savedNotes = Array.from(saved.notes);
+              }
+            } else if (entities.length > 0) {
+              // Pick first 3 entities as initial showcase
+              entities.slice(0, 3).forEach((e, idx) => {
+                activePositions[e.name] = { x: 60 + idx * 360, y: 60 };
+              });
             }
-          } else if (entities.length > 0) {
-            // Pick first 3 entities as initial showcase
-            entities.slice(0, 3).forEach((e, idx) => {
-              activePositions[e.name] = { x: 60 + idx * 360, y: 60 };
-            });
           }
-        }
 
-        panel.webview.postMessage({
-          type: 'init',
-          availableDbContexts: model.availableDbContexts,
-          activeDbContext: activeCtx,
-          entitiesByContext: model.entitiesByContext,
-          relationshipsByContext: model.relationshipsByContext,
-          allEntities: entities,
-          relationships,
-          activeDiagramName: 'Default',
-          activePositions,
-          savedDiagramNames: savedDiagrams,
-          notes: savedNotes
-        });
+          panel.webview.postMessage({
+            type: 'init',
+            availableDbContexts: model.availableDbContexts,
+            activeDbContext: activeCtx,
+            entitiesByContext: model.entitiesByContext,
+            relationshipsByContext: model.relationshipsByContext,
+            allEntities: entities,
+            relationships,
+            activeDiagramName: 'Default',
+            activePositions,
+            savedDiagramNames: savedDiagrams,
+            notes: savedNotes
+          });
+        } catch (err: any) {
+          panel.webview.postMessage({
+            type: 'error',
+            message: err?.message || 'Failed to scan EF Core models in workspace.'
+          });
+        }
         break;
       }
 
       case 'loadDiagram': {
-        const model = await scanWorkspaceDbContextsAndEntities();
-        const activeCtx = msg.dbContext || model.availableDbContexts[0] || 'Default';
-        const entities = model.entitiesByContext[activeCtx] || [];
-        const saved = await loadDiagramFromFile(msg.name, storageRoot, workspaceRoot);
-        const synced = liveSyncDiagramWithCode(saved, entities);
-        panel.webview.postMessage({
-          type: 'diagramLoaded',
-          diagramName: msg.name,
-          activePositions: synced,
-          notes: saved?.notes || []
-        });
+        try {
+          panel.webview.postMessage({
+            type: 'loading',
+            message: `Loading diagram "${msg.name}"...`
+          });
+          const model = await scanWorkspaceDbContextsAndEntities();
+          const activeCtx = msg.dbContext || model.availableDbContexts[0] || 'Default';
+          const entities = model.entitiesByContext[activeCtx] || [];
+          const saved = await loadDiagramFromFile(msg.name, storageRoot, workspaceRoot);
+          const synced = liveSyncDiagramWithCode(saved, entities);
+          panel.webview.postMessage({
+            type: 'diagramLoaded',
+            diagramName: msg.name,
+            activePositions: synced,
+            notes: saved?.notes || []
+          });
+        } catch (err: any) {
+          panel.webview.postMessage({
+            type: 'error',
+            message: err?.message || `Failed to load diagram "${msg.name}".`
+          });
+        }
         break;
       }
 

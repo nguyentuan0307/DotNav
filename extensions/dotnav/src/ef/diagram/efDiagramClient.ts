@@ -82,6 +82,42 @@ export function getEfDiagramClientScript(): string {
   const minimapCanvas = document.getElementById('minimapCanvas');
   const minimapLens = document.getElementById('minimapLens');
 
+  // Loading & Error Overlay Elements
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const loadingSpinner = document.getElementById('loadingSpinner');
+  const loadingTitle = document.getElementById('loadingTitle');
+  const loadingStatusText = document.getElementById('loadingStatusText');
+  const btnRetryScan = document.getElementById('btnRetryScan');
+
+  function showLoading(title, subtitle) {
+    if (!loadingOverlay) return;
+    loadingOverlay.classList.remove('hidden');
+    if (loadingSpinner) loadingSpinner.style.display = 'block';
+    if (loadingTitle) loadingTitle.textContent = title || 'Scanning EF Core Models...';
+    if (loadingStatusText) loadingStatusText.textContent = subtitle || 'Discovering DbContexts, entities, and relationships in solution';
+    if (btnRetryScan) btnRetryScan.style.display = 'none';
+  }
+
+  function hideLoading() {
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
+  }
+
+  function showError(title, subtitle) {
+    if (!loadingOverlay) return;
+    loadingOverlay.classList.remove('hidden');
+    if (loadingSpinner) loadingSpinner.style.display = 'none';
+    if (loadingTitle) loadingTitle.textContent = title || 'Scanning Error';
+    if (loadingStatusText) loadingStatusText.textContent = subtitle || 'An unexpected error occurred while scanning EF Core models.';
+    if (btnRetryScan) btnRetryScan.style.display = 'inline-flex';
+  }
+
+  if (btnRetryScan) {
+    btnRetryScan.addEventListener('click', () => {
+      showLoading('Rescanning EF Core Models...', 'Reading C# entity models and migrations from disk');
+      vscode.postMessage({ type: 'rescan' });
+    });
+  }
+
   // Toolbar Controls
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
@@ -183,6 +219,14 @@ export function getEfDiagramClientScript(): string {
   window.addEventListener('message', event => {
     const msg = event.data;
     switch (msg.type) {
+      case 'loading':
+        showLoading('Scanning EF Core Models...', msg.message);
+        break;
+
+      case 'error':
+        showError('Scanning Error', msg.message);
+        break;
+
       case 'init':
         availableDbContexts = msg.availableDbContexts || [];
         entitiesByContext = msg.entitiesByContext || {};
@@ -208,6 +252,7 @@ export function getEfDiagramClientScript(): string {
         renderEntityList();
         renderCanvas();
         renderNotes();
+        hideLoading();
         break;
 
       case 'diagramLoaded':
@@ -224,6 +269,7 @@ export function getEfDiagramClientScript(): string {
         renderEntityList();
         renderCanvas();
         renderNotes();
+        hideLoading();
         break;
 
       case 'diagramListUpdated':

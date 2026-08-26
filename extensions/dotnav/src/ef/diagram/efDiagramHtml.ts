@@ -168,6 +168,18 @@ export function renderEfDiagramHtml(): string {
           <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">No Entities on Canvas</div>
           <div style="font-size: 12px; max-width: 300px; color: var(--text-muted); line-height: 1.5;">Drag tables from the palette on the left or click <b>Add All to Canvas</b> to explore your interactive ERD diagram.</div>
         </div>
+
+        <!-- High-Fidelity Glassmorphism Loading & Error Overlay -->
+        <div class="diagram-loading-overlay" id="loadingOverlay">
+          <div class="loading-card" id="loadingCard">
+            <div class="loading-spinner" id="loadingSpinner"></div>
+            <div class="loading-title" id="loadingTitle">Scanning EF Core Models...</div>
+            <div class="loading-subtitle" id="loadingStatusText">Discovering DbContexts, entities, and relationships in solution</div>
+            <button class="btn btn-primary" id="btnRetryScan" style="display: none; margin-top: 8px; font-size: 12px; padding: 6px 16px;">
+              🔄 Retry Scan
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

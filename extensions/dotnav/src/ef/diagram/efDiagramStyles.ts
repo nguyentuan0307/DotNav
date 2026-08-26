@@ -1213,5 +1213,70 @@ body, html {
   font-size: 42px;
   opacity: 0.4;
 }
+
+/* High-Fidelity Glassmorphism Loading & Error Overlay */
+.diagram-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 20, 26, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.diagram-loading-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.loading-card {
+  background: #1c2028;
+  border: 1px solid #2f3542;
+  border-radius: 12px;
+  padding: 28px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  max-width: 360px;
+}
+
+.loading-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3.5px solid rgba(56, 189, 248, 0.15);
+  border-top-color: #38bdf8;
+  border-right-color: #3b82f6;
+  border-radius: 50%;
+  animation: diagramSpinner 0.75s linear infinite;
+}
+
+@keyframes diagramSpinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+
+.loading-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
 `;
 }
