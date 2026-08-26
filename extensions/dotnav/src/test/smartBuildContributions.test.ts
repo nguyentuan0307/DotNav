@@ -23,12 +23,10 @@ test('build optimization helper flags are defined', () => {
   assert.match(buildOptimizationFlags(), /-maxcpucount/);
   assert.match(buildOptimizationFlags(), /BuildInParallel=true/);
   assert.match(buildOptimizationFlags(), /UseSharedCompilation=true/);
-  assert.match(buildOptimizationFlags(), /AccelerateBuildsInVisualStudio=true/);
   assert.deepEqual(buildOptimizationArgs(), [
     '-maxcpucount',
     '-p:BuildInParallel=true',
     '-p:UseSharedCompilation=true',
-    '-p:AccelerateBuildsInVisualStudio=true',
     '-clp:NoSummary;Verbosity=minimal'
   ]);
 });

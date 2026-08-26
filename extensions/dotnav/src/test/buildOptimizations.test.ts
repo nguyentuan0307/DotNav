@@ -10,12 +10,11 @@ import {
   shouldUseNoRestore
 } from '../buildOptimizations';
 
-test('build optimization flags include multicore, parallel, shared compilation, and acceleration', () => {
+test('build optimization flags include multicore, parallel, and shared compilation', () => {
   const flags = buildOptimizationFlags();
   assert.match(flags, /-maxcpucount/);
   assert.match(flags, /-p:BuildInParallel=true/);
   assert.match(flags, /-p:UseSharedCompilation=true/);
-  assert.match(flags, /-p:AccelerateBuildsInVisualStudio=true/);
   assert.match(flags, /-clp:NoSummary;Verbosity=minimal/);
 
   const args = buildOptimizationArgs();
@@ -23,7 +22,6 @@ test('build optimization flags include multicore, parallel, shared compilation, 
     '-maxcpucount',
     '-p:BuildInParallel=true',
     '-p:UseSharedCompilation=true',
-    '-p:AccelerateBuildsInVisualStudio=true',
     '-clp:NoSummary;Verbosity=minimal'
   ]);
 });

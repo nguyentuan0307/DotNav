@@ -185,6 +185,7 @@ export function normalizeRouteTemplate(route: string): string {
   if (!route) return '';
   return route
     .toLowerCase()
+    .replace(/\/{2,}/g, '/') // Collapse multiple consecutive slashes
     .replace(/^\/+|\/+$/g, '') // Remove leading & trailing slashes
     .replace(/^api\//, '') // Remove optional leading "api/"
     .replace(/\{([a-zA-Z0-9_]+)(?::[^}]+)?\}/g, '{$1}') // Strip all constraints e.g. {appId:int}, {id:regex(...)} -> {appId}
@@ -196,9 +197,43 @@ export function matchSingleSegment(qSeg: string, tSeg: string): boolean {
   const qLower = qSeg.toLowerCase();
   const tLower = tSeg.toLowerCase();
 
-  // 1. Target is a parameter placeholder e.g. {formId}, {id}, {appId}
+  // 1. Target is a parameter placeholder e.g. {formId}, {id}, {appId}, {fileId:guid}
   if (tLower.startsWith('{') && tLower.endsWith('}')) {
-    return true; // Matches numbers (66090), GUIDs, parameter names, or custom slugs
+    const rawParam = tLower.slice(1, -1).trim();
+    const paramName = rawParam.split(':')[0].toLowerCase();
+
+    // Direct parameter name match (e.g. q is "id", "viewId", "{viewId}")
+    if (qLower === paramName || qLower === '{' + paramName + '}' || qLower === tLower) {
+      return true;
+    }
+
+    // Number value (e.g. "66090", "115089")
+    if (/^\d+$/.test(qLower)) {
+      return true;
+    }
+
+    // UUID/GUID value (e.g. "a1b2c3d4-e5f6-...")
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(qLower) || /^[0-9a-f]{32}$/i.test(qLower)) {
+      return true;
+    }
+
+    // Boolean value ("true", "false")
+    if (qLower === 'true' || qLower === 'false') {
+      return true;
+    }
+
+    // Explicit placeholder in query (e.g. "{id}", "{any}")
+    if (qLower.startsWith('{') && qLower.endsWith('}')) {
+      return true;
+    }
+
+    // Wildcard query segment ("*" or "%")
+    if (qLower === '*' || qLower === '%') {
+      return true;
+    }
+
+    // Static resource/action tokens (e.g. "record-fields", "GetFormElementByReferenceIdsAsync") must NOT match generic parameter placeholders
+    return false;
   }
 
   // 2. Query is a placeholder e.g. {formId}
@@ -211,7 +246,7 @@ export function matchSingleSegment(qSeg: string, tSeg: string): boolean {
     return true;
   }
 
-  // 4. Singular / Plural variation (e.g. apps vs app, forms vs form)
+  // 4. Singular / Plural variation (e.g. apps vs app, forms vs form, views vs view)
   const qSingular = qLower.endsWith('s') && qLower.length > 3 ? qLower.slice(0, -1) : qLower;
   const tSingular = tLower.endsWith('s') && tLower.length > 3 ? tLower.slice(0, -1) : tLower;
   if (qSingular === tSingular || qSingular === tLower || tSingular === qLower) {
@@ -239,14 +274,17 @@ export function matchRouteSegments(
   // 1. Exact Match: Same number of segments and all match positionally
   if (querySegs.length === targetSegs.length) {
     let allMatch = true;
+    let literalCount = 0;
     for (let i = 0; i < querySegs.length; i++) {
       if (!matchSingleSegment(querySegs[i], targetSegs[i])) {
         allMatch = false;
         break;
       }
+      if (!targetSegs[i].startsWith('{')) literalCount++;
     }
     if (allMatch) {
-      return { matched: true, score: 100, matchReason: 'Exact route template match' };
+      const isAllLiteral = literalCount === querySegs.length;
+      return { matched: true, score: isAllLiteral ? 100 : 98, matchReason: 'Exact route template match' };
     }
   }
 
@@ -254,16 +292,18 @@ export function matchRouteSegments(
   if (targetSegs.length > querySegs.length) {
     const offset = targetSegs.length - querySegs.length;
     let suffixMatch = true;
+    let literalCount = 0;
     for (let i = 0; i < querySegs.length; i++) {
       if (!matchSingleSegment(querySegs[i], targetSegs[offset + i])) {
         suffixMatch = false;
         break;
       }
+      if (!targetSegs[offset + i].startsWith('{')) literalCount++;
     }
     if (suffixMatch) {
       const skippedSegments = targetSegs.slice(0, offset);
       const isCleanPrefix = skippedSegments.length <= 2;
-      const score = isCleanPrefix ? 99 : 97;
+      const score = (isCleanPrefix ? 99 : 97) - (literalCount < querySegs.length ? 3 : 0);
       return { matched: true, score, matchReason: 'Route suffix match' };
     }
   }
@@ -271,14 +311,17 @@ export function matchRouteSegments(
   // 3. Prefix Match: Target starts with all query segments (e.g. "custom-app/apps" matches "custom-app/apps/forms/{formId}/mode")
   if (targetSegs.length > querySegs.length) {
     let prefixMatch = true;
+    let literalCount = 0;
     for (let i = 0; i < querySegs.length; i++) {
       if (!matchSingleSegment(querySegs[i], targetSegs[i])) {
         prefixMatch = false;
         break;
       }
+      if (!targetSegs[i].startsWith('{')) literalCount++;
     }
     if (prefixMatch) {
-      return { matched: true, score: 98, matchReason: 'Route prefix match' };
+      const score = 98 - (literalCount < querySegs.length ? 3 : 0);
+      return { matched: true, score, matchReason: 'Route prefix match' };
     }
   }
 
@@ -286,15 +329,40 @@ export function matchRouteSegments(
   if (targetSegs.length > querySegs.length && querySegs.length >= 2) {
     for (let start = 0; start <= targetSegs.length - querySegs.length; start++) {
       let subMatch = true;
+      let literalCount = 0;
       for (let i = 0; i < querySegs.length; i++) {
         if (!matchSingleSegment(querySegs[i], targetSegs[start + i])) {
           subMatch = false;
           break;
         }
+        if (!targetSegs[start + i].startsWith('{')) literalCount++;
       }
       if (subMatch) {
-        return { matched: true, score: 96, matchReason: 'Route subsegment match' };
+        const score = 96 - (literalCount < querySegs.length ? 2 : 0);
+        return { matched: true, score, matchReason: 'Route subsegment match' };
       }
+    }
+  }
+
+  // 5. In-Order Subsequence / Gap Match: Query segments appear in order with placeholders or gaps in between
+  // (e.g. "project-views//record-fields" -> "projects/{projectId}/project-views/{viewId}/record-fields")
+  if (querySegs.length >= 2 && targetSegs.length >= querySegs.length) {
+    let qIdx = 0;
+    let literalMatches = 0;
+    for (let tIdx = 0; tIdx < targetSegs.length && qIdx < querySegs.length; tIdx++) {
+      if (matchSingleSegment(querySegs[qIdx], targetSegs[tIdx])) {
+        if (!targetSegs[tIdx].startsWith('{')) literalMatches++;
+        qIdx++;
+      }
+    }
+    if (qIdx === querySegs.length) {
+      const isAllLiteral = literalMatches === querySegs.length;
+      const score = isAllLiteral ? 98 : 95;
+      return {
+        matched: true,
+        score,
+        matchReason: isAllLiteral ? 'Route literal subsequence match' : 'Route subsequence match'
+      };
     }
   }
 
@@ -348,7 +416,7 @@ export function scoreSymbol(
   let matchReason = '';
 
   // 3. Dynamic Route Parameter & Segment Matching (for Endpoints)
-  if (symbol.kind === 'endpoint' && normSymRoute) {
+  if (symbol.kind === 'endpoint' && normSymRoute && (query.isRouteQuery || query.tokens.length > 1)) {
     const routeSegs = normSymRoute.split('/').filter(Boolean);
     const querySegs = (normQueryRoute ? normQueryRoute.split('/') : query.tokens).filter(Boolean);
     if (querySegs.length > 0 && routeSegs.length > 0) {
@@ -444,7 +512,8 @@ export function scoreSymbol(
       }
     }
 
-    if (matchedTokens >= query.tokens.length * 0.6) {
+    const minRatio = query.tokens.length <= 2 ? 0.95 : 0.6;
+    if (matchedTokens >= query.tokens.length * minRatio) {
       const matchRatio = Math.min(1, matchedTokens / query.tokens.length);
       let score = Math.round(matchRatio * 90) - (inOrder ? 0 : 5);
 

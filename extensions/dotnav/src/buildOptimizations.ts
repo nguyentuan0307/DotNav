@@ -6,11 +6,10 @@ import * as path from 'path';
  * - `-maxcpucount`: Multi-core CPU utilization
  * - `-p:BuildInParallel=true`: Parallel MSBuild project DAG execution
  * - `-p:UseSharedCompilation=true`: Reuse in-memory Roslyn compiler daemon (VBCSCompiler)
- * - `-p:AccelerateBuildsInVisualStudio=true`: Enables fast output copying on .NET 8+ (gracefully ignored by .NET 6/7)
  * - `-clp:NoSummary;Verbosity=minimal`: Reduces terminal buffer render bottleneck while preserving warning/error matchers
  */
 export function buildOptimizationFlags(): string {
-  return '-maxcpucount -p:BuildInParallel=true -p:UseSharedCompilation=true -p:AccelerateBuildsInVisualStudio=true -clp:NoSummary;Verbosity=minimal';
+  return '-maxcpucount -p:BuildInParallel=true -p:UseSharedCompilation=true -clp:NoSummary;Verbosity=minimal';
 }
 
 export function buildOptimizationArgs(): string[] {
@@ -18,7 +17,6 @@ export function buildOptimizationArgs(): string[] {
     '-maxcpucount',
     '-p:BuildInParallel=true',
     '-p:UseSharedCompilation=true',
-    '-p:AccelerateBuildsInVisualStudio=true',
     '-clp:NoSummary;Verbosity=minimal'
   ];
 }
