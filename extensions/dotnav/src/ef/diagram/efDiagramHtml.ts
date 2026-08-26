@@ -139,14 +139,43 @@ export function renderEfDiagramHtml(): string {
         </div>
 
         <div class="toolbar-right">
-          <!-- Export Actions -->
-          <select class="diagram-select" id="exportSelect" title="Export Diagram">
-            <option value="" disabled selected>📤 Export...</option>
-            <option value="png-dark">📸 Image (PNG Dark)</option>
-            <option value="png-light">📄 Image (PNG Light Print)</option>
-            <option value="svg">📐 Vector (SVG)</option>
-            <option value="mermaid">📋 Copy Mermaid ERD</option>
-          </select>
+          <!-- Custom Floating Export Dropdown Menu -->
+          <div class="dropdown-wrapper" id="exportDropdownWrapper">
+            <button class="btn btn-secondary" id="btnExportDropdown" title="Export diagram image or ERD code">
+              <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.5 6a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-5a.5.5 0 0 0-1 0v4.5h-8V6.5a.5.5 0 0 0-.5-.5z"/><path fill-rule="evenodd" d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V10.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+              Export ▾
+            </button>
+            <div class="dropdown-menu" id="exportDropdownMenu" style="right: 0; left: auto; min-width: 280px;">
+              <div class="dropdown-item" data-export="png-dark">
+                <span class="dropdown-icon">📸</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">PNG Image (Dark Theme)</div>
+                  <div class="dropdown-desc">High-DPI transparent dark background</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-export="png-light">
+                <span class="dropdown-icon">📄</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">PNG Image (Light Print)</div>
+                  <div class="dropdown-desc">High-DPI crisp white background</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-export="svg">
+                <span class="dropdown-icon">📐</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Vector Graphic (SVG)</div>
+                  <div class="dropdown-desc">Infinitely scalable vector format</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-export="mermaid">
+                <span class="dropdown-icon">📋</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Copy Mermaid ERD Code</div>
+                  <div class="dropdown-desc">Copy markdown ERD syntax to clipboard</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

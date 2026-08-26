@@ -211,16 +211,19 @@ body, html {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  z-index: 5;
+  z-index: 100;
+  position: relative;
   flex-shrink: 0;
   gap: 8px;
+  overflow: visible;
 }
 
 .toolbar-left, .toolbar-right {
   display: flex;
   align-items: center;
   gap: 5px;
-  overflow-x: auto;
+  overflow: visible;
+  position: relative;
 }
 
 .toolbar-divider {
@@ -269,15 +272,15 @@ body, html {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: rgba(28, 32, 40, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(28, 32, 40, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid #3c4048;
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75);
   min-width: 270px;
   padding: 5px;
-  z-index: 1000;
+  z-index: 2000;
   display: none;
   flex-direction: column;
   gap: 2px;

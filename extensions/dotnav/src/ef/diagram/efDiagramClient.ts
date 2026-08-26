@@ -128,7 +128,9 @@ export function getEfDiagramClientScript(): string {
   const arrangeDropdownMenu = document.getElementById('arrangeDropdownMenu');
   const arrangeDropdownWrapper = document.getElementById('arrangeDropdownWrapper');
   const btnAddNote = document.getElementById('btnAddNote');
-  const exportSelect = document.getElementById('exportSelect');
+  const btnExportDropdown = document.getElementById('btnExportDropdown');
+  const exportDropdownMenu = document.getElementById('exportDropdownMenu');
+  const exportDropdownWrapper = document.getElementById('exportDropdownWrapper');
 
   // Modal & Hero Controls
   const emptyDiagramHero = document.getElementById('emptyDiagramHero');
@@ -2249,13 +2251,19 @@ export function getEfDiagramClientScript(): string {
         targetEntities = activeKeys
           .map(name => allEntities.find(e => e.name === name))
           .filter(Boolean);
-      } else {
-        targetEntities = allEntities.slice(0, 5);
+      } else if (allEntities.length > 0) {
+        // Auto-add all entities to canvas if canvas is empty
+        allEntities.forEach(e => {
+          activePositions[e.name] = { x: 0, y: 0 };
+        });
+        renderEntityList(searchBox.value);
+        renderCanvas();
+        targetEntities = allEntities;
       }
     }
 
     if (!targetEntities || targetEntities.length === 0) {
-      showToast('⚠️ No entities on canvas to arrange');
+      showToast('⚠️ No entities in this DbContext to arrange');
       return;
     }
 
@@ -2471,10 +2479,19 @@ export function getEfDiagramClientScript(): string {
   };
 
   function exportDiagram(type) {
-    const activeNames = Object.keys(activePositions);
+    let activeNames = Object.keys(activePositions);
     if (activeNames.length === 0 && notes.length === 0) {
-      showToast('⚠️ Cannot export an empty diagram');
-      return;
+      if (allEntities.length > 0) {
+        allEntities.forEach(e => {
+          activePositions[e.name] = { x: 0, y: 0 };
+        });
+        autoLayoutEntities(allEntities, 'column');
+        activeNames = Object.keys(activePositions);
+        showToast('✨ Added tables to canvas for export');
+      } else {
+        showToast('⚠️ Cannot export an empty diagram');
+        return;
+      }
     }
 
     if (type === 'mermaid') {
@@ -2867,12 +2884,24 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
-  if (exportSelect) {
-    exportSelect.addEventListener('change', () => {
-      const val = exportSelect.value;
-      if (val) {
-        exportDiagram(val);
-        exportSelect.value = '';
+  if (btnExportDropdown && exportDropdownMenu) {
+    btnExportDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportDropdownMenu.classList.toggle('show');
+    });
+
+    exportDropdownMenu.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const exportType = item.dataset.export;
+        exportDropdownMenu.classList.remove('show');
+        if (exportType) exportDiagram(exportType);
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (exportDropdownWrapper && !exportDropdownWrapper.contains(e.target)) {
+        exportDropdownMenu.classList.remove('show');
       }
     });
   }
@@ -2922,6 +2951,21 @@ export function getEfDiagramClientScript(): string {
         positions: payload,
         notes: notes
       });
+
+      const displayName = getDisplayDiagramName(currentDiagramName);
+      showToast(\`💾 Saved diagram "\${displayName}"\`);
+
+      const originalHtml = btnSave.innerHTML;
+      btnSave.textContent = '✓ Saved!';
+      btnSave.style.background = '#10b981';
+      btnSave.style.borderColor = '#059669';
+      btnSave.style.color = '#ffffff';
+      setTimeout(() => {
+        btnSave.innerHTML = originalHtml;
+        btnSave.style.background = '';
+        btnSave.style.borderColor = '';
+        btnSave.style.color = '';
+      }, 1500);
     });
   }
 
