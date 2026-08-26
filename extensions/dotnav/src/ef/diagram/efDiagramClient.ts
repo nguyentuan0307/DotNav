@@ -517,21 +517,17 @@ export function getEfDiagramClientScript(): string {
     renderEntityList(searchBox.value);
   });
 
-  function addEntityToCanvas(entityName, clientX, clientY) {
+  function addEntityToCanvas(entityName, worldX, worldY) {
     if (activePositions[entityName]) {
       focusCard(entityName);
       return;
     }
 
     pushHistory();
-    let posX = 80;
-    let posY = 80;
+    let posX = worldX;
+    let posY = worldY;
 
-    if (clientX !== undefined && clientY !== undefined) {
-      const rect = viewport.getBoundingClientRect();
-      posX = (clientX - rect.left - panX) / zoom;
-      posY = (clientY - top - panY) / zoom;
-    } else {
+    if (posX === undefined || posY === undefined || isNaN(posX) || isNaN(posY)) {
       const slot = findFreeCanvasSlot(80, 80);
       posX = slot.x;
       posY = slot.y;
@@ -540,6 +536,7 @@ export function getEfDiagramClientScript(): string {
     activePositions[entityName] = { x: Math.round(posX), y: Math.round(posY) };
     renderEntityList(searchBox.value);
     renderCanvas();
+    focusCard(entityName);
   }
 
   function removeEntityFromCanvas(entityName) {
@@ -755,14 +752,15 @@ export function getEfDiagramClientScript(): string {
         e.stopPropagation();
         const targetEntity = btn.dataset.targetEntity;
         if (targetEntity) {
+          if (activePositions[targetEntity]) {
+            focusCard(targetEntity);
+            return;
+          }
           const currentCard = btn.closest('.table-card');
           const currentLeft = parseInt(currentCard.style.left, 10) || 100;
           const currentTop = parseInt(currentCard.style.top, 10) || 100;
-          
-          if (!activePositions[targetEntity]) {
-            const slot = findFreeCanvasSlot(currentLeft + 360, currentTop);
-            addEntityToCanvas(targetEntity, slot.x, slot.y);
-          }
+          const slot = findFreeCanvasSlot(currentLeft + 360, currentTop);
+          addEntityToCanvas(targetEntity, slot.x, slot.y);
         }
       });
     });
@@ -1270,6 +1268,9 @@ export function getEfDiagramClientScript(): string {
       <div class="context-menu-item" id="ctxHideAudit">
         <span>🛡️</span> Hide Audit Fields
       </div>
+      <div class="context-menu-item" id="ctxAddConnected">
+        <span>➕</span> Add All Connected Tables
+      </div>
       <div class="context-menu-divider"></div>
       <div style="padding: 4px 12px; font-size: 10px; color: var(--text-muted); font-weight: 600;">SET DOMAIN COLOR:</div>
       <div class="color-palette-row">
@@ -1314,6 +1315,26 @@ export function getEfDiagramClientScript(): string {
         }
       });
       closeAllPopovers();
+      renderCanvas();
+    });
+
+    menu.querySelector('#ctxAddConnected').addEventListener('click', () => {
+      closeAllPopovers();
+      pushHistory();
+      const curPos = activePositions[entity.name] || { x: 100, y: 100 };
+      let added = 0;
+      allRelationships.forEach(rel => {
+        let neighbor = null;
+        if (rel.fromEntity === entity.name) neighbor = rel.toEntity;
+        else if (rel.toEntity === entity.name) neighbor = rel.fromEntity;
+
+        if (neighbor && !activePositions[neighbor]) {
+          const slot = findFreeCanvasSlot(curPos.x + 360, curPos.y + added * 220);
+          activePositions[neighbor] = { x: slot.x, y: slot.y };
+          added++;
+        }
+      });
+      renderEntityList(searchBox.value);
       renderCanvas();
     });
 
@@ -2289,7 +2310,7 @@ export function getEfDiagramClientScript(): string {
 
         ctx.fillStyle = '#1f2937';
         ctx.font = '11.5px system-ui, sans-serif';
-        const lines = (n.text || '').split('\\n');
+        const lines = (n.text || '').split('\n');
         lines.forEach((line, idx) => {
           ctx.fillText(line, x + 10, y + 26 + idx * 16);
         });
@@ -2301,6 +2322,112 @@ export function getEfDiagramClientScript(): string {
       a.download = \`\${activeDbContext}_\${currentDiagramName}_\${isLight ? 'light' : 'dark'}.png\`;
       a.href = dataUrl;
       a.click();
+      return;
+    }
+
+    if (type === 'svg') {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      activeNames.forEach(name => {
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + s.width);
+        maxY = Math.max(maxY, p.y + s.height);
+      });
+
+      notes.forEach(n => {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + (n.width || 220));
+        maxY = Math.max(maxY, n.y + (n.height || 120));
+      });
+
+      const pad = 60;
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+      const width = Math.max(200, maxX - minX);
+      const height = Math.max(200, maxY - minY);
+
+      let svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" style="background:#14161a; font-family:system-ui, -apple-system, sans-serif;">\\n';
+
+      // Paths
+      for (const rel of allRelationships) {
+        if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
+          const geom = computeRelGeometry(rel);
+          if (geom) {
+            const startX = geom.x1 - minX;
+            const startY = geom.y1 - minY;
+            const endX = geom.x2 - minX;
+            const endY = geom.y2 - minY;
+            const dx = Math.max(50, Math.abs(endX - startX) * 0.45);
+            const d = 'M ' + startX + ' ' + startY + ' C ' + (startX + dx) + ' ' + startY + ', ' + (endX - dx) + ' ' + endY + ', ' + endX + ' ' + endY;
+            const strokeColor = rel.cardinality === 'one-to-one' ? '#a855f7' : (rel.cardinality === 'many-to-many' ? '#f59e0b' : '#3b82f6');
+            const dash = rel.isRequired === false ? 'stroke-dasharray="6,4"' : '';
+            svgContent += '  <path d="' + d + '" fill="none" stroke="' + strokeColor + '" stroke-width="2" ' + dash + '/>\\n';
+            svgContent += '  <circle cx="' + startX + '" cy="' + startY + '" r="3.5" fill="' + strokeColor + '"/>\\n';
+            svgContent += '  <circle cx="' + endX + '" cy="' + endY + '" r="4.5" fill="' + strokeColor + '"/>\\n';
+          }
+        }
+      }
+
+      // Cards
+      activeNames.forEach(name => {
+        const entity = allEntities.find(e => e.name === name);
+        if (!entity) return;
+        const p = activePositions[name];
+        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        const x = p.x - minX;
+        const y = p.y - minY;
+        const w = s.width;
+        const h = s.height;
+        const customColor = colorByEntity[name];
+
+        svgContent += '  <g transform="translate(' + x + ', ' + y + ')">\\n';
+        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="8" fill="#21252b" stroke="#3c4048" stroke-width="1"/>\\n';
+        if (customColor) {
+          svgContent += '    <rect width="' + w + '" height="4" rx="2" fill="' + customColor + '"/>\\n';
+        }
+        svgContent += '    <path d="M 0 4 Q 0 0 8 0 L ' + (w - 8) + ' 0 Q ' + w + ' 0 ' + w + ' 8 L ' + w + ' 36 L 0 36 Z" fill="#282c34"/>\\n';
+        svgContent += '    <text x="12" y="23" fill="#ffffff" font-size="13" font-weight="bold">' + escapeHtml(entity.name) + '</text>\\n';
+
+        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
+        let curY = 54;
+        entity.properties.forEach(prop => {
+          if (isPropertyHidden(entity, prop, hiddenSet)) return;
+          const keyLabel = prop.isPrimaryKey ? 'PK ' : (prop.isForeignKey ? 'FK ' : '   ');
+          const nameColor = prop.isPrimaryKey ? '#f59e0b' : '#d4d4d4';
+          svgContent += '    <text x="12" y="' + curY + '" fill="' + nameColor + '" font-size="11">' + keyLabel + escapeHtml(prop.name) + '</text>\\n';
+          svgContent += '    <text x="' + (w - 12) + '" y="' + curY + '" fill="#4ec9b0" font-size="10" text-anchor="end" font-family="monospace">' + escapeHtml(prop.type) + '</text>\\n';
+          curY += 22;
+        });
+        svgContent += '  </g>\\n';
+      });
+
+      // Notes
+      notes.forEach(n => {
+        const x = n.x - minX;
+        const y = n.y - minY;
+        const w = n.width || 220;
+        const h = n.height || 120;
+        svgContent += '  <g transform="translate(' + x + ', ' + y + ')">\\n';
+        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="6" fill="#fef08a"/>\\n';
+        const lines = (n.text || '').split('\\n');
+        lines.forEach((line, idx) => {
+          svgContent += '    <text x="10" y="' + (26 + idx * 16) + '" fill="#1f2937" font-size="11.5">' + escapeHtml(line) + '</text>\\n';
+        });
+        svgContent += '  </g>\\n';
+      });
+
+      svgContent += '</svg>';
+
+      const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.download = \`\${activeDbContext}_\${currentDiagramName}.svg\`;
+      a.href = url;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
     }
   }
 
