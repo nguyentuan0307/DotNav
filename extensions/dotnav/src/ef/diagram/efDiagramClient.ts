@@ -15,6 +15,7 @@ export function getEfDiagramClientScript(): string {
   let minimizedCards = new Set();
   let hiddenColumnsByEntity = {}; // { [entityName]: Set<propName> }
   let colorByEntity = {}; // { [entityName]: hexColor }
+  let activeSelectedRelId = null;
 
   let currentDiagramName = 'Default';
   let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
@@ -88,6 +89,7 @@ export function getEfDiagramClientScript(): string {
         hiddenColumnsByEntity = {};
         colorByEntity = {};
         minimizedCards.clear();
+        activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
         currentDiagramName = msg.activeDiagramName || 'Default';
@@ -104,6 +106,7 @@ export function getEfDiagramClientScript(): string {
         hiddenColumnsByEntity = {};
         colorByEntity = {};
         minimizedCards.clear();
+        activeSelectedRelId = null;
 
         restoreEntityStates(msg.activePositions || {});
         currentDiagramName = msg.diagramName || 'Default';
@@ -214,6 +217,7 @@ export function getEfDiagramClientScript(): string {
       minimizedCards.clear();
       hiddenColumnsByEntity = {};
       colorByEntity = {};
+      activeSelectedRelId = null;
 
       if (allEntities.length > 0) {
         allEntities.slice(0, 3).forEach((e, idx) => {
@@ -743,7 +747,6 @@ export function getEfDiagramClientScript(): string {
       });
     });
 
-    // Helper to refresh card rows and SVG in-place without destroying the popover
     function syncCardVisibilityInPlace() {
       let visibleCount = 0;
       entity.properties.forEach(p => {
@@ -758,7 +761,6 @@ export function getEfDiagramClientScript(): string {
       const totalProps = entity.properties.length;
       const hiddenCount = totalProps - visibleCount;
 
-      // Update badge in header
       let badgeEl = card.querySelector('.card-visibility-badge');
       if (hiddenCount > 0) {
         if (!badgeEl) {
@@ -772,7 +774,6 @@ export function getEfDiagramClientScript(): string {
         badgeEl.remove();
       }
 
-      // Update footer
       let footer = card.querySelector('.card-hidden-footer');
       if (hiddenCount > 0) {
         if (!footer) {
@@ -865,6 +866,109 @@ export function getEfDiagramClientScript(): string {
     });
 
     card.appendChild(popover);
+  }
+
+  // Relationship Details Inspector Popover
+  function openRelationshipInspector(rel, clientX, clientY) {
+    closeAllPopovers();
+    activeSelectedRelId = rel.id;
+
+    // Highlight selected link and cards
+    linksSvg.querySelectorAll('.link-path').forEach(p => {
+      p.classList.toggle('selected', p.dataset.relId === rel.id);
+    });
+
+    cardsLayer.querySelectorAll('.table-card').forEach(c => {
+      c.classList.remove('rel-source', 'rel-target');
+      if (c.id === 'card-' + rel.fromEntity) c.classList.add('rel-source');
+      if (c.id === 'card-' + rel.toEntity) c.classList.add('rel-target');
+    });
+
+    const popover = document.createElement('div');
+    popover.className = 'rel-inspector-popover';
+    popover.id = 'activeRelInspector';
+
+    const vpRect = viewport.getBoundingClientRect();
+    let posX = clientX - vpRect.left + 15;
+    let posY = clientY - vpRect.top - 20;
+
+    if (posX + 350 > vpRect.width) posX = clientX - vpRect.left - 355;
+    if (posY + 320 > vpRect.height) posY = vpRect.height - 330;
+    if (posY < 10) posY = 10;
+
+    popover.style.left = Math.max(10, posX) + 'px';
+    popover.style.top = Math.max(10, posY) + 'px';
+
+    const cardinalityLabel = rel.cardinality === 'one-to-one' ? '1 : 1 (One-to-One)' : '1 : N (One-to-Many)';
+    const deleteRule = rel.deleteBehavior ? \`DeleteBehavior.\${rel.deleteBehavior}\` : 'ClientSetNull / Restrict';
+    const isRequiredLabel = rel.isRequired === false ? 'Optional (Nullable FK)' : 'Required (NOT NULL)';
+    const navText = (rel.fromEntity + '.' + (rel.inverseNavigationName || '...')) + ' ⟷ ' + (rel.toEntity + '.' + (rel.navigationName || '...'));
+
+    popover.innerHTML = \`
+      <div class="rel-inspector-header">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span style="color:#60a5fa;">🔗</span>
+          <span>Relationship Details</span>
+        </div>
+        <button class="popover-close-btn" title="Close">✕</button>
+      </div>
+      <div class="rel-inspector-body">
+        <div class="rel-inspector-entity-box">
+          <div style="font-size:10px; color:#10b981; font-weight:600;">🟢 PRINCIPAL TABLE (Parent 1)</div>
+          <div style="font-size:12px; font-weight:600; color:#ffffff;">\${escapeHtml(rel.fromEntity)} <span style="font-size:10px; color:var(--pk-color); font-family:monospace;">(PK \${escapeHtml(rel.fromProperty || 'Id')})</span></div>
+        </div>
+
+        <div class="rel-inspector-entity-box">
+          <div style="font-size:10px; color:#3b82f6; font-weight:600;">🔵 DEPENDENT TABLE (Child ∞)</div>
+          <div style="font-size:12px; font-weight:600; color:#ffffff;">\${escapeHtml(rel.toEntity)} <span style="font-size:10px; color:#60a5fa; font-family:monospace;">(FK \${escapeHtml(rel.toProperty || '')})</span></div>
+        </div>
+
+        <div class="rel-inspector-row">
+          <span class="rel-inspector-label">Cardinality:</span>
+          <span class="rel-inspector-value" style="color:#60a5fa;">\${escapeHtml(cardinalityLabel)}</span>
+        </div>
+
+        <div class="rel-inspector-row">
+          <span class="rel-inspector-label">Delete Behavior:</span>
+          <span class="rel-inspector-value" style="\${rel.deleteBehavior === 'Cascade' ? 'color:#ef4444;font-weight:700;' : ''}">\${escapeHtml(deleteRule)}</span>
+        </div>
+
+        <div class="rel-inspector-row">
+          <span class="rel-inspector-label">FK Nullability:</span>
+          <span class="rel-inspector-value">\${escapeHtml(isRequiredLabel)}</span>
+        </div>
+
+        <div class="rel-inspector-row">
+          <span class="rel-inspector-label">Navigations:</span>
+          <span class="rel-inspector-value" style="font-size:10px;">\${escapeHtml(navText)}</span>
+        </div>
+
+        \${rel.foreignKeyName ? \`
+        <div class="rel-inspector-row">
+          <span class="rel-inspector-label">FK Constraint:</span>
+          <span class="rel-inspector-value" style="font-size:10px;">\${escapeHtml(rel.foreignKeyName)}</span>
+        </div>
+        \` : ''}
+      </div>
+      <div class="rel-inspector-footer">
+        <button class="popover-btn" id="btnJumpPrincipal">📖 Jump Principal</button>
+        <button class="popover-btn" id="btnJumpDependent">📖 Jump Dependent</button>
+      </div>
+    \`;
+
+    popover.querySelector('.popover-close-btn').addEventListener('click', () => {
+      closeAllPopovers();
+    });
+
+    popover.querySelector('#btnJumpPrincipal').addEventListener('click', () => {
+      focusCard(rel.fromEntity);
+    });
+
+    popover.querySelector('#btnJumpDependent').addEventListener('click', () => {
+      focusCard(rel.toEntity);
+    });
+
+    viewport.appendChild(popover);
   }
 
   // Right-Click Context Menu
@@ -963,6 +1067,16 @@ export function getEfDiagramClientScript(): string {
     if (p) p.remove();
     const m = document.getElementById('activeContextMenu');
     if (m) m.remove();
+    const r = document.getElementById('activeRelInspector');
+    if (r) r.remove();
+
+    cardsLayer.querySelectorAll('.table-card').forEach(c => {
+      c.classList.remove('rel-source', 'rel-target');
+    });
+    linksSvg.querySelectorAll('.link-path').forEach(p => {
+      p.classList.remove('selected');
+    });
+    activeSelectedRelId = null;
   }
 
   window.addEventListener('click', e => {
@@ -973,6 +1087,10 @@ export function getEfDiagramClientScript(): string {
     if (!e.target.closest('.card-context-menu')) {
       const m = document.getElementById('activeContextMenu');
       if (m) m.remove();
+    }
+    if (!e.target.closest('.rel-inspector-popover') && !e.target.closest('.rel-hitbox') && !e.target.closest('.link-path')) {
+      const r = document.getElementById('activeRelInspector');
+      if (r) closeAllPopovers();
     }
   });
 
@@ -1018,7 +1136,7 @@ export function getEfDiagramClientScript(): string {
         if (firstPk) {
           fromRowOffsetY = firstPk.offsetTop + firstPk.offsetHeight / 2;
         } else {
-          fromRowOffsetY = 20; // Fallback to header anchor if row is hidden
+          fromRowOffsetY = 20;
         }
       }
     }
@@ -1033,7 +1151,7 @@ export function getEfDiagramClientScript(): string {
         if (firstFk) {
           toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
         } else {
-          toRowOffsetY = 20; // Fallback to header anchor if row is hidden
+          toRowOffsetY = 20;
         }
       }
     }
@@ -1080,12 +1198,27 @@ export function getEfDiagramClientScript(): string {
 
     const pathData = \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`;
 
+    // 1. Invisible Hitbox for super easy clicking
+    const hitboxEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    hitboxEl.setAttribute('d', pathData);
+    hitboxEl.setAttribute('class', 'rel-hitbox');
+    hitboxEl.dataset.relId = rel.id;
+    hitboxEl.addEventListener('click', e => {
+      e.stopPropagation();
+      openRelationshipInspector(rel, e.clientX, e.clientY);
+    });
+    linksSvg.appendChild(hitboxEl);
+
+    // 2. Visible Path
+    const isSelected = activeSelectedRelId === rel.id;
     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     pathEl.setAttribute('d', pathData);
-    pathEl.setAttribute('class', 'link-path');
-    pathEl.setAttribute('fill', 'none');
-    pathEl.setAttribute('stroke', '#3b82f6');
-    pathEl.setAttribute('stroke-width', '2');
+    pathEl.setAttribute('class', 'link-path' + (isSelected ? ' selected' : ''));
+    pathEl.dataset.relId = rel.id;
+    pathEl.addEventListener('click', e => {
+      e.stopPropagation();
+      openRelationshipInspector(rel, e.clientX, e.clientY);
+    });
     linksSvg.appendChild(pathEl);
 
     const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1093,7 +1226,7 @@ export function getEfDiagramClientScript(): string {
     circle1.setAttribute('cy', y1);
     circle1.setAttribute('r', 3.5);
     circle1.setAttribute('class', 'link-endpoint');
-    circle1.setAttribute('fill', '#3b82f6');
+    circle1.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
     linksSvg.appendChild(circle1);
 
     const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1101,7 +1234,7 @@ export function getEfDiagramClientScript(): string {
     circle2.setAttribute('cy', y2);
     circle2.setAttribute('r', 4.5);
     circle2.setAttribute('class', 'link-crowfoot');
-    circle2.setAttribute('fill', '#3b82f6');
+    circle2.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
     linksSvg.appendChild(circle2);
   }
 
@@ -1112,10 +1245,9 @@ export function getEfDiagramClientScript(): string {
   }
 
   viewport.addEventListener('wheel', e => {
-    const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list');
+    const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list, .rel-inspector-body');
 
     if (e.ctrlKey || e.metaKey) {
-      // Ctrl + Wheel: Smooth Zoom centered at mouse cursor
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
       const newZoom = Math.min(Math.max(0.3, zoom * zoomFactor), 2.5);
@@ -1130,10 +1262,8 @@ export function getEfDiagramClientScript(): string {
 
       applyTransform();
     } else if (scrollableTarget) {
-      // Inside a table card or list: Let native vertical scrolling work naturally!
       return;
     } else {
-      // Normal wheel over canvas background: Pan the canvas
       e.preventDefault();
       if (e.shiftKey) {
         panX -= (e.deltaY || e.deltaX);
@@ -1279,6 +1409,7 @@ export function getEfDiagramClientScript(): string {
     minimizedCards.clear();
     hiddenColumnsByEntity = {};
     colorByEntity = {};
+    activeSelectedRelId = null;
     currentDiagramName = 'New Diagram';
     renderEntityList(searchBox.value);
     renderCanvas();

@@ -36,6 +36,10 @@ export interface EntityRelationship {
   readonly cardinality: RelationshipCardinality;
   readonly foreignKeyName?: string;
   readonly deleteBehavior?: string;
+  readonly isRequired?: boolean;
+  readonly navigationName?: string;
+  readonly inverseNavigationName?: string;
+  readonly principalKey?: string;
 }
 
 export interface DiagramEntityState {

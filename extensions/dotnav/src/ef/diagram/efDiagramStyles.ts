@@ -396,26 +396,44 @@ body, html {
   z-index: 1;
 }
 
+.rel-hitbox {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16px;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 .link-path {
   fill: none;
   stroke: #3b82f6;
   stroke-width: 2px;
   stroke-linecap: round;
-  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 
 .link-path:hover, .link-path.highlighted {
   stroke: #60a5fa;
   stroke-width: 3px;
-  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.6));
+  filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.8));
+}
+
+.link-path.selected {
+  stroke: #38bdf8 !important;
+  stroke-width: 3.5px !important;
+  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.9)) !important;
 }
 
 .link-endpoint {
   fill: #3b82f6;
+  transition: fill 0.15s ease;
 }
 
 .link-crowfoot {
   fill: #3b82f6;
+  transition: fill 0.15s ease;
 }
 
 /* Table Cards Layer */
@@ -448,6 +466,16 @@ body, html {
 .table-card.selected {
   border-color: var(--card-selected-border);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4), var(--card-shadow);
+}
+
+.table-card.rel-source {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.5), var(--card-shadow) !important;
+}
+
+.table-card.rel-target {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), var(--card-shadow) !important;
 }
 
 .table-card:hover {
@@ -840,6 +868,85 @@ body, html {
 .popover-btn:hover {
   background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
+}
+
+/* Relationship Metadata Inspector Popover */
+.rel-inspector-popover {
+  position: fixed;
+  width: 340px;
+  background: rgba(28, 31, 38, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid #4b5263;
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.rel-inspector-header {
+  padding: 10px 12px;
+  background: #252830;
+  border-bottom: 1px solid #3c4048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 12px;
+  color: #ffffff;
+}
+
+.rel-inspector-body {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rel-inspector-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  font-size: 11.5px;
+  gap: 8px;
+}
+
+.rel-inspector-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+  min-width: 105px;
+}
+
+.rel-inspector-value {
+  color: var(--text-main);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+}
+
+.rel-inspector-entity-box {
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rel-inspector-footer {
+  padding: 8px 12px;
+  background: #181a1f;
+  border-top: 1px solid #3c4048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 /* Custom Right-Click Context Menu */

@@ -202,6 +202,17 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
           (matchingProp as any).foreignKeyTargetEntity = principalShort;
         }
 
+        // Extract DeleteBehavior, IsRequired, and Navigations from chain
+        const deleteMatch = chainSegment.match(/\.OnDelete\s*\(\s*DeleteBehavior\.([A-Za-z0-9_]+)\s*\)/);
+        const deleteBehavior = deleteMatch ? deleteMatch[1] : undefined;
+
+        const isRequired = chainSegment.includes('.IsRequired()') || (matchingProp ? !matchingProp.isNullable : true);
+
+        const withManyMatch = chainSegment.match(/\.WithMany\s*\(\s*(?:["']([^"']+)["'])?\s*\)/);
+        const withOneMatch = chainSegment.match(/\.WithOne\s*\(\s*(?:["']([^"']+)["'])?\s*\)/);
+        const isOneToOne = !!withOneMatch;
+        const inverseNav = withManyMatch ? withManyMatch[1] : withOneMatch ? withOneMatch[1] : undefined;
+
         const relId = `${principalShort}->${shortName}:${fkName}`;
         if (!entityInfo.relationships.some(r => r.id === relId)) {
           entityInfo.relationships.push({
@@ -210,8 +221,12 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
             fromProperty: 'Id',
             toEntity: shortName,
             toProperty: fkName,
-            cardinality: 'one-to-many',
-            foreignKeyName: `FK_${shortName}_${principalShort}_${fkName}`
+            cardinality: isOneToOne ? 'one-to-one' : 'one-to-many',
+            foreignKeyName: `FK_${shortName}_${principalShort}_${fkName}`,
+            deleteBehavior,
+            isRequired,
+            navigationName: navName,
+            inverseNavigationName: inverseNav
           });
         }
       }
