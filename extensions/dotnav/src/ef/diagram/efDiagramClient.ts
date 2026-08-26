@@ -1421,46 +1421,68 @@ export function getEfDiagramClientScript(): string {
     const fromRowOffsetY = fromOffsets[fromTargetProp] !== undefined ? fromOffsets[fromTargetProp] : (fromOffsets['__pkDefault'] || 20);
     const toRowOffsetY = toOffsets[toTargetProp] !== undefined ? toOffsets[toTargetProp] : (toOffsets['__fkDefault'] || 20);
 
+    const fromLeft = fromPos.x;
+    const fromRight = fromPos.x + fromSize.width;
+    const fromCenterY = fromPos.y + fromRowOffsetY;
+
+    const toLeft = toPos.x;
+    const toRight = toPos.x + toSize.width;
+    const toCenterY = toPos.y + toRowOffsetY;
+
     let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
 
-    if (fromPos.x + fromSize.width + 40 <= toPos.x) {
-      x1 = fromPos.x + fromSize.width;
-      y1 = fromPos.y + fromRowOffsetY;
-      x2 = toPos.x;
-      y2 = toPos.y + toRowOffsetY;
+    y1 = fromCenterY;
+    y2 = toCenterY;
 
-      const dx = Math.max(50, (x2 - x1) * 0.45);
+    // Case 1: From-Card is to the Left of To-Card
+    if (fromRight <= toLeft) {
+      x1 = fromRight;
+      x2 = toLeft;
+      const dx = Math.max(30, (x2 - x1) * 0.5);
       cx1 = x1 + dx;
       cy1 = y1;
       cx2 = x2 - dx;
       cy2 = y2;
-    } else if (toPos.x + toSize.width + 40 <= fromPos.x) {
-      x1 = fromPos.x;
-      y1 = fromPos.y + fromRowOffsetY;
-      x2 = toPos.x + toSize.width;
-      y2 = toPos.y + toRowOffsetY;
-
-      const dx = Math.max(50, (x1 - x2) * 0.45);
+    } else if (toRight <= fromLeft) {
+      // Case 2: From-Card is to the Right of To-Card
+      x1 = fromLeft;
+      x2 = toRight;
+      const dx = Math.max(30, (x1 - x2) * 0.5);
       cx1 = x1 - dx;
       cy1 = y1;
       cx2 = x2 + dx;
       cy2 = y2;
     } else {
-      x1 = fromPos.x + fromSize.width;
-      y1 = fromPos.y + fromRowOffsetY;
-      x2 = toPos.x + toSize.width;
-      y2 = toPos.y + toRowOffsetY;
+      // Case 3: Horizontal Overlap (e.g. vertically stacked or partial overlap)
+      const fromMidX = (fromLeft + fromRight) / 2;
+      const toMidX = (toLeft + toRight) / 2;
 
-      const offsetDist = Math.max(70, Math.abs(y2 - y1) * 0.3);
-      cx1 = Math.max(x1, x2) + offsetDist;
-      cy1 = y1;
-      cx2 = Math.max(x1, x2) + offsetDist;
-      cy2 = y2;
+      if (fromMidX <= toMidX) {
+        // Route via Right side
+        x1 = fromRight;
+        x2 = toRight;
+        const maxRight = Math.max(fromRight, toRight);
+        const loopOffset = Math.max(40, Math.min(100, Math.abs(y2 - y1) * 0.2));
+        cx1 = maxRight + loopOffset;
+        cy1 = y1;
+        cx2 = maxRight + loopOffset;
+        cy2 = y2;
+      } else {
+        // Route via Left side
+        x1 = fromLeft;
+        x2 = toLeft;
+        const minLeft = Math.min(fromLeft, toLeft);
+        const loopOffset = Math.max(40, Math.min(100, Math.abs(y2 - y1) * 0.2));
+        cx1 = minLeft - loopOffset;
+        cy1 = y1;
+        cx2 = minLeft - loopOffset;
+        cy2 = y2;
+      }
     }
 
     return {
       pathData: \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`,
-      x1, y1, x2, y2
+      x1, y1, x2, y2, cx1, cy1, cx2, cy2
     };
   }
 
@@ -2217,10 +2239,13 @@ export function getEfDiagramClientScript(): string {
             const startY = geom.y1 - minY;
             const endX = geom.x2 - minX;
             const endY = geom.y2 - minY;
+            const c1x = geom.cx1 - minX;
+            const c1y = geom.cy1 - minY;
+            const c2x = geom.cx2 - minX;
+            const c2y = geom.cy2 - minY;
 
-            const dx = Math.max(40, Math.abs(endX - startX) * 0.45);
             ctx.moveTo(startX, startY);
-            ctx.bezierCurveTo(startX + dx, startY, endX - dx, endY, endX, endY);
+            ctx.bezierCurveTo(c1x, c1y, c2x, c2y, endX, endY);
 
             ctx.strokeStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : '#3b82f6';
             ctx.lineWidth = 2;
@@ -2359,8 +2384,11 @@ export function getEfDiagramClientScript(): string {
             const startY = geom.y1 - minY;
             const endX = geom.x2 - minX;
             const endY = geom.y2 - minY;
-            const dx = Math.max(50, Math.abs(endX - startX) * 0.45);
-            const d = 'M ' + startX + ' ' + startY + ' C ' + (startX + dx) + ' ' + startY + ', ' + (endX - dx) + ' ' + endY + ', ' + endX + ' ' + endY;
+            const c1x = geom.cx1 - minX;
+            const c1y = geom.cy1 - minY;
+            const c2x = geom.cx2 - minX;
+            const c2y = geom.cy2 - minY;
+            const d = 'M ' + startX + ' ' + startY + ' C ' + c1x + ' ' + c1y + ', ' + c2x + ' ' + c2y + ', ' + endX + ' ' + endY;
             const strokeColor = rel.cardinality === 'one-to-one' ? '#a855f7' : (rel.cardinality === 'many-to-many' ? '#f59e0b' : '#3b82f6');
             const dash = rel.isRequired === false ? 'stroke-dasharray="6,4"' : '';
             svgContent += '  <path d="' + d + '" fill="none" stroke="' + strokeColor + '" stroke-width="2" ' + dash + '/>\\n';
