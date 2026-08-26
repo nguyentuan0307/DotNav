@@ -43,7 +43,8 @@ const STRICT_EXCLUDE_SUFFIXES = [
 const KNOWN_BASE_ENTITY_NAMES = new Set([
   'entity', 'baseentity', 'tenantentity', 'aggregateroot',
   'fulllauditedentity', 'auditedentity', 'creationauditedentity',
-  'idomainentity', 'domainentity', 'identityuser', 'identityrole'
+  'idomainentity', 'domainentity', 'identityuser', 'identityrole',
+  'entitybase', 'iauditentitybase'
 ]);
 
 export function parseRawClassesFromCSharp(
@@ -75,7 +76,10 @@ export function parseRawClassesFromCSharp(
       hasTableAttribute = true;
     }
 
-    const isDbContext = /\bDbContext\b/.test(rawBaseTypes) || className.endsWith('DbContext');
+    const isDbContext = 
+      /\b(?:DbContext|AuditlogDBContext|CleeksyDbContext|EFIntegrationEventContext|IdentityDbContext)\b/i.test(rawBaseTypes) ||
+      className.endsWith('DbContext') ||
+      className.endsWith('Context');
 
     // Find class closing brace
     let braceDepth = 1;
@@ -126,6 +130,12 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
 
   while ((match = propRegex.exec(body)) !== null) {
     const attrs = match[1] || '';
+
+    // Ignore [NotMapped] EF Core properties (such as DomainEvents, IntegrationEvents, etc.)
+    if (/NotMapped\b/i.test(attrs)) {
+      continue;
+    }
+
     let rawType = match[2]
       .replace(/\b(public|protected|internal|private|virtual|override|new|readonly|static|required)\b/g, '')
       .replace(/\s+/g, ' ')
@@ -171,7 +181,7 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
     // Convention FK check: e.g. FormId -> Form, TenantId -> Tenant, DataEntityId -> DataEntity
     if (!isPrimaryKey && !isNavigation && propName.endsWith('Id') && propName.length > 2) {
       isForeignKey = true;
-      foreignKeyTargetEntity = propName.slice(0, -2);
+      foreignKeyTargetEntity = propName === 'TenantId' ? 'Tenant' : propName.slice(0, -2);
     }
 
     // Explicit [ForeignKey("UserId")]
@@ -264,24 +274,36 @@ export function parseFluentConfigurations(code: string): FluentConfigRule[] {
 export function parseDbContextDbSets(code: string): { dbContextName: string; entityTypes: string[] }[] {
   const results: { dbContextName: string; entityTypes: string[] }[] = [];
 
-  const dbContextRegex = /class\s+([A-Za-z0-9_]+)\s*:\s*(?:[^{;\r\n]*\bDbContext\b[^{;\r\n]*)\s*\{/g;
+  // Match class declarations: class IdentityContext : AuditlogDBContext
+  const classMatchRegex = /(?:public|internal|protected)?\s*(?:abstract|sealed|partial)*\s*class\s+([A-Za-z0-9_]+)(?:<[^>]+>)?(?:\s*:\s*([^{;\r\n]+))?\s*\{/g;
   let match: RegExpExecArray | null;
 
-  while ((match = dbContextRegex.exec(code)) !== null) {
-    const dbContextName = match[1];
+  while ((match = classMatchRegex.exec(code)) !== null) {
+    const className = match[1];
+    const baseTypes = match[2] || '';
     const startIndex = match.index;
-    
-    // Find DbSets
-    const entityTypes: string[] = [];
-    const dbSetRegex = /public\s+(?:virtual\s+)?DbSet<([A-Za-z0-9_]+)>\s+([A-Za-z0-9_]+)/g;
-    let setMatch: RegExpExecArray | null;
-    while ((setMatch = dbSetRegex.exec(code)) !== null) {
-      if (setMatch.index >= startIndex) {
-        entityTypes.push(setMatch[1]);
+
+    // Check if this class is a DbContext (including base contexts like AuditlogDBContext, CleeksyDbContext, EFIntegrationEventContext)
+    const isDbContext = 
+      /\b(?:DbContext|AuditlogDBContext|CleeksyDbContext|EFIntegrationEventContext|IdentityDbContext)\b/i.test(baseTypes) ||
+      className.endsWith('DbContext') ||
+      className.endsWith('Context') ||
+      /DbSet<[A-Za-z0-9_]+>/.test(code.substring(startIndex));
+
+    if (isDbContext) {
+      const entityTypes: string[] = [];
+      const dbSetRegex = /public\s+(?:virtual\s+)?DbSet<([A-Za-z0-9_]+)>\s+([A-Za-z0-9_]+)/g;
+      let setMatch: RegExpExecArray | null;
+      while ((setMatch = dbSetRegex.exec(code)) !== null) {
+        if (setMatch.index >= startIndex) {
+          entityTypes.push(setMatch[1]);
+        }
+      }
+
+      if (entityTypes.length > 0) {
+        results.push({ dbContextName: className, entityTypes });
       }
     }
-
-    results.push({ dbContextName, entityTypes });
   }
 
   return results;
@@ -297,7 +319,7 @@ export function buildStrictWorkspaceEntities(
     classMap.set(c.name.toLowerCase(), c);
   }
 
-  // 1. Pass 1: Build Authoritative Entity Whitelist
+  // 1. Pass 1: Build Authoritative Entity Whitelist & Map to owning DbContexts
   const authoritativeNames = new Set<string>();
   const entityDbContexts = new Map<string, Set<string>>();
 
@@ -368,7 +390,7 @@ export function buildStrictWorkspaceEntities(
     const resolvedProps: EntityProperty[] = [...c.properties];
     const seenPropNames = new Set(resolvedProps.map(p => p.name.toLowerCase()));
 
-    // Walk base class chain
+    // Walk base class chain (TenantEntity -> Entity -> EntityBase)
     const visited = new Set<string>();
     const queue = [...c.baseTypes];
 

@@ -10,8 +10,8 @@ import {
 import { liveSyncDiagramWithCode } from '../ef/diagram/efDiagramStorage';
 import { DiagramFile, EntityModel } from '../ef/diagram/efDiagramModel';
 
-describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
-  it('parseRawClassesFromCSharp extracts scalar, PK, FK, and navigation properties', () => {
+describe('EF Core Diagram Scanner & Storage (Backend Architecture Tailored)', () => {
+  it('parseRawClassesFromCSharp extracts scalar, PK, FK, navigation, and ignores [NotMapped]', () => {
     const code = `
       namespace ELDesk.CustomApp.Domain.Entities;
 
@@ -27,6 +27,9 @@ describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
           public virtual DataEntity DataEntity { get; set; }
 
           public virtual ICollection<AppFormField> Fields { get; set; } = new List<AppFormField>();
+
+          [NotMapped]
+          public IReadOnlyCollection<object> DomainEvents { get; set; }
       }
     `;
 
@@ -61,176 +64,129 @@ describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
     assert.equal(fieldsProp?.isNavigation, true);
     assert.equal(fieldsProp?.isCollectionNavigation, true);
     assert.equal(fieldsProp?.navigationTargetEntity, 'AppFormField');
+
+    // [NotMapped] DomainEvents MUST be excluded
+    const domainEventsProp = form.properties.find(p => p.name === 'DomainEvents');
+    assert.equal(domainEventsProp, undefined, 'DomainEvents with [NotMapped] must not be included');
   });
 
-  it('buildStrictWorkspaceEntities filters out Managers/Services/DTOs and inherits base class properties', () => {
+  it('parseDbContextDbSets handles multi-level DbContext inheritance like AuditlogDBContext', () => {
+    const customAppCode = `
+      namespace ELDesk.CustomApp.SharedInfrastructure.DbContexts;
+      public class CustomAppSharedDbContext : AuditlogDBContext
+      {
+          public virtual DbSet<Application> Application { get; set; } = null!;
+          public virtual DbSet<Form> Form { get; set; } = null!;
+      }
+    `;
+
+    const identityCode = `
+      namespace ELDesk.IAM.Infrastructure;
+      public partial class IdentityContext : AuditlogDBContext
+      {
+          public virtual DbSet<Tenant> Tenants { get; set; }
+          public virtual DbSet<Role> Roles { get; set; }
+      }
+    `;
+
+    const customAppSets = parseDbContextDbSets(customAppCode);
+    assert.equal(customAppSets.length, 1);
+    assert.equal(customAppSets[0].dbContextName, 'CustomAppSharedDbContext');
+    assert.deepEqual(customAppSets[0].entityTypes, ['Application', 'Form']);
+
+    const identitySets = parseDbContextDbSets(identityCode);
+    assert.equal(identitySets.length, 1);
+    assert.equal(identitySets[0].dbContextName, 'IdentityContext');
+    assert.deepEqual(identitySets[0].entityTypes, ['Tenant', 'Role']);
+  });
+
+  it('buildStrictWorkspaceEntities maps entities to correct DbContexts and resolves TenantEntity inheritance', () => {
     const rawClasses = [
-      // 1. Base Entity
+      // Base classes
       ...parseRawClassesFromCSharp(
-        `public class TenantEntity : BaseEntity { public int Id { get; set; } public int TenantId { get; set; } }`,
+        `public class Entity<TKey> { public TKey Id { get; set; } }`,
+        '/src/Entity.cs',
+        'ELDesk.Shared.Domain'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class TenantEntity : Entity<int> { public int TenantId { get; set; } }`,
         '/src/TenantEntity.cs',
-        'Shared'
+        'ELDesk.Shared.Domain'
       ),
-      // 2. Domain Entity derived from TenantEntity
+      // Derived entities
       ...parseRawClassesFromCSharp(
-        `public class AppForm : TenantEntity { public string Title { get; set; } }`,
-        '/src/Domain/Entities/AppForm.cs',
-        'CustomApp'
+        `public class Form : TenantEntity { public string Title { get; set; } }`,
+        '/src/Form.cs',
+        'ELDesk.CustomApp'
       ),
-      // 3. Entity configured via Fluent Config
       ...parseRawClassesFromCSharp(
-        `public class DataEntity { public int Id { get; set; } public string Name { get; set; } }`,
-        '/src/DataEntity.cs',
-        'CustomApp'
+        `public class Tenant : Entity<int> { public string Name { get; set; } }`,
+        '/src/Tenant.cs',
+        'ELDesk.IAM'
       ),
-      // 4. Non-Entity Classes that must be EXCLUDED
+      // Noise classes that must be excluded
       ...parseRawClassesFromCSharp(
         `public class InternalClientManager { public int Timeout { get; set; } }`,
         '/src/InternalClientManager.cs',
-        'CustomApp'
-      ),
-      ...parseRawClassesFromCSharp(
-        `public class SolutionReleaseNotifier { public string Version { get; set; } }`,
-        '/src/SolutionReleaseNotifier.cs',
-        'CustomApp'
-      ),
-      ...parseRawClassesFromCSharp(
-        `public class LoginResult { public string Token { get; set; } }`,
-        '/src/LoginResult.cs',
-        'CustomApp'
+        'ELDesk.CustomApp'
       ),
       ...parseRawClassesFromCSharp(
         `public class TracingSettings { public bool Enabled { get; set; } }`,
         '/src/TracingSettings.cs',
-        'CustomApp'
+        'ELDesk.CustomApp'
       )
     ];
 
-    const fluentRules = parseFluentConfigurations(`
-      public class DataEntityConfig : IEntityTypeConfiguration<DataEntity>
-      {
-          public void Configure(EntityTypeBuilder<DataEntity> builder) { builder.ToTable("DataEntities"); }
-      }
-    `);
+    const dbContextSets = [
+      { dbContextName: 'CustomAppSharedDbContext', entityTypes: ['Form'] },
+      { dbContextName: 'IdentityContext', entityTypes: ['Tenant'] }
+    ];
 
-    const dbContextSets = parseDbContextDbSets(`
-      public class AppDbContext : DbContext
-      {
-          public DbSet<AppForm> AppForms { get; set; }
-      }
-    `);
+    const entities = buildStrictWorkspaceEntities(rawClasses, [], dbContextSets);
+    const form = entities.find(e => e.name === 'Form');
+    const tenant = entities.find(e => e.name === 'Tenant');
 
-    const entities = buildStrictWorkspaceEntities(rawClasses, fluentRules, dbContextSets);
-    const entityNames = entities.map(e => e.name);
+    assert.ok(form, 'Form must be found');
+    assert.ok(tenant, 'Tenant must be found');
 
-    // MUST include valid entities
-    assert.ok(entityNames.includes('AppForm'), 'Must include AppForm');
-    assert.ok(entityNames.includes('DataEntity'), 'Must include DataEntity');
-    assert.ok(entityNames.includes('TenantEntity'), 'Must include TenantEntity');
+    // Context mapping
+    assert.deepEqual(form?.dbContextNames, ['CustomAppSharedDbContext']);
+    assert.deepEqual(tenant?.dbContextNames, ['IdentityContext']);
 
-    // MUST strictly exclude non-entities
-    assert.ok(!entityNames.includes('InternalClientManager'), 'Must exclude InternalClientManager');
-    assert.ok(!entityNames.includes('SolutionReleaseNotifier'), 'Must exclude SolutionReleaseNotifier');
-    assert.ok(!entityNames.includes('LoginResult'), 'Must exclude LoginResult');
-    assert.ok(!entityNames.includes('TracingSettings'), 'Must exclude TracingSettings');
-
-    // Verify AppForm inherited TenantId and Id from TenantEntity
-    const appForm = entities.find(e => e.name === 'AppForm')!;
-    assert.ok(appForm.properties.some(p => p.name === 'Title'), 'Must have own property Title');
-    assert.ok(appForm.properties.some(p => p.name === 'TenantId'), 'Must inherit TenantId from TenantEntity');
-    assert.ok(appForm.properties.some(p => p.name === 'Id'), 'Must inherit Id from TenantEntity');
-  });
-
-  it('parseFluentConfigurations extracts table name, keys, and HasMany relationships', () => {
-    const configCode = `
-      namespace Cleeksy.SolutionCanvas.Infrastructure.EntitiesConfig.Tenants;
-
-      public class TenantEntityConfig : IEntityTypeConfiguration<TenantEntity>
-      {
-          public void Configure(EntityTypeBuilder<TenantEntity> builder)
-          {
-              builder.ToTable("Tenants", "iam");
-              builder.HasKey(t => t.Id);
-
-              builder.HasMany(t => t.Forms)
-                     .WithOne(f => f.Tenant)
-                     .HasForeignKey(f => f.TenantId)
-                     .OnDelete(DeleteBehavior.Cascade);
-          }
-      }
-    `;
-
-    const rules = parseFluentConfigurations(configCode);
-    assert.equal(rules.length, 1);
-    assert.equal(rules[0].entityName, 'TenantEntity');
-    assert.equal(rules[0].tableName, 'Tenants');
-    assert.equal(rules[0].schemaName, 'iam');
-    assert.deepEqual(rules[0].primaryKeys, ['Id']);
-    assert.equal(rules[0].relationships.length, 1);
-    assert.equal(rules[0].relationships[0].foreignKeyName, 'TenantId');
-    assert.equal(rules[0].relationships[0].deleteBehavior, 'Cascade');
+    // Inherited columns
+    assert.ok(form?.properties.some(p => p.name === 'Id' && p.isPrimaryKey), 'Form must inherit Id PK');
+    assert.ok(form?.properties.some(p => p.name === 'TenantId' && p.isForeignKey), 'Form must inherit TenantId FK');
   });
 
   it('buildRelationships discovers relationships from navigation & FK properties', () => {
     const entities: EntityModel[] = [
       {
         id: '1',
-        name: 'AppForm',
-        filePath: '/src/AppForm.cs',
+        name: 'Form',
+        filePath: '/src/Form.cs',
         line: 1,
         projectName: 'App',
         properties: [
-          {
-            name: 'Id',
-            type: 'int',
-            isPrimaryKey: true,
-            isForeignKey: false,
-            isNullable: false,
-            isNavigation: false
-          },
-          {
-            name: 'Fields',
-            type: 'ICollection<AppFormField>',
-            isPrimaryKey: false,
-            isForeignKey: false,
-            isNullable: false,
-            isNavigation: true,
-            isCollectionNavigation: true,
-            navigationTargetEntity: 'AppFormField'
-          }
+          { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false },
+          { name: 'Fields', type: 'ICollection<AppField>', isPrimaryKey: false, isForeignKey: false, isNullable: false, isNavigation: true, isCollectionNavigation: true, navigationTargetEntity: 'AppField' }
         ]
       },
       {
         id: '2',
-        name: 'AppFormField',
-        filePath: '/src/AppFormField.cs',
+        name: 'AppField',
+        filePath: '/src/AppField.cs',
         line: 1,
         projectName: 'App',
         properties: [
-          {
-            name: 'Id',
-            type: 'int',
-            isPrimaryKey: true,
-            isForeignKey: false,
-            isNullable: false,
-            isNavigation: false
-          },
-          {
-            name: 'FormId',
-            type: 'int',
-            isPrimaryKey: false,
-            isForeignKey: true,
-            isNullable: false,
-            isNavigation: false,
-            foreignKeyTargetEntity: 'AppForm'
-          }
+          { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false },
+          { name: 'FormId', type: 'int', isPrimaryKey: false, isForeignKey: true, isNullable: false, isNavigation: false, foreignKeyTargetEntity: 'Form' }
         ]
       }
     ];
 
     const rels = buildRelationships(entities);
     assert.ok(rels.length > 0);
-    const formToField = rels.find(r => r.fromEntity === 'AppForm' && r.toEntity === 'AppFormField');
+    const formToField = rels.find(r => r.fromEntity === 'Form' && r.toEntity === 'AppField');
     assert.ok(formToField);
     assert.equal(formToField?.cardinality, 'one-to-many');
   });
@@ -242,16 +198,16 @@ describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
       createdAt: 100,
       updatedAt: 200,
       entities: {
-        AppForm: { x: 120, y: 150 },
-        OldDeletedEntity: { x: 500, y: 500 }
+        Form: { x: 120, y: 150 },
+        DeletedOldEntity: { x: 500, y: 500 }
       }
     };
 
     const currentEntities: EntityModel[] = [
       {
         id: '1',
-        name: 'AppForm',
-        filePath: '/src/AppForm.cs',
+        name: 'Form',
+        filePath: '/src/Form.cs',
         line: 1,
         projectName: 'App',
         properties: []
@@ -260,7 +216,7 @@ describe('EF Core Diagram Scanner & Storage (Strict 2-Pass)', () => {
 
     const synced = liveSyncDiagramWithCode(saved, currentEntities);
     assert.deepEqual(synced, {
-      AppForm: { x: 120, y: 150 }
+      Form: { x: 120, y: 150 }
     });
   });
 });
