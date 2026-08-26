@@ -44,14 +44,16 @@ export function getEfDiagramClientScript(): string {
   let startPanY = 0;
 
   let draggedCard = null;
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
+  let dragStartMouseX = 0;
+  let dragStartMouseY = 0;
   let batchDragInitialPositions = {};
 
   // Draggable Note State
   let draggedNote = null;
-  let noteDragOffsetX = 0;
-  let noteDragOffsetY = 0;
+  let noteDragStartMouseX = 0;
+  let noteDragStartMouseY = 0;
+  let noteInitialX = 0;
+  let noteInitialY = 0;
 
   // Draggable Inspector State
   let draggedInspector = null;
@@ -927,9 +929,8 @@ export function getEfDiagramClientScript(): string {
           }
         });
 
-        const rect = card.getBoundingClientRect();
-        dragOffsetX = (e.clientX - rect.left) / zoom;
-        dragOffsetY = (e.clientY - rect.top) / zoom;
+        dragStartMouseX = e.clientX;
+        dragStartMouseY = e.clientY;
         closeAllPopovers();
         e.stopPropagation();
       });
@@ -1006,10 +1007,11 @@ export function getEfDiagramClientScript(): string {
         if (e.target.closest('.note-dot') || e.target.closest('.note-close-btn')) return;
         draggedNote = noteEl;
         header.setPointerCapture(e.pointerId);
-        noteEl.classList.add('dragging');
-        const rect = noteEl.getBoundingClientRect();
-        noteDragOffsetX = (e.clientX - rect.left) / zoom;
-        noteDragOffsetY = (e.clientY - rect.top) / zoom;
+        noteDragStartMouseX = e.clientX;
+        noteDragStartMouseY = e.clientY;
+        noteInitialX = note.x;
+        noteInitialY = note.y;
+        closeAllPopovers();
         e.stopPropagation();
       });
 
@@ -1663,7 +1665,7 @@ export function getEfDiagramClientScript(): string {
         x1 = fromRight;
         x2 = toRight;
         const maxRight = Math.max(fromRight, toRight);
-        const loopOffset = Math.max(40, Math.min(100, Math.abs(y2 - y1) * 0.2));
+        const loopOffset = Math.max(25, Math.min(60, Math.abs(y2 - y1) * 0.15));
         cx1 = maxRight + loopOffset;
         cy1 = y1;
         cx2 = maxRight + loopOffset;
@@ -1673,7 +1675,7 @@ export function getEfDiagramClientScript(): string {
         x1 = fromLeft;
         x2 = toLeft;
         const minLeft = Math.min(fromLeft, toLeft);
-        const loopOffset = Math.max(40, Math.min(100, Math.abs(y2 - y1) * 0.2));
+        const loopOffset = Math.max(25, Math.min(60, Math.abs(y2 - y1) * 0.15));
         cx1 = minLeft - loopOffset;
         cy1 = y1;
         cx2 = minLeft - loopOffset;
@@ -2049,13 +2051,8 @@ export function getEfDiagramClientScript(): string {
         }
       }
     } else if (draggedCard) {
-      const rect = viewport.getBoundingClientRect();
-      const primaryName = draggedCard.querySelector('.card-header').dataset.entityName;
-      const newX = (e.clientX - rect.left - panX) / zoom - dragOffsetX;
-      const newY = (e.clientY - rect.top - panY) / zoom - dragOffsetY;
-
-      const deltaX = Math.round(newX) - (batchDragInitialPositions[primaryName]?.x || activePositions[primaryName].x);
-      const deltaY = Math.round(newY) - (batchDragInitialPositions[primaryName]?.y || activePositions[primaryName].y);
+      const deltaX = Math.round((e.clientX - dragStartMouseX) / zoom);
+      const deltaY = Math.round((e.clientY - dragStartMouseY) / zoom);
 
       // Move all selected cards in batch
       selectedEntityNames.forEach(selName => {
@@ -2074,9 +2071,10 @@ export function getEfDiagramClientScript(): string {
 
       scheduleSvgUpdate();
     } else if (draggedNote) {
-      const rect = viewport.getBoundingClientRect();
-      const newX = Math.round((e.clientX - rect.left - panX) / zoom - noteDragOffsetX);
-      const newY = Math.round((e.clientY - rect.top - panY) / zoom - noteDragOffsetY);
+      const deltaX = Math.round((e.clientX - noteDragStartMouseX) / zoom);
+      const deltaY = Math.round((e.clientY - noteDragStartMouseY) / zoom);
+      const newX = noteInitialX + deltaX;
+      const newY = noteInitialY + deltaY;
 
       draggedNote.style.left = newX + 'px';
       draggedNote.style.top = newY + 'px';
@@ -2180,10 +2178,6 @@ export function getEfDiagramClientScript(): string {
 
     scheduleSvgUpdate();
   }
-
-  if (btnAlignLeft) btnAlignLeft.addEventListener('click', () => alignSelected('left'));
-  if (btnAlignTop) btnAlignTop.addEventListener('click', () => alignSelected('top'));
-  if (btnDistributeH) btnDistributeH.addEventListener('click', () => alignSelected('distributeH'));
 
   // Floating Toast Notification
   const diagramToast = document.getElementById('diagramToast');
