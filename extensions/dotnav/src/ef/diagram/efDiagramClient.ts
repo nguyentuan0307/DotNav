@@ -15,7 +15,6 @@ export function getEfDiagramClientScript(): string {
   let minimizedCards = new Set();
   let hiddenColumnsByEntity = {}; // { [entityName]: Set<propName> }
   let colorByEntity = {}; // { [entityName]: hexColor }
-  let activePopoverEntity = null;
 
   let currentDiagramName = 'Default';
   let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
@@ -68,6 +67,10 @@ export function getEfDiagramClientScript(): string {
     { name: 'Rose', hex: '#e11d48' },
     { name: 'Cyan', hex: '#0891b2' }
   ];
+
+  function columnVisibilityIcon(visible) {
+    return '<span class="column-toggle-icon"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/>' + (visible ? '' : '<path d="M2 2l12 12"/>') + '</svg></span>';
+  }
 
   // Initialize
   window.addEventListener('message', event => {
@@ -484,7 +487,9 @@ export function getEfDiagramClientScript(): string {
             <span class="card-subtitle">\${escapeHtml(tableDisplay)}</span>
           </div>
           <div class="card-actions">
-            <button class="card-action-btn card-columns-btn" title="Manage Columns (Show/Hide)">👁️</button>
+            <button class="card-action-btn card-columns-btn" title="Manage Columns (Show/Hide)">
+              \${columnVisibilityIcon(true)}
+            </button>
             <button class="card-action-btn card-minimize-btn" title="\${isMinimized ? 'Expand' : 'Minimize'}">\${isMinimized ? '▢' : '—'}</button>
             <button class="card-action-btn card-close-btn" title="Remove from Diagram">✕</button>
           </div>
@@ -492,7 +497,7 @@ export function getEfDiagramClientScript(): string {
         <div class="card-body">
           \${propRowsHtml}
         </div>
-        \${hiddenCount > 0 ? \`<div class="card-hidden-footer" title="Click to manage hidden columns"><span>👁️ + \${hiddenCount} hidden columns</span><span style="opacity:0.7;">manage ▸</span></div>\` : ''}
+        \${hiddenCount > 0 ? \`<div class="card-hidden-footer" title="Click to manage hidden columns"><span>\${columnVisibilityIcon(false)} + \${hiddenCount} hidden columns</span><span style="opacity:0.7;">manage ▸</span></div>\` : ''}
       \`;
 
       // Header double-click to toggle minimize
@@ -657,20 +662,28 @@ export function getEfDiagramClientScript(): string {
         </div>
         <div class="prop-actions">
           <span class="prop-type">\${escapeHtml(prop.type)}</span>
-          <button class="prop-eye-btn" data-prop-name="\${escapeHtml(prop.name)}" title="Hide column">👁️</button>
+          <button class="prop-eye-btn" data-prop-name="\${escapeHtml(prop.name)}" title="Hide column">
+            \${columnVisibilityIcon(true)}
+          </button>
           \${expandBtn}
         </div>
       </div>
     \`;
   }
 
-  // Floating Column Manager Popover
+  // GitNav-Style Floating Column Manager Popover (In-place multi-select)
   function openColumnManagerPopover(entity, card, triggerBtn) {
+    const existing = document.getElementById('activePopover');
+    if (existing && existing.dataset.entityName === entity.name) {
+      existing.remove();
+      return;
+    }
     closeAllPopovers();
 
     const popover = document.createElement('div');
     popover.className = 'columns-popover';
     popover.id = 'activePopover';
+    popover.dataset.entityName = entity.name;
 
     if (!hiddenColumnsByEntity[entity.name]) {
       hiddenColumnsByEntity[entity.name] = new Set();
@@ -679,26 +692,32 @@ export function getEfDiagramClientScript(): string {
 
     popover.innerHTML = \`
       <div class="popover-header">
-        <span>👁️ Manage Columns</span>
-        <span style="font-size: 10px; color: var(--text-muted);">\${entity.properties.length} total</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          \${columnVisibilityIcon(true)}
+          <span>Manage Columns</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size: 10px; color: var(--text-muted);">\${entity.properties.length} total</span>
+          <button class="popover-close-btn" title="Close">✕</button>
+        </div>
       </div>
       <div class="popover-search">
         <input type="text" placeholder="Filter column name..." />
       </div>
       <div class="popover-list">
         \${entity.properties.map(p => {
-          const isChecked = !hiddenSet.has(p.name);
+          const isVisible = !hiddenSet.has(p.name);
           const keyLabel = p.isPrimaryKey ? ' (PK)' : (p.isForeignKey ? ' (FK)' : '');
           return \`
-            <label class="popover-item" data-prop-name="\${escapeHtml(p.name)}">
-              <div style="display:flex; align-items:center; gap:6px; overflow:hidden;">
-                <input type="checkbox" \${isChecked ? 'checked' : ''} style="cursor:pointer;" />
+            <div class="column-toggle-row" role="menuitemcheckbox" aria-checked="\${isVisible}" data-prop-name="\${escapeHtml(p.name)}" title="Toggle \${escapeHtml(p.name)}">
+              <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+                \${columnVisibilityIcon(isVisible)}
                 <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; \${p.isPrimaryKey ? 'color:var(--pk-color);font-weight:600;' : ''}">
                   \${escapeHtml(p.name)}\${keyLabel}
                 </span>
               </div>
               <span style="font-size:10px; color:var(--type-color); font-family:monospace;">\${escapeHtml(p.type)}</span>
-            </label>
+            </div>
           \`;
         }).join('')}
       </div>
@@ -709,52 +728,140 @@ export function getEfDiagramClientScript(): string {
       </div>
     \`;
 
+    // Close button on popover header
+    popover.querySelector('.popover-close-btn').addEventListener('click', () => {
+      closeAllPopovers();
+    });
+
     // Filter input search inside popover
     const searchInput = popover.querySelector('.popover-search input');
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
-      popover.querySelectorAll('.popover-item').forEach(item => {
+      popover.querySelectorAll('.column-toggle-row').forEach(item => {
         const name = item.dataset.propName.toLowerCase();
         item.style.display = name.includes(q) ? 'flex' : 'none';
       });
     });
 
-    // Checkbox toggles
-    popover.querySelectorAll('.popover-item input[type="checkbox"]').forEach(chk => {
-      chk.addEventListener('change', e => {
-        const propName = chk.closest('.popover-item').dataset.propName;
-        if (chk.checked) {
+    // Helper to refresh card rows and SVG in-place without destroying the popover
+    function syncCardVisibilityInPlace() {
+      let visibleCount = 0;
+      entity.properties.forEach(p => {
+        const isHidden = isPropertyHidden(entity, p, hiddenSet);
+        if (!isHidden) visibleCount++;
+        const rowEl = card.querySelector(\`.prop-row[data-prop-name="\${p.name}"]\`);
+        if (rowEl) {
+          rowEl.classList.toggle('hidden-prop', isHidden);
+        }
+      });
+
+      const totalProps = entity.properties.length;
+      const hiddenCount = totalProps - visibleCount;
+
+      // Update badge in header
+      let badgeEl = card.querySelector('.card-visibility-badge');
+      if (hiddenCount > 0) {
+        if (!badgeEl) {
+          badgeEl = document.createElement('span');
+          badgeEl.className = 'card-visibility-badge';
+          card.querySelector('.card-title').appendChild(badgeEl);
+        }
+        badgeEl.textContent = \`(\${visibleCount}/\${totalProps})\`;
+        badgeEl.title = \`\${hiddenCount} columns hidden\`;
+      } else if (badgeEl) {
+        badgeEl.remove();
+      }
+
+      // Update footer
+      let footer = card.querySelector('.card-hidden-footer');
+      if (hiddenCount > 0) {
+        if (!footer) {
+          footer = document.createElement('div');
+          footer.className = 'card-hidden-footer';
+          footer.title = 'Click to manage hidden columns';
+          footer.addEventListener('click', e => {
+            e.stopPropagation();
+            openColumnManagerPopover(entity, card, triggerBtn);
+          });
+          card.appendChild(footer);
+        }
+        footer.innerHTML = \`<span>\${columnVisibilityIcon(false)} + \${hiddenCount} hidden columns</span><span style="opacity:0.7;">manage ▸</span>\`;
+      } else if (footer) {
+        footer.remove();
+      }
+
+      requestAnimationFrame(updateSvgLinks);
+    }
+
+    // Toggle individual column rows in-place
+    popover.querySelectorAll('.column-toggle-row').forEach(row => {
+      row.addEventListener('click', e => {
+        e.stopPropagation();
+        const propName = row.dataset.propName;
+        const currentlyVisible = !hiddenSet.has(propName);
+        const nextVisible = !currentlyVisible;
+
+        if (nextVisible) {
           hiddenSet.delete(propName);
         } else {
           hiddenSet.add(propName);
         }
-        renderCanvas();
+
+        row.setAttribute('aria-checked', String(nextVisible));
+        const iconSpan = row.querySelector('.column-toggle-icon');
+        if (iconSpan) {
+          iconSpan.outerHTML = columnVisibilityIcon(nextVisible);
+        }
+
+        syncCardVisibilityInPlace();
       });
     });
 
-    // Quick action buttons
-    popover.querySelector('#popShowAll').addEventListener('click', () => {
+    // Quick action buttons in-place
+    popover.querySelector('#popShowAll').addEventListener('click', e => {
+      e.stopPropagation();
       hiddenSet.clear();
-      renderCanvas();
+      popover.querySelectorAll('.column-toggle-row').forEach(row => {
+        row.setAttribute('aria-checked', 'true');
+        const iconSpan = row.querySelector('.column-toggle-icon');
+        if (iconSpan) iconSpan.outerHTML = columnVisibilityIcon(true);
+      });
+      syncCardVisibilityInPlace();
     });
 
-    popover.querySelector('#popKeysOnly').addEventListener('click', () => {
+    popover.querySelector('#popKeysOnly').addEventListener('click', e => {
+      e.stopPropagation();
       hiddenSet.clear();
       entity.properties.forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey) {
           hiddenSet.add(p.name);
         }
       });
-      renderCanvas();
+      popover.querySelectorAll('.column-toggle-row').forEach(row => {
+        const propName = row.dataset.propName;
+        const visible = !hiddenSet.has(propName);
+        row.setAttribute('aria-checked', String(visible));
+        const iconSpan = row.querySelector('.column-toggle-icon');
+        if (iconSpan) iconSpan.outerHTML = columnVisibilityIcon(visible);
+      });
+      syncCardVisibilityInPlace();
     });
 
-    popover.querySelector('#popHideAudit').addEventListener('click', () => {
+    popover.querySelector('#popHideAudit').addEventListener('click', e => {
+      e.stopPropagation();
       entity.properties.forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey && AUDIT_FIELD_NAMES.has(p.name.toLowerCase())) {
           hiddenSet.add(p.name);
         }
       });
-      renderCanvas();
+      popover.querySelectorAll('.column-toggle-row').forEach(row => {
+        const propName = row.dataset.propName;
+        const visible = !hiddenSet.has(propName);
+        row.setAttribute('aria-checked', String(visible));
+        const iconSpan = row.querySelector('.column-toggle-icon');
+        if (iconSpan) iconSpan.outerHTML = columnVisibilityIcon(visible);
+      });
+      syncCardVisibilityInPlace();
     });
 
     card.appendChild(popover);
@@ -772,7 +879,7 @@ export function getEfDiagramClientScript(): string {
 
     menu.innerHTML = \`
       <div class="context-menu-item" id="ctxManageCols">
-        <span>👁️</span> Manage Columns...
+        \${columnVisibilityIcon(true)} Manage Columns...
       </div>
       <div class="context-menu-item" id="ctxKeysOnly">
         <span>🔑</span> Show Keys Only

@@ -524,14 +524,13 @@ body, html {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: all 0.12s ease;
-  font-size: 12px;
 }
 
 .card-action-btn:hover {
@@ -631,7 +630,7 @@ body, html {
 .prop-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 /* Inline 1-Click Eye Hide Button on Row Hover */
@@ -640,15 +639,14 @@ body, html {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  width: 16px;
-  height: 16px;
-  border-radius: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease;
-  font-size: 11px;
 }
 
 .prop-row:hover .prop-eye-btn {
@@ -658,6 +656,7 @@ body, html {
 .prop-eye-btn:hover {
   opacity: 1 !important;
   color: #60a5fa;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .prop-expand-btn {
@@ -691,7 +690,7 @@ body, html {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .card-hidden-footer:hover {
@@ -699,17 +698,17 @@ body, html {
   color: #60a5fa;
 }
 
-/* Floating Column Visibility Popover */
+/* GitNav-Style Floating Column Visibility Popover */
 .columns-popover {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 4px;
-  width: 260px;
+  margin-top: 6px;
+  width: 290px;
   background: #1e2227;
   border: 1px solid #4b5263;
   border-radius: 6px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -718,7 +717,7 @@ body, html {
 }
 
 .popover-header {
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: #282c34;
   border-bottom: 1px solid #3c4048;
   display: flex;
@@ -729,44 +728,96 @@ body, html {
   color: #ffffff;
 }
 
+.popover-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+.popover-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .popover-search {
-  padding: 6px 10px;
+  padding: 8px 10px;
   border-bottom: 1px solid #3c4048;
+  background: #1e2227;
 }
 
 .popover-search input {
   width: 100%;
   background: #14161a;
   border: 1px solid #3c4048;
-  border-radius: 3px;
-  padding: 4px 8px;
+  border-radius: 4px;
+  padding: 5px 8px;
   font-size: 11px;
   color: #ffffff;
   outline: none;
 }
 
+.popover-search input:focus {
+  border-color: #3b82f6;
+}
+
 .popover-list {
-  max-height: 220px;
+  max-height: 240px;
   overflow-y: auto;
   padding: 4px 0;
 }
 
-.popover-item {
+/* GitNav-Style Column Toggle Row */
+.column-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: 6px 12px;
+  font-size: 12px;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: background 0.1s ease, color 0.1s ease;
+  color: var(--text-main);
+  gap: 8px;
 }
 
-.popover-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+.column-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.column-toggle-row[aria-checked="false"] {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.column-toggle-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: #60a5fa;
+}
+
+.column-toggle-row[aria-checked="false"] .column-toggle-icon {
+  color: var(--text-muted);
+}
+
+.column-toggle-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .popover-actions {
-  padding: 6px 10px;
+  padding: 8px 10px;
   background: #181a1f;
   border-top: 1px solid #3c4048;
   display: flex;
@@ -779,14 +830,16 @@ body, html {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text-main);
-  padding: 3px 6px;
-  border-radius: 3px;
-  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
   cursor: pointer;
+  transition: all 0.1s ease;
 }
 
 .popover-btn:hover {
   background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
 }
 
 /* Custom Right-Click Context Menu */
@@ -797,7 +850,7 @@ body, html {
   border-radius: 6px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   z-index: 1000;
-  min-width: 170px;
+  min-width: 180px;
   padding: 4px 0;
   display: flex;
   flex-direction: column;
