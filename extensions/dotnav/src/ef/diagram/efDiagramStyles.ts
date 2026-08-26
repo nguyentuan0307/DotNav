@@ -84,15 +84,94 @@ body, html {
   border-color: var(--vscode-focusBorder, #007acc);
 }
 
+.context-filter-select {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--vscode-dropdown-background, #3c3c3c);
+  color: var(--vscode-dropdown-foreground, #cccccc);
+  border: 1px solid var(--vscode-dropdown-border, #3c3c3c);
+  border-radius: 4px;
+  font-size: 11px;
+  outline: none;
+}
+
 .entity-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 6px;
+  padding: 6px 4px;
+}
+
+/* Entity Group Accordion */
+.entity-group {
+  margin-bottom: 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.entity-group-header {
+  padding: 6px 8px;
+  background: var(--vscode-sideBarSectionHeader-background, #303030);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+  transition: background 0.15s ease;
+}
+
+.entity-group-header:hover {
+  background: var(--vscode-list-hoverBackground, #383838);
+}
+
+.entity-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-group-toggle {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.entity-group.collapsed .entity-group-toggle {
+  transform: rotate(-90deg);
+}
+
+.entity-group.collapsed .entity-group-content {
+  display: none;
+}
+
+.entity-group-content {
+  padding: 4px 0 4px 6px;
+}
+
+.entity-group-add-all-btn {
+  background: transparent;
+  border: 1px solid var(--card-border);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.entity-group-add-all-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .entity-list-item {
-  padding: 6px 10px;
-  margin-bottom: 4px;
+  padding: 5px 8px;
+  margin-bottom: 3px;
   border-radius: 4px;
   cursor: grab;
   display: flex;
@@ -126,7 +205,7 @@ body, html {
 
 .entity-item-badge {
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 1px 5px;
   background: var(--card-border);
   border-radius: 10px;
   color: var(--text-muted);

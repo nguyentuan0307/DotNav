@@ -25,6 +25,9 @@ export function renderEfDiagramHtml(): string {
           <span>Entity Palette</span>
         </div>
         <input type="text" class="search-box" id="searchBox" placeholder="Filter entities (e.g. Form, Tenant)..." autocomplete="off" />
+        <select class="context-filter-select" id="contextFilterSelect" title="Filter by DbContext / Database">
+          <option value="ALL">All Databases / Contexts</option>
+        </select>
       </div>
       <div class="entity-list" id="entityList">
         <!-- Injected dynamically via client script -->

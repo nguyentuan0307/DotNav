@@ -84,7 +84,20 @@ export function registerEfCommands(context: vscode.ExtensionContext, feature: Ef
     vscode.commands.executeCommand('workbench.action.openSettings', 'dotnav.ef'));
   register('dotnav.ef.installTool', (node?: EfCommandSource) => installTool(feature, node));
   register('dotnav.ef.openCenter', (node?: EfCommandSource) => addMigration(feature, node));
-  register('dotnav.ef.openDiagram', (entityName?: string) => openEfDiagramPanel(context, entityName));
+  register('dotnav.ef.openDiagram', (arg?: string | EfCommandSource) => {
+    let entityName: string | undefined;
+    let initialContext: string | undefined;
+    if (typeof arg === 'string') {
+      entityName = arg;
+    } else if (arg && typeof arg === 'object') {
+      if ('contextName' in arg && typeof (arg as any).contextName === 'string') {
+        initialContext = (arg as any).contextName;
+      } else if ('name' in arg && typeof (arg as any).name === 'string') {
+        initialContext = (arg as any).name;
+      }
+    }
+    return openEfDiagramPanel(context, entityName, initialContext);
+  });
   const handlers: EfActionHandlers<EfCommandSource> = {
     'dotnav.ef.addMigration': node => addMigration(feature, node),
     'dotnav.ef.createEmptyMigration': node => createEmptyMigrationCommand(feature, node),

@@ -82,7 +82,8 @@ export async function scanWorkspaceEntities(): Promise<{
 
 export async function openEfDiagramPanel(
   context: vscode.ExtensionContext,
-  initialEntityName?: string
+  initialEntityName?: string,
+  initialDbContextFilter?: string
 ): Promise<void> {
   const isEnabled = vscode.workspace.getConfiguration('dotnav.ef.diagram').get<boolean>('enabled', true);
   if (!isEnabled) {
@@ -101,15 +102,16 @@ export async function openEfDiagramPanel(
 
   if (currentDiagramPanel) {
     currentDiagramPanel.reveal(vscode.ViewColumn.One);
-    if (initialEntityName) {
-      // Add initial entity to canvas
+    if (initialEntityName || initialDbContextFilter) {
+      // Add initial entity or filter to canvas
       const { entities, relationships } = await scanWorkspaceEntities();
       currentDiagramPanel.webview.postMessage({
         type: 'init',
         allEntities: entities,
         relationships,
         activeDiagramName: 'Default',
-        activePositions: { [initialEntityName]: { x: 120, y: 120 } }
+        activePositions: initialEntityName ? { [initialEntityName]: { x: 120, y: 120 } } : undefined,
+        initialDbContextFilter
       });
     }
     return;
@@ -162,7 +164,8 @@ export async function openEfDiagramPanel(
           relationships,
           activeDiagramName: 'Default',
           activePositions,
-          savedDiagramNames: savedDiagrams
+          savedDiagramNames: savedDiagrams,
+          initialDbContextFilter
         });
         break;
       }

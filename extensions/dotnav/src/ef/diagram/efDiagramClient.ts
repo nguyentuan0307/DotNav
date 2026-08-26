@@ -25,9 +25,20 @@ export function getEfDiagramClientScript(): string {
   const cardsLayer = document.getElementById('cardsLayer');
   const entityListEl = document.getElementById('entityList');
   const searchBox = document.getElementById('searchBox');
+  const contextFilterSelect = document.getElementById('contextFilterSelect');
   const diagramSelect = document.getElementById('diagramSelect');
   const emptyPrompt = document.getElementById('emptyPrompt');
   const zoomDisplay = document.getElementById('zoomDisplay');
+
+  let selectedContextFilter = 'ALL';
+
+  // Helper to determine entity's DbContext or Project group
+  function getEntityGroupName(entity) {
+    if (entity.dbContextNames && entity.dbContextNames.length > 0) {
+      return entity.dbContextNames[0];
+    }
+    return entity.projectName || 'Common / Domain Entities';
+  }
 
   // Initialize
   window.addEventListener('message', event => {
@@ -38,7 +49,11 @@ export function getEfDiagramClientScript(): string {
         allRelationships = msg.relationships || [];
         activePositions = msg.activePositions || {};
         currentDiagramName = msg.activeDiagramName || 'Default';
+        if (msg.initialDbContextFilter) {
+          selectedContextFilter = msg.initialDbContextFilter;
+        }
         updateDiagramSelect(msg.savedDiagramNames || []);
+        updateContextFilterSelect();
         renderEntityList();
         renderCanvas();
         break;
@@ -55,6 +70,30 @@ export function getEfDiagramClientScript(): string {
   });
 
   vscode.postMessage({ type: 'ready' });
+
+  // Update Context / Database Dropdown
+  function updateContextFilterSelect() {
+    if (!contextFilterSelect) return;
+    const groups = new Set();
+    for (const e of allEntities) {
+      groups.add(getEntityGroupName(e));
+    }
+    contextFilterSelect.innerHTML = '<option value="ALL">All Databases / Contexts</option>';
+    for (const g of Array.from(groups).sort()) {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = g;
+      contextFilterSelect.appendChild(opt);
+    }
+    contextFilterSelect.value = selectedContextFilter;
+  }
+
+  if (contextFilterSelect) {
+    contextFilterSelect.addEventListener('change', () => {
+      selectedContextFilter = contextFilterSelect.value;
+      renderEntityList(searchBox.value);
+    });
+  }
 
   // Update Diagram Dropdown
   function updateDiagramSelect(savedNames) {
@@ -80,52 +119,124 @@ export function getEfDiagramClientScript(): string {
     vscode.postMessage({ type: 'loadDiagram', name: val });
   });
 
-  // Render Sidebar Entity List
+  // Render Sidebar Entity List with Accordion Groups
   function renderEntityList(filter = '') {
     entityListEl.innerHTML = '';
     const q = filter.trim().toLowerCase();
 
-    const filtered = allEntities.filter(e => {
-      if (!q) return true;
-      return e.name.toLowerCase().includes(q) || (e.tableName && e.tableName.toLowerCase().includes(q));
-    });
+    // Group entities
+    const groups = {};
+    for (const entity of allEntities) {
+      const groupName = getEntityGroupName(entity);
+      if (selectedContextFilter !== 'ALL' && groupName !== selectedContextFilter) {
+        continue;
+      }
+      if (q && !entity.name.toLowerCase().includes(q) && !(entity.tableName && entity.tableName.toLowerCase().includes(q))) {
+        continue;
+      }
+      if (!groups[groupName]) {
+        groups[groupName] = [];
+      }
+      groups[groupName].push(entity);
+    }
 
-    for (const entity of filtered) {
-      const item = document.createElement('div');
-      item.className = 'entity-list-item' + (activePositions[entity.name] ? ' in-diagram' : '');
-      item.draggable = true;
-      item.dataset.entityName = entity.name;
+    const groupKeys = Object.keys(groups).sort();
+    if (groupKeys.length === 0) {
+      entityListEl.innerHTML = '<div style="padding: 12px; font-size: 11px; color: var(--text-muted); text-align: center;">No entities found.</div>';
+      return;
+    }
 
-      item.innerHTML = \`
-        <div class="entity-item-info">
-          <span style="color: var(--pk-color);">🔑</span>
-          <span class="entity-item-name">\${escapeHtml(entity.name)}</span>
+    for (const groupName of groupKeys) {
+      const entitiesInGroup = groups[groupName];
+      const groupEl = document.createElement('div');
+      groupEl.className = 'entity-group';
+
+      const headerEl = document.createElement('div');
+      headerEl.className = 'entity-group-header';
+      headerEl.innerHTML = \`
+        <div class="entity-group-title">
+          <span class="entity-group-toggle">▼</span>
+          <span>📁 \${escapeHtml(groupName)}</span>
+          <span class="entity-item-badge">\${entitiesInGroup.length}</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 4px;">
-          <span class="entity-item-badge">\${entity.properties.length} cols</span>
-          <button class="entity-add-btn" title="Add to Diagram">➕</button>
-        </div>
+        <button class="entity-group-add-all-btn" title="Add all \${entitiesInGroup.length} tables to diagram">➕ Add All</button>
       \`;
 
-      // Drag start from sidebar
-      item.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', entity.name);
+      // Accordion toggle
+      headerEl.addEventListener('click', () => {
+        groupEl.classList.toggle('collapsed');
       });
 
-      // Click add button
-      const addBtn = item.querySelector('.entity-add-btn');
-      addBtn.addEventListener('click', e => {
+      // Add all entities in this group to canvas
+      const addAllBtn = headerEl.querySelector('.entity-group-add-all-btn');
+      addAllBtn.addEventListener('click', e => {
         e.stopPropagation();
-        addEntityToCanvas(entity.name);
+        addAllEntitiesToCanvas(entitiesInGroup);
       });
 
-      // Double-click to add
-      item.addEventListener('dblclick', () => {
-        addEntityToCanvas(entity.name);
-      });
+      const contentEl = document.createElement('div');
+      contentEl.className = 'entity-group-content';
 
-      entityListEl.appendChild(item);
+      for (const entity of entitiesInGroup) {
+        const item = document.createElement('div');
+        item.className = 'entity-list-item' + (activePositions[entity.name] ? ' in-diagram' : '');
+        item.draggable = true;
+        item.dataset.entityName = entity.name;
+
+        item.innerHTML = \`
+          <div class="entity-item-info">
+            <span style="color: var(--pk-color);">🔑</span>
+            <span class="entity-item-name">\${escapeHtml(entity.name)}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <span class="entity-item-badge">\${entity.properties.length} cols</span>
+            <button class="entity-add-btn" title="Add to Diagram">➕</button>
+          </div>
+        \`;
+
+        // Drag start from sidebar
+        item.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', entity.name);
+        });
+
+        // Click add button
+        const addBtn = item.querySelector('.entity-add-btn');
+        addBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          addEntityToCanvas(entity.name);
+        });
+
+        // Double-click to add
+        item.addEventListener('dblclick', () => {
+          addEntityToCanvas(entity.name);
+        });
+
+        contentEl.appendChild(item);
+      }
+
+      groupEl.appendChild(headerEl);
+      groupEl.appendChild(contentEl);
+      entityListEl.appendChild(groupEl);
     }
+  }
+
+  // Batch add multiple entities to canvas in a grid layout
+  function addAllEntitiesToCanvas(entities) {
+    let currentCount = Object.keys(activePositions).length;
+    let added = 0;
+
+    for (const entity of entities) {
+      if (!activePositions[entity.name]) {
+        const idx = currentCount + added;
+        const posX = 60 + (idx % 3) * 320;
+        const posY = 60 + Math.floor(idx / 3) * 340;
+        activePositions[entity.name] = { x: Math.round(posX), y: Math.round(posY) };
+        added++;
+      }
+    }
+
+    renderEntityList(searchBox.value);
+    renderCanvas();
   }
 
   searchBox.addEventListener('input', () => {
