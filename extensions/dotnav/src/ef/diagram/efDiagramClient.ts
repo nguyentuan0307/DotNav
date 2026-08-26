@@ -445,22 +445,27 @@ export function getEfDiagramClientScript(): string {
     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     pathEl.setAttribute('d', pathData);
     pathEl.setAttribute('class', 'link-path');
+    pathEl.setAttribute('fill', 'none');
+    pathEl.setAttribute('stroke', '#3b82f6');
+    pathEl.setAttribute('stroke-width', '2');
     linksSvg.appendChild(pathEl);
 
     // One indicator (from 1)
     const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle1.setAttribute('cx', x1);
     circle1.setAttribute('cy', y1);
-    circle1.setAttribute('r', 3);
+    circle1.setAttribute('r', 3.5);
     circle1.setAttribute('class', 'link-endpoint');
+    circle1.setAttribute('fill', '#3b82f6');
     linksSvg.appendChild(circle1);
 
     // Many indicator (Crow's Foot at toEntity)
     const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle2.setAttribute('cx', x2);
     circle2.setAttribute('cy', y2);
-    circle2.setAttribute('r', 4);
+    circle2.setAttribute('r', 4.5);
     circle2.setAttribute('class', 'link-crowfoot');
+    circle2.setAttribute('fill', '#3b82f6');
     linksSvg.appendChild(circle2);
   }
 

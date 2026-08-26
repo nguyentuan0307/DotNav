@@ -65,14 +65,14 @@ const KNOWN_BASE_ENTITY_NAMES = new Set([
 ]);
 
 /**
- * Parses EF Core *ModelSnapshot.cs files to extract exact database schema as recognized by EF Core.
+ * Parses EF Core *ModelSnapshot.cs files and merges multi-block entity definitions (properties, relationships, navigations).
  */
 export function parseModelSnapshotFromCSharp(code: string, filePath: string): SnapshotContextResult | undefined {
   if (!code.includes('ModelSnapshot') && !code.includes('[DbContext(')) {
     return undefined;
   }
 
-  // Extract DbContext name: [DbContext(typeof(CustomAppDbContext))]
+  // Extract DbContext name: [DbContext(typeof(CustomAppDbContext))] or class CustomAppDbContextModelSnapshot
   let dbContextName = '';
   const contextAttrMatch = code.match(/\[DbContext\s*\(\s*typeof\s*\(\s*([A-Za-z0-9_.]+)\s*\)\s*\)\]/);
   if (contextAttrMatch) {
@@ -88,7 +88,8 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
     return undefined;
   }
 
-  const entities: SnapshotEntityInfo[] = [];
+  // Use Map to merge multiple modelBuilder.Entity("AppWidget", b => ...) blocks for the SAME entity
+  const entityMap = new Map<string, SnapshotEntityInfo>();
 
   // Match: modelBuilder.Entity("ELDesk.CustomApp.SharedDomain.Entities.Applications.Entities.AppField", b => { ... });
   const entityBlockRegex = /modelBuilder\.Entity\s*\(\s*["']([^"']+)["']\s*,\s*([a-zA-Z0-9_]+)\s*=>\s*\{/g;
@@ -116,34 +117,50 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
 
     const entityBody = code.substring(blockStart, blockEnd);
 
-    // Extract table & schema: b.ToTable("formelement", "custom");
-    let tableName = shortName;
-    let schemaName: string | undefined;
-    const tableMatch = entityBody.match(new RegExp(`${builderVar}\\.ToTable\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)`));
-    if (tableMatch) {
-      tableName = tableMatch[1];
-      schemaName = tableMatch[2];
+    // Retrieve or initialize the merged entity entry
+    let entityInfo = entityMap.get(fullName);
+    if (!entityInfo) {
+      entityInfo = {
+        fullName,
+        shortName,
+        primaryKeys: [],
+        properties: [],
+        relationships: []
+      };
+      entityMap.set(fullName, entityInfo);
     }
 
-    // Extract Primary Keys: b.HasKey("Id"); or b.HasKey("Id", "TenantId");
-    const primaryKeys: string[] = [];
+    // 1. Extract table & schema: b.ToTable("formelement", "custom"); or b.ToTable("appwidget", (string)null);
+    const tableMatch = entityBody.match(new RegExp(`${builderVar}\\.ToTable\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*(?:["']([^"']+)["']|\\(string\\)null))?\\s*\\)`));
+    if (tableMatch) {
+      entityInfo.tableName = tableMatch[1];
+      if (tableMatch[2]) {
+        entityInfo.schemaName = tableMatch[2];
+      }
+    }
+
+    // 2. Extract Primary Keys: b.HasKey("Id"); or b.HasKey("Id", "TenantId");
     const keyMatch = entityBody.match(new RegExp(`${builderVar}\\.HasKey\\s*\\(\\s*([^)]+)\\s*\\)`));
     if (keyMatch) {
       const keys = keyMatch[1].match(/["']([^"']+)["']/g);
       if (keys) {
-        primaryKeys.push(...keys.map(k => k.replace(/["']/g, '')));
+        for (const k of keys) {
+          const cleanK = k.replace(/["']/g, '');
+          if (!entityInfo.primaryKeys.includes(cleanK)) {
+            entityInfo.primaryKeys.push(cleanK);
+          }
+        }
       }
     }
 
-    // Extract Properties: b.Property<int>("Id");
-    const properties: EntityProperty[] = [];
+    // 3. Extract Properties: b.Property<int>("Id");
     const propRegex = new RegExp(`${builderVar}\\.Property\\s*(?:<([^>]+)>)?\\s*\\(\\s*["']([^"']+)["']\\s*\\)`, 'g');
     let propMatch: RegExpExecArray | null;
 
     while ((propMatch = propRegex.exec(entityBody)) !== null) {
       const typeStr = propMatch[1] || 'object';
       const propName = propMatch[2];
-      const isPk = primaryKeys.includes(propName);
+      const isPk = entityInfo.primaryKeys.includes(propName);
       let isFk = false;
       let fkTarget: string | undefined;
 
@@ -152,21 +169,23 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
         fkTarget = propName === 'TenantId' ? 'Tenant' : propName.slice(0, -2);
       }
 
-      properties.push({
-        name: propName,
-        type: typeStr,
-        isPrimaryKey: isPk,
-        isForeignKey: isFk,
-        isNullable: typeStr.endsWith('?') || typeStr.startsWith('Nullable<'),
-        isNavigation: false,
-        foreignKeyTargetEntity: fkTarget
-      });
+      // Avoid duplicate properties
+      if (!entityInfo.properties.some(p => p.name.toLowerCase() === propName.toLowerCase())) {
+        entityInfo.properties.push({
+          name: propName,
+          type: typeStr,
+          isPrimaryKey: isPk,
+          isForeignKey: isFk,
+          isNullable: typeStr.endsWith('?') || typeStr.startsWith('Nullable<'),
+          isNavigation: false,
+          foreignKeyTargetEntity: fkTarget
+        });
+      }
     }
 
-    // Extract Relationships: b.HasOne(...).WithMany(...).HasForeignKey("FormId");
-    const relationships: EntityRelationship[] = [];
+    // 4. Extract Relationships: b.HasOne(...).WithMany(...).HasForeignKey("FormId");
     const relRegex = new RegExp(
-      `${builderVar}\\.HasOne\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)\\s*\\.WithMany\\s*\\(\\s*(?:["']([^"']+)["'])?\\s*\\)(?:\\s*\\.HasForeignKey\\s*\\(\\s*["']([^"']+)["']\\s*\\))?`,
+      `${builderVar}\\.HasOne\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)(?:\\s*\\.WithMany\\s*\\(\\s*(?:["']([^"']+)["'])?\\s*\\)|\\s*\\.WithOne\\s*\\(\\s*(?:["']([^"']+)["'])?\\s*\\))?(?:\\s*\\.HasForeignKey\\s*\\(\\s*(?:["'][^"']+["']\\s*,\\s*)?["']([^"']+)["']\\s*\\))?`,
       'g'
     );
     let relMatch: RegExpExecArray | null;
@@ -175,34 +194,39 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
       const principalFull = relMatch[1];
       const principalShort = principalFull.split('.').pop() || principalFull;
       const navName = relMatch[2];
-      const fkName = relMatch[4];
+      const fkName = relMatch[5];
 
-      relationships.push({
-        id: `${principalShort}->${shortName}:${fkName || navName || 'Id'}`,
-        fromEntity: principalShort,
-        fromProperty: 'Id',
-        toEntity: shortName,
-        toProperty: fkName,
-        cardinality: 'one-to-many',
-        foreignKeyName: fkName ? `FK_${shortName}_${principalShort}_${fkName}` : undefined
-      });
+      const relId = `${principalShort}->${shortName}:${fkName || navName || 'Id'}`;
+      if (!entityInfo.relationships.some(r => r.id === relId)) {
+        entityInfo.relationships.push({
+          id: relId,
+          fromEntity: principalShort,
+          fromProperty: 'Id',
+          toEntity: shortName,
+          toProperty: fkName,
+          cardinality: 'one-to-many',
+          foreignKeyName: fkName ? `FK_${shortName}_${principalShort}_${fkName}` : undefined
+        });
+      }
     }
-
-    entities.push({
-      fullName,
-      shortName,
-      tableName,
-      schemaName,
-      primaryKeys,
-      properties,
-      relationships
-    });
   }
+
+  // Update PK flags in properties if HasKey was declared after Property
+  for (const entity of entityMap.values()) {
+    for (const prop of entity.properties) {
+      if (entity.primaryKeys.includes(prop.name)) {
+        (prop as any).isPrimaryKey = true;
+      }
+    }
+  }
+
+  // Filter out any empty stub that has neither properties nor table
+  const validEntities = Array.from(entityMap.values()).filter(e => e.properties.length > 0 || !!e.tableName);
 
   return {
     dbContextName,
     filePath,
-    entities
+    entities: validEntities
   };
 }
 
@@ -236,9 +260,10 @@ export function parseRawClassesFromCSharp(
     }
 
     const isDbContext = 
-      /\b(?:DbContext|AuditlogDBContext|CleeksyDbContext|EFIntegrationEventContext|IdentityDbContext)\b/i.test(rawBaseTypes) ||
-      className.endsWith('DbContext') ||
-      className.endsWith('Context');
+      (className.endsWith('DbContext') || className.endsWith('Context')) &&
+      !STRICT_EXCLUDE_SUFFIXES.some(s => s !== 'Context' && className.endsWith(s)) &&
+      (/\b(?:DbContext|AuditlogDBContext|CleeksyDbContext|EFIntegrationEventContext|IdentityDbContext)\b/i.test(rawBaseTypes) ||
+       /DbSet<[A-Za-z0-9_]+>/.test(code.substring(classStartIndex)));
 
     // Find class closing brace
     let braceDepth = 1;
@@ -442,6 +467,11 @@ export function parseDbContextDbSets(code: string): { dbContextName: string; ent
     const baseTypes = match[2] || '';
     const startIndex = match.index;
 
+    // Discard any excluded suffixes
+    if (STRICT_EXCLUDE_SUFFIXES.some(s => s !== 'Context' && className.endsWith(s))) {
+      continue;
+    }
+
     // Check if this class is a DbContext (including base contexts like AuditlogDBContext, CleeksyDbContext, EFIntegrationEventContext)
     const isDbContext = 
       /\b(?:DbContext|AuditlogDBContext|CleeksyDbContext|EFIntegrationEventContext|IdentityDbContext)\b/i.test(baseTypes) ||
@@ -486,13 +516,17 @@ export function buildDbContextScopedModel(
     classMap.set(c.name.toLowerCase(), c);
   }
 
-  // 1. Gather all unique DbContext names
+  // 1. Gather all unique DbContext names (filter out noise like Repository)
   const contextNameSet = new Set<string>();
   for (const db of dbContextSets) {
-    contextNameSet.add(db.dbContextName);
+    if (db.entityTypes.length > 0 && !STRICT_EXCLUDE_SUFFIXES.some(s => s !== 'Context' && db.dbContextName.endsWith(s))) {
+      contextNameSet.add(db.dbContextName);
+    }
   }
   for (const snap of snapshots) {
-    contextNameSet.add(snap.dbContextName);
+    if (snap.entities.length > 0) {
+      contextNameSet.add(snap.dbContextName);
+    }
   }
 
   // Resolve inheritance between DbContexts (e.g. CustomAppDbContext -> CustomAppSharedDbContext)
@@ -631,7 +665,10 @@ export function buildDbContextScopedModel(
     relationshipsByContext[contextName] = rels;
   }
 
-  const availableDbContexts = Array.from(contextNameSet).sort();
+  // Only return DbContexts that have at least 1 entity
+  const availableDbContexts = Array.from(contextNameSet)
+    .filter(ctx => (entitiesByContext[ctx] || []).length > 0)
+    .sort();
 
   return {
     availableDbContexts,

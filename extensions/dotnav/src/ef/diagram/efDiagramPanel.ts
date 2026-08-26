@@ -32,18 +32,36 @@ export async function scanWorkspaceDbContextsAndEntities(): Promise<{
     return { availableDbContexts: [], entitiesByContext: {}, relationshipsByContext: {} };
   }
 
-  const csFiles = await vscode.workspace.findFiles(
-    '**/*.cs',
-    '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
-    3000
-  );
+  // 1. Fast targeted discovery for large codebases (12,000+ files)
+  const [snapshotFiles, contextFiles, entityFiles] = await Promise.all([
+    vscode.workspace.findFiles('**/*ModelSnapshot.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}'),
+    vscode.workspace.findFiles('**/*Context*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}'),
+    vscode.workspace.findFiles(
+      '{**/EntitiesConfig/**/*.cs,**/Domain/Entities/**/*.cs,**/Entities/**/*.cs,**/Domain/Aggregates/**/*.cs,**/Models/**/*.cs}',
+      '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
+      10000
+    )
+  ]);
+
+  const fileUriMap = new Map<string, vscode.Uri>();
+  for (const u of [...snapshotFiles, ...contextFiles, ...entityFiles]) {
+    fileUriMap.set(u.fsPath, u);
+  }
+
+  // If few files found, search broadly
+  if (fileUriMap.size < 50) {
+    const allCs = await vscode.workspace.findFiles('**/*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}', 15000);
+    for (const u of allCs) {
+      fileUriMap.set(u.fsPath, u);
+    }
+  }
 
   const rawClasses: RawClassInfo[] = [];
   const fluentRules: FluentConfigRule[] = [];
   const dbContextSets: { dbContextName: string; entityTypes: string[] }[] = [];
   const snapshots: SnapshotContextResult[] = [];
 
-  for (const uri of csFiles) {
+  for (const uri of fileUriMap.values()) {
     try {
       const content = await fs.promises.readFile(uri.fsPath, 'utf8');
       const relPath = path.relative(workspaceRoot, uri.fsPath);
