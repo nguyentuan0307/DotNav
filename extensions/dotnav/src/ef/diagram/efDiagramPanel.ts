@@ -177,6 +177,8 @@ export async function openEfDiagramPanel(
 
   panel.webview.html = renderEfDiagramHtml();
 
+  const storageRoot = context.storageUri?.fsPath || context.globalStorageUri?.fsPath;
+
   panel.webview.onDidReceiveMessage(async msg => {
     switch (msg.type) {
       case 'ready': {
@@ -184,14 +186,14 @@ export async function openEfDiagramPanel(
         const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
         const entities = model.entitiesByContext[activeCtx] || [];
         const relationships = model.relationshipsByContext[activeCtx] || [];
-        const savedDiagrams = await listSavedDiagrams(workspaceRoot);
+        const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
         let activePositions: Record<string, { x: number; y: number }> = {};
 
         if (initialEntityName) {
           activePositions[initialEntityName] = { x: 120, y: 120 };
         } else {
           // Load default diagram if exists
-          const saved = await loadDiagramFromFile(`${activeCtx}_Default`, workspaceRoot) || await loadDiagramFromFile('Default', workspaceRoot);
+          const saved = await loadDiagramFromFile(`${activeCtx}_Default`, storageRoot, workspaceRoot) || await loadDiagramFromFile('Default', storageRoot, workspaceRoot);
           if (saved) {
             activePositions = liveSyncDiagramWithCode(saved, entities);
           } else if (entities.length > 0) {
@@ -221,7 +223,7 @@ export async function openEfDiagramPanel(
         const model = await scanWorkspaceDbContextsAndEntities();
         const activeCtx = msg.dbContext || model.availableDbContexts[0] || 'Default';
         const entities = model.entitiesByContext[activeCtx] || [];
-        const saved = await loadDiagramFromFile(msg.name, workspaceRoot);
+        const saved = await loadDiagramFromFile(msg.name, storageRoot, workspaceRoot);
         const synced = liveSyncDiagramWithCode(saved, entities);
         panel.webview.postMessage({
           type: 'diagramLoaded',
@@ -232,10 +234,10 @@ export async function openEfDiagramPanel(
       }
 
       case 'saveDiagram': {
-        const success = await saveDiagramToFile(msg.name, msg.positions, workspaceRoot);
+        const success = await saveDiagramToFile(msg.name, msg.positions, storageRoot, workspaceRoot);
         if (success) {
           vscode.window.showInformationMessage(`Diagram "${msg.name}" saved successfully!`);
-          const savedDiagrams = await listSavedDiagrams(workspaceRoot);
+          const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
           panel.webview.postMessage({
             type: 'diagramListUpdated',
             savedDiagramNames: savedDiagrams

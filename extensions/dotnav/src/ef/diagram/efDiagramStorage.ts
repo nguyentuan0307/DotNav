@@ -11,26 +11,60 @@ function getWorkspaceFolderRoot(): string | undefined {
   }
 }
 
-export function getDiagramStorageDirectory(workspaceRoot?: string): string | undefined {
+export function getDiagramStorageDirectory(storageRoot?: string, workspaceRoot?: string): string | undefined {
+  if (storageRoot) {
+    return path.join(storageRoot, 'diagrams');
+  }
   const root = workspaceRoot || getWorkspaceFolderRoot();
   if (!root) return undefined;
   return path.join(root, '.dotnav', 'diagrams');
 }
 
-export async function ensureDiagramStorageDirectory(workspaceRoot?: string): Promise<string | undefined> {
-  const dir = getDiagramStorageDirectory(workspaceRoot);
+export async function ensureDiagramStorageDirectory(storageRoot?: string, workspaceRoot?: string): Promise<string | undefined> {
+  const dir = getDiagramStorageDirectory(storageRoot, workspaceRoot);
   if (!dir) return undefined;
   try {
     await fs.promises.mkdir(dir, { recursive: true });
+
+    // If saving in .dotnav in workspace, write .gitignore with '*' as safety net
+    if (dir.includes('.dotnav')) {
+      const dotNavDir = path.dirname(dir);
+      const gitIgnorePath = path.join(dotNavDir, '.gitignore');
+      if (!fs.existsSync(gitIgnorePath)) {
+        await fs.promises.writeFile(gitIgnorePath, '*\n', 'utf8');
+      }
+    }
     return dir;
   } catch {
     return undefined;
   }
 }
 
-export async function listSavedDiagrams(workspaceRoot?: string): Promise<string[]> {
-  const dir = getDiagramStorageDirectory(workspaceRoot);
-  if (!dir || !fs.existsSync(dir)) return [];
+export async function listSavedDiagrams(storageRoot?: string, workspaceRoot?: string): Promise<string[]> {
+  const dir = getDiagramStorageDirectory(storageRoot, workspaceRoot);
+  if (!dir) return [];
+
+  // Auto-migrate legacy .dotnav/diagrams if storageRoot is used
+  if (storageRoot) {
+    const legacyDir = path.join(workspaceRoot || getWorkspaceFolderRoot() || '', '.dotnav', 'diagrams');
+    if (fs.existsSync(legacyDir)) {
+      try {
+        await fs.promises.mkdir(dir, { recursive: true });
+        const legacyFiles = await fs.promises.readdir(legacyDir);
+        for (const file of legacyFiles) {
+          const src = path.join(legacyDir, file);
+          const dest = path.join(dir, file);
+          if (!fs.existsSync(dest)) {
+            await fs.promises.copyFile(src, dest);
+          }
+        }
+      } catch {
+        // ignore migration error
+      }
+    }
+  }
+
+  if (!fs.existsSync(dir)) return [];
   try {
     const files = await fs.promises.readdir(dir);
     return files
@@ -45,9 +79,10 @@ export async function listSavedDiagrams(workspaceRoot?: string): Promise<string[
 export async function saveDiagramToFile(
   diagramName: string,
   positions: Record<string, { x: number; y: number }>,
+  storageRoot?: string,
   workspaceRoot?: string
 ): Promise<boolean> {
-  const dir = await ensureDiagramStorageDirectory(workspaceRoot);
+  const dir = await ensureDiagramStorageDirectory(storageRoot, workspaceRoot);
   if (!dir) return false;
 
   const cleanName = diagramName.trim().replace(/[^a-zA-Z0-9_\-\. ]/g, '_') || 'Default';
@@ -72,16 +107,26 @@ export async function saveDiagramToFile(
 
 export async function loadDiagramFromFile(
   diagramName: string,
+  storageRoot?: string,
   workspaceRoot?: string
 ): Promise<DiagramFile | undefined> {
-  const dir = getDiagramStorageDirectory(workspaceRoot);
+  const dir = getDiagramStorageDirectory(storageRoot, workspaceRoot);
   if (!dir) return undefined;
 
   const cleanName = diagramName.trim().replace(/[^a-zA-Z0-9_\-\. ]/g, '_');
   const filePath = path.join(dir, `${cleanName}.diagram.json`);
   const altPath = path.join(dir, `${cleanName}.json`);
 
-  const targetPath = fs.existsSync(filePath) ? filePath : fs.existsSync(altPath) ? altPath : undefined;
+  let targetPath = fs.existsSync(filePath) ? filePath : fs.existsSync(altPath) ? altPath : undefined;
+
+  // Fallback to legacy path if not found in storageRoot
+  if (!targetPath && storageRoot) {
+    const legacyDir = path.join(workspaceRoot || getWorkspaceFolderRoot() || '', '.dotnav', 'diagrams');
+    const legacyPath = path.join(legacyDir, `${cleanName}.diagram.json`);
+    const legacyAlt = path.join(legacyDir, `${cleanName}.json`);
+    targetPath = fs.existsSync(legacyPath) ? legacyPath : fs.existsSync(legacyAlt) ? legacyAlt : undefined;
+  }
+
   if (!targetPath) return undefined;
 
   try {
@@ -106,7 +151,6 @@ export function liveSyncDiagramWithCode(
 
   for (const [name, pos] of Object.entries(savedFile.entities)) {
     if (validEntityNames.has(name.toLowerCase())) {
-      // Find actual casing
       const actual = currentEntities.find(e => e.name.toLowerCase() === name.toLowerCase());
       if (actual) {
         syncedPositions[actual.name] = pos;
