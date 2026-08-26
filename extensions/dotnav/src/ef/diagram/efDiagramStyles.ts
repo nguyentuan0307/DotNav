@@ -369,6 +369,7 @@ body, html {
     radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
   background-size: 24px 24px;
   cursor: grab;
+  touch-action: none;
 }
 
 .canvas-viewport:active {
@@ -383,6 +384,7 @@ body, html {
   width: 10000px;
   height: 10000px;
   pointer-events: none;
+  will-change: transform;
 }
 
 /* SVG Relationships Layer */
@@ -399,7 +401,7 @@ body, html {
 .rel-hitbox {
   fill: none;
   stroke: transparent;
-  stroke-width: 16px;
+  stroke-width: 18px;
   pointer-events: stroke;
   cursor: pointer;
 }
@@ -461,6 +463,12 @@ body, html {
   cursor: default;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
   overflow: visible;
+  touch-action: none;
+}
+
+.table-card.dragging {
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--card-selected-border);
+  opacity: 0.96;
 }
 
 .table-card.selected {
@@ -492,9 +500,13 @@ body, html {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  cursor: move;
+  cursor: grab;
   gap: 8px;
   position: relative;
+}
+
+.card-header:active {
+  cursor: grabbing;
 }
 
 .table-card.minimized .card-header {
@@ -870,7 +882,7 @@ body, html {
   color: #ffffff;
 }
 
-/* Relationship Metadata Inspector Popover */
+/* Draggable Relationship Metadata Inspector Popover */
 .rel-inspector-popover {
   position: fixed;
   width: 340px;
@@ -884,6 +896,7 @@ body, html {
   flex-direction: column;
   overflow: hidden;
   font-size: 12px;
+  touch-action: none;
 }
 
 .rel-inspector-header {
@@ -896,6 +909,11 @@ body, html {
   font-weight: 600;
   font-size: 12px;
   color: #ffffff;
+  cursor: grab;
+}
+
+.rel-inspector-header:active {
+  cursor: grabbing;
 }
 
 .rel-inspector-body {
@@ -903,6 +921,8 @@ body, html {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .rel-inspector-row {

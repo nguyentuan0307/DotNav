@@ -17,6 +17,10 @@ export function getEfDiagramClientScript(): string {
   let colorByEntity = {}; // { [entityName]: hexColor }
   let activeSelectedRelId = null;
 
+  // Performance Caches (Eliminates Layout Thrashing / Reflow during Dragging)
+  const cardSizeCache = {}; // { [name]: { width: number, height: number } }
+  const cardRowOffsetCache = {}; // { [name]: { [propName]: number, pkDefault: number, fkDefault: number } }
+
   let currentDiagramName = 'Default';
   let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
 
@@ -26,11 +30,18 @@ export function getEfDiagramClientScript(): string {
   let isPanning = false;
   let startPanX = 0;
   let startPanY = 0;
+
   let draggedCard = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
 
+  // Draggable Inspector State
+  let draggedInspector = null;
+  let inspectorDragOffsetX = 0;
+  let inspectorDragOffsetY = 0;
+
   let isResizingSidebar = false;
+  let rafScheduled = false;
 
   // DOM Elements
   const sidebar = document.getElementById('sidebar');
@@ -156,21 +167,22 @@ export function getEfDiagramClientScript(): string {
 
   // Sidebar Resizing Logic
   if (sidebarResizer && sidebar) {
-    sidebarResizer.addEventListener('mousedown', e => {
+    sidebarResizer.addEventListener('pointerdown', e => {
       isResizingSidebar = true;
       sidebarResizer.classList.add('resizing');
+      sidebarResizer.setPointerCapture(e.pointerId);
       document.body.style.cursor = 'col-resize';
       e.preventDefault();
     });
 
-    window.addEventListener('mousemove', e => {
+    window.addEventListener('pointermove', e => {
       if (isResizingSidebar) {
         const newWidth = Math.max(200, Math.min(650, e.clientX));
         sidebar.style.width = newWidth + 'px';
       }
     });
 
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('pointerup', e => {
       if (isResizingSidebar) {
         isResizingSidebar = false;
         sidebarResizer.classList.remove('resizing');
@@ -427,9 +439,45 @@ export function getEfDiagramClientScript(): string {
     minimizedCards.delete(entityName);
     delete hiddenColumnsByEntity[entityName];
     delete colorByEntity[entityName];
+    delete cardSizeCache[entityName];
+    delete cardRowOffsetCache[entityName];
     closeAllPopovers();
     renderEntityList(searchBox.value);
     renderCanvas();
+  }
+
+  // Pre-calculate and cache card dimensions and row pin offsets for 60FPS Dragging
+  function cacheCardLayout(entityName) {
+    const card = document.getElementById('card-' + entityName);
+    if (!card) return;
+
+    const isMinimized = card.classList.contains('minimized');
+    const width = card.offsetWidth || 310;
+    const height = card.offsetHeight || (isMinimized ? 40 : 200);
+    cardSizeCache[entityName] = { width, height };
+
+    const offsets = {};
+    if (!isMinimized) {
+      let firstPkOffset = 42;
+      let firstFkOffset = 42;
+
+      card.querySelectorAll('.prop-row:not(.hidden-prop)').forEach(row => {
+        const propName = row.dataset.propName;
+        const midY = row.offsetTop + row.offsetHeight / 2;
+        offsets[propName] = midY;
+
+        if (row.classList.contains('pk') && firstPkOffset === 42) firstPkOffset = midY;
+        if (row.classList.contains('fk') && firstFkOffset === 42) firstFkOffset = midY;
+      });
+
+      offsets['__pkDefault'] = firstPkOffset;
+      offsets['__fkDefault'] = firstFkOffset;
+    } else {
+      offsets['__pkDefault'] = 18;
+      offsets['__fkDefault'] = 18;
+    }
+
+    cardRowOffsetCache[entityName] = offsets;
   }
 
   // Render Canvas
@@ -548,14 +596,17 @@ export function getEfDiagramClientScript(): string {
         openCardContextMenu(entity, card, e.clientX, e.clientY);
       });
 
-      // Card dragging
-      header.addEventListener('mousedown', e => {
+      // Pointer-based High Performance Dragging
+      header.addEventListener('pointerdown', e => {
         if (e.button !== 0 || e.target.closest('.card-actions')) return;
         draggedCard = card;
+        header.setPointerCapture(e.pointerId);
+        card.classList.add('dragging');
+        card.style.zIndex = '100';
+
         const rect = card.getBoundingClientRect();
         dragOffsetX = (e.clientX - rect.left) / zoom;
         dragOffsetY = (e.clientY - rect.top) / zoom;
-        card.style.zIndex = '100';
         closeAllPopovers();
         e.stopPropagation();
       });
@@ -596,7 +647,11 @@ export function getEfDiagramClientScript(): string {
       });
     });
 
-    requestAnimationFrame(updateSvgLinks);
+    // Populate layout caches and render initial SVG links
+    requestAnimationFrame(() => {
+      activeNames.forEach(cacheCardLayout);
+      buildAllSvgElements();
+    });
   }
 
   function isPropertyHidden(entity, prop, customHiddenSet) {
@@ -732,12 +787,10 @@ export function getEfDiagramClientScript(): string {
       </div>
     \`;
 
-    // Close button on popover header
     popover.querySelector('.popover-close-btn').addEventListener('click', () => {
       closeAllPopovers();
     });
 
-    // Filter input search inside popover
     const searchInput = popover.querySelector('.popover-search input');
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
@@ -791,10 +844,10 @@ export function getEfDiagramClientScript(): string {
         footer.remove();
       }
 
-      requestAnimationFrame(updateSvgLinks);
+      cacheCardLayout(entity.name);
+      buildAllSvgElements();
     }
 
-    // Toggle individual column rows in-place
     popover.querySelectorAll('.column-toggle-row').forEach(row => {
       row.addEventListener('click', e => {
         e.stopPropagation();
@@ -818,7 +871,6 @@ export function getEfDiagramClientScript(): string {
       });
     });
 
-    // Quick action buttons in-place
     popover.querySelector('#popShowAll').addEventListener('click', e => {
       e.stopPropagation();
       hiddenSet.clear();
@@ -868,12 +920,11 @@ export function getEfDiagramClientScript(): string {
     card.appendChild(popover);
   }
 
-  // Relationship Details Inspector Popover
+  // Draggable Relationship Details Inspector Popover
   function openRelationshipInspector(rel, clientX, clientY) {
     closeAllPopovers();
     activeSelectedRelId = rel.id;
 
-    // Highlight selected link and cards
     linksSvg.querySelectorAll('.link-path').forEach(p => {
       p.classList.toggle('selected', p.dataset.relId === rel.id);
     });
@@ -966,6 +1017,18 @@ export function getEfDiagramClientScript(): string {
 
     popover.querySelector('#btnJumpDependent').addEventListener('click', () => {
       focusCard(rel.toEntity);
+    });
+
+    // Make inspector header draggable anywhere on screen
+    const inspHeader = popover.querySelector('.rel-inspector-header');
+    inspHeader.addEventListener('pointerdown', e => {
+      if (e.target.closest('.popover-close-btn')) return;
+      draggedInspector = popover;
+      inspHeader.setPointerCapture(e.pointerId);
+      const rect = popover.getBoundingClientRect();
+      inspectorDragOffsetX = e.clientX - rect.left;
+      inspectorDragOffsetY = e.clientY - rect.top;
+      e.stopPropagation();
     });
 
     viewport.appendChild(popover);
@@ -1079,7 +1142,7 @@ export function getEfDiagramClientScript(): string {
     activeSelectedRelId = null;
   }
 
-  window.addEventListener('click', e => {
+  window.addEventListener('pointerdown', e => {
     if (!e.target.closest('.columns-popover') && !e.target.closest('.card-columns-btn') && !e.target.closest('.card-hidden-footer')) {
       const p = document.getElementById('activePopover');
       if (p) p.remove();
@@ -1094,75 +1157,28 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  // Draw Crow's Foot SVG Connectors with Exact Row-Level Pin Anchors
-  function updateSvgLinks() {
-    linksSvg.innerHTML = '';
-    const activeNames = new Set(Object.keys(activePositions));
-
-    for (const rel of allRelationships) {
-      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
-        drawCrowFootLink(rel);
-      }
-    }
-  }
-
-  function drawCrowFootLink(rel) {
-    const fromCard = document.getElementById('card-' + rel.fromEntity);
-    const toCard = document.getElementById('card-' + rel.toEntity);
-    if (!fromCard || !toCard) return;
-
+  // Calculate Geometry for a single relationship from pure cached offsets (Zero Layout Thrashing)
+  function computeRelGeometry(rel) {
     const fromPos = activePositions[rel.fromEntity];
     const toPos = activePositions[rel.toEntity];
-    if (!fromPos || !toPos) return;
+    if (!fromPos || !toPos) return null;
 
-    const fromMinimized = fromCard.classList.contains('minimized');
-    const toMinimized = toCard.classList.contains('minimized');
+    const fromSize = cardSizeCache[rel.fromEntity] || { width: 310, height: 200 };
+    const toSize = cardSizeCache[rel.toEntity] || { width: 310, height: 200 };
 
-    const fromWidth = fromCard.offsetWidth || 310;
-    const fromHeight = fromCard.offsetHeight || 200;
-    const toWidth = toCard.offsetWidth || 310;
-    const toHeight = toCard.offsetHeight || 200;
+    const fromOffsets = cardRowOffsetCache[rel.fromEntity] || {};
+    const toOffsets = cardRowOffsetCache[rel.toEntity] || {};
 
-    let fromRowOffsetY = fromMinimized ? 18 : 42;
-    let toRowOffsetY = toMinimized ? 18 : 42;
+    const fromTargetProp = rel.fromProperty || 'Id';
+    const toTargetProp = rel.toProperty || \`\${rel.fromEntity}Id\`;
 
-    if (!fromMinimized) {
-      const fromTargetProp = rel.fromProperty || 'Id';
-      const fromRowEl = fromCard.querySelector(\`[data-prop-name="\${fromTargetProp}"]:not(.hidden-prop)\`);
-      if (fromRowEl) {
-        fromRowOffsetY = fromRowEl.offsetTop + fromRowEl.offsetHeight / 2;
-      } else {
-        const firstPk = fromCard.querySelector('.prop-row.pk:not(.hidden-prop)');
-        if (firstPk) {
-          fromRowOffsetY = firstPk.offsetTop + firstPk.offsetHeight / 2;
-        } else {
-          fromRowOffsetY = 20;
-        }
-      }
-    }
-
-    if (!toMinimized) {
-      const toTargetProp = rel.toProperty || \`\${rel.fromEntity}Id\`;
-      const toRowEl = toCard.querySelector(\`[data-prop-name="\${toTargetProp}"]:not(.hidden-prop)\`);
-      if (toRowEl) {
-        toRowOffsetY = toRowEl.offsetTop + toRowEl.offsetHeight / 2;
-      } else {
-        const firstFk = toCard.querySelector('.prop-row.fk:not(.hidden-prop)');
-        if (firstFk) {
-          toRowOffsetY = firstFk.offsetTop + firstFk.offsetHeight / 2;
-        } else {
-          toRowOffsetY = 20;
-        }
-      }
-    }
-
-    fromRowOffsetY = Math.max(16, Math.min(fromHeight - 8, fromRowOffsetY));
-    toRowOffsetY = Math.max(16, Math.min(toHeight - 8, toRowOffsetY));
+    const fromRowOffsetY = fromOffsets[fromTargetProp] !== undefined ? fromOffsets[fromTargetProp] : (fromOffsets['__pkDefault'] || 20);
+    const toRowOffsetY = toOffsets[toTargetProp] !== undefined ? toOffsets[toTargetProp] : (toOffsets['__fkDefault'] || 20);
 
     let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
 
-    if (fromPos.x + fromWidth + 40 <= toPos.x) {
-      x1 = fromPos.x + fromWidth;
+    if (fromPos.x + fromSize.width + 40 <= toPos.x) {
+      x1 = fromPos.x + fromSize.width;
       y1 = fromPos.y + fromRowOffsetY;
       x2 = toPos.x;
       y2 = toPos.y + toRowOffsetY;
@@ -1172,10 +1188,10 @@ export function getEfDiagramClientScript(): string {
       cy1 = y1;
       cx2 = x2 - dx;
       cy2 = y2;
-    } else if (toPos.x + toWidth + 40 <= fromPos.x) {
+    } else if (toPos.x + toSize.width + 40 <= fromPos.x) {
       x1 = fromPos.x;
       y1 = fromPos.y + fromRowOffsetY;
-      x2 = toPos.x + toWidth;
+      x2 = toPos.x + toSize.width;
       y2 = toPos.y + toRowOffsetY;
 
       const dx = Math.max(50, (x1 - x2) * 0.45);
@@ -1184,9 +1200,9 @@ export function getEfDiagramClientScript(): string {
       cx2 = x2 + dx;
       cy2 = y2;
     } else {
-      x1 = fromPos.x + fromWidth;
+      x1 = fromPos.x + fromSize.width;
       y1 = fromPos.y + fromRowOffsetY;
-      x2 = toPos.x + toWidth;
+      x2 = toPos.x + toSize.width;
       y2 = toPos.y + toRowOffsetY;
 
       const offsetDist = Math.max(70, Math.abs(y2 - y1) * 0.3);
@@ -1196,51 +1212,109 @@ export function getEfDiagramClientScript(): string {
       cy2 = y2;
     }
 
-    const pathData = \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`;
+    return {
+      pathData: \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`,
+      x1, y1, x2, y2
+    };
+  }
 
-    // 1. Invisible Hitbox for super easy clicking
-    const hitboxEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    hitboxEl.setAttribute('d', pathData);
-    hitboxEl.setAttribute('class', 'rel-hitbox');
-    hitboxEl.dataset.relId = rel.id;
-    hitboxEl.addEventListener('click', e => {
-      e.stopPropagation();
-      openRelationshipInspector(rel, e.clientX, e.clientY);
-    });
-    linksSvg.appendChild(hitboxEl);
+  // Build SVG Elements once
+  function buildAllSvgElements() {
+    linksSvg.innerHTML = '';
+    const activeNames = new Set(Object.keys(activePositions));
 
-    // 2. Visible Path
-    const isSelected = activeSelectedRelId === rel.id;
-    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    pathEl.setAttribute('d', pathData);
-    pathEl.setAttribute('class', 'link-path' + (isSelected ? ' selected' : ''));
-    pathEl.dataset.relId = rel.id;
-    pathEl.addEventListener('click', e => {
-      e.stopPropagation();
-      openRelationshipInspector(rel, e.clientX, e.clientY);
-    });
-    linksSvg.appendChild(pathEl);
+    for (const rel of allRelationships) {
+      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
+        const geom = computeRelGeometry(rel);
+        if (!geom) continue;
 
-    const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle1.setAttribute('cx', x1);
-    circle1.setAttribute('cy', y1);
-    circle1.setAttribute('r', 3.5);
-    circle1.setAttribute('class', 'link-endpoint');
-    circle1.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
-    linksSvg.appendChild(circle1);
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.id = 'rel-g-' + rel.id;
 
-    const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle2.setAttribute('cx', x2);
-    circle2.setAttribute('cy', y2);
-    circle2.setAttribute('r', 4.5);
-    circle2.setAttribute('class', 'link-crowfoot');
-    circle2.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
-    linksSvg.appendChild(circle2);
+        // Hitbox
+        const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hitbox.setAttribute('d', geom.pathData);
+        hitbox.setAttribute('class', 'rel-hitbox');
+        hitbox.dataset.relId = rel.id;
+        hitbox.addEventListener('click', e => {
+          e.stopPropagation();
+          openRelationshipInspector(rel, e.clientX, e.clientY);
+        });
+        group.appendChild(hitbox);
+
+        // Path
+        const isSelected = activeSelectedRelId === rel.id;
+        const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathEl.setAttribute('d', geom.pathData);
+        pathEl.setAttribute('class', 'link-path' + (isSelected ? ' selected' : ''));
+        pathEl.dataset.relId = rel.id;
+        pathEl.addEventListener('click', e => {
+          e.stopPropagation();
+          openRelationshipInspector(rel, e.clientX, e.clientY);
+        });
+        group.appendChild(pathEl);
+
+        // Endpoints
+        const c1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        c1.setAttribute('cx', geom.x1);
+        c1.setAttribute('cy', geom.y1);
+        c1.setAttribute('r', 3.5);
+        c1.setAttribute('class', 'link-endpoint');
+        c1.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
+        group.appendChild(c1);
+
+        const c2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        c2.setAttribute('cx', geom.x2);
+        c2.setAttribute('cy', geom.y2);
+        c2.setAttribute('r', 4.5);
+        c2.setAttribute('class', 'link-crowfoot');
+        c2.setAttribute('fill', isSelected ? '#38bdf8' : '#3b82f6');
+        group.appendChild(c2);
+
+        linksSvg.appendChild(group);
+      }
+    }
+  }
+
+  // 60FPS High-Performance In-Place SVG Coordinate Update (Zero DOM Allocation / Zero Reflow)
+  function updateSvgLinksInPlace() {
+    rafScheduled = false;
+    const activeNames = new Set(Object.keys(activePositions));
+
+    for (const rel of allRelationships) {
+      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
+        const group = document.getElementById('rel-g-' + rel.id);
+        if (!group) continue;
+
+        const geom = computeRelGeometry(rel);
+        if (!geom) continue;
+
+        const paths = group.querySelectorAll('path');
+        paths.forEach(p => p.setAttribute('d', geom.pathData));
+
+        const circles = group.querySelectorAll('circle');
+        if (circles[0]) {
+          circles[0].setAttribute('cx', geom.x1);
+          circles[0].setAttribute('cy', geom.y1);
+        }
+        if (circles[1]) {
+          circles[1].setAttribute('cx', geom.x2);
+          circles[1].setAttribute('cy', geom.y2);
+        }
+      }
+    }
+  }
+
+  function scheduleSvgUpdate() {
+    if (!rafScheduled) {
+      rafScheduled = true;
+      requestAnimationFrame(updateSvgLinksInPlace);
+    }
   }
 
   // Pan & Zoom
   function applyTransform() {
-    canvasTransform.style.transform = \`translate(\${panX}px, \${panY}px) scale(\${zoom})\`;
+    canvasTransform.style.transform = \`translate3d(\${panX}px, \${panY}px, 0) scale(\${zoom})\`;
     zoomDisplay.textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -1275,10 +1349,11 @@ export function getEfDiagramClientScript(): string {
     }
   }, { passive: false });
 
-  viewport.addEventListener('mousedown', e => {
+  viewport.addEventListener('pointerdown', e => {
     if (e.target === viewport || e.target === canvasTransform || e.target === linksSvg || e.target.closest('#emptyPrompt')) {
       if (e.button === 0 || e.button === 1) {
         isPanning = true;
+        viewport.setPointerCapture(e.pointerId);
         startPanX = e.clientX - panX;
         startPanY = e.clientY - panY;
         viewport.style.cursor = 'grabbing';
@@ -1287,7 +1362,7 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  window.addEventListener('mousemove', e => {
+  window.addEventListener('pointermove', e => {
     if (isPanning) {
       panX = e.clientX - startPanX;
       panY = e.clientY - startPanY;
@@ -1297,24 +1372,41 @@ export function getEfDiagramClientScript(): string {
       const newX = (e.clientX - rect.left - panX) / zoom - dragOffsetX;
       const newY = (e.clientY - rect.top - panY) / zoom - dragOffsetY;
 
-      draggedCard.style.left = Math.round(newX) + 'px';
-      draggedCard.style.top = Math.round(newY) + 'px';
+      const roundedX = Math.round(newX);
+      const roundedY = Math.round(newY);
+
+      draggedCard.style.left = roundedX + 'px';
+      draggedCard.style.top = roundedY + 'px';
 
       const entityName = draggedCard.querySelector('.card-header').dataset.entityName;
-      activePositions[entityName] = { x: Math.round(newX), y: Math.round(newY) };
+      activePositions[entityName] = { x: roundedX, y: roundedY };
 
-      updateSvgLinks();
+      scheduleSvgUpdate();
+    } else if (draggedInspector) {
+      const vpRect = viewport.getBoundingClientRect();
+      let newLeft = e.clientX - inspectorDragOffsetX;
+      let newTop = e.clientY - inspectorDragOffsetY;
+
+      newLeft = Math.max(10, Math.min(vpRect.width - 350, newLeft));
+      newTop = Math.max(10, Math.min(vpRect.height - 300, newTop));
+
+      draggedInspector.style.left = newLeft + 'px';
+      draggedInspector.style.top = newTop + 'px';
     }
   });
 
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('pointerup', () => {
     if (isPanning) {
       isPanning = false;
       viewport.style.cursor = 'grab';
     }
     if (draggedCard) {
+      draggedCard.classList.remove('dragging');
       draggedCard.style.zIndex = '2';
       draggedCard = null;
+    }
+    if (draggedInspector) {
+      draggedInspector = null;
     }
   });
 
