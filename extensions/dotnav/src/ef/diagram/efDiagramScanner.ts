@@ -4,6 +4,7 @@ import { EntityModel, EntityProperty, EntityRelationship } from './efDiagramMode
 
 export interface RawClassInfo {
   name: string;
+  fullName?: string;
   tableName?: string;
   schemaName?: string;
   filePath: string;
@@ -32,6 +33,22 @@ export interface FluentConfigRule {
   }>;
 }
 
+export interface SnapshotEntityInfo {
+  fullName: string;
+  shortName: string;
+  tableName?: string;
+  schemaName?: string;
+  primaryKeys: string[];
+  properties: EntityProperty[];
+  relationships: EntityRelationship[];
+}
+
+export interface SnapshotContextResult {
+  dbContextName: string;
+  filePath: string;
+  entities: SnapshotEntityInfo[];
+}
+
 const STRICT_EXCLUDE_SUFFIXES = [
   'Controller', 'Service', 'Repository', 'Handler', 'Command', 'Query',
   'Validator', 'Config', 'Configuration', 'Tests', 'Test', 'Manager',
@@ -46,6 +63,148 @@ const KNOWN_BASE_ENTITY_NAMES = new Set([
   'idomainentity', 'domainentity', 'identityuser', 'identityrole',
   'entitybase', 'iauditentitybase'
 ]);
+
+/**
+ * Parses EF Core *ModelSnapshot.cs files to extract exact database schema as recognized by EF Core.
+ */
+export function parseModelSnapshotFromCSharp(code: string, filePath: string): SnapshotContextResult | undefined {
+  if (!code.includes('ModelSnapshot') && !code.includes('[DbContext(')) {
+    return undefined;
+  }
+
+  // Extract DbContext name: [DbContext(typeof(CustomAppDbContext))]
+  let dbContextName = '';
+  const contextAttrMatch = code.match(/\[DbContext\s*\(\s*typeof\s*\(\s*([A-Za-z0-9_.]+)\s*\)\s*\)\]/);
+  if (contextAttrMatch) {
+    dbContextName = contextAttrMatch[1].split('.').pop() || '';
+  } else {
+    const classMatch = code.match(/class\s+([A-Za-z0-9_]+)ModelSnapshot\s*:\s*ModelSnapshot/);
+    if (classMatch) {
+      dbContextName = classMatch[1];
+    }
+  }
+
+  if (!dbContextName) {
+    return undefined;
+  }
+
+  const entities: SnapshotEntityInfo[] = [];
+
+  // Match: modelBuilder.Entity("ELDesk.CustomApp.SharedDomain.Entities.Applications.Entities.AppField", b => { ... });
+  const entityBlockRegex = /modelBuilder\.Entity\s*\(\s*["']([^"']+)["']\s*,\s*([a-zA-Z0-9_]+)\s*=>\s*\{/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = entityBlockRegex.exec(code)) !== null) {
+    const fullName = match[1];
+    const shortName = fullName.split('.').pop() || fullName;
+    const builderVar = match[2];
+    const blockStart = match.index + match[0].length;
+
+    // Find closing brace of lambda
+    let braceDepth = 1;
+    let blockEnd = blockStart;
+    for (let i = blockStart; i < code.length; i++) {
+      if (code[i] === '{') braceDepth++;
+      else if (code[i] === '}') {
+        braceDepth--;
+        if (braceDepth === 0) {
+          blockEnd = i;
+          break;
+        }
+      }
+    }
+
+    const entityBody = code.substring(blockStart, blockEnd);
+
+    // Extract table & schema: b.ToTable("formelement", "custom");
+    let tableName = shortName;
+    let schemaName: string | undefined;
+    const tableMatch = entityBody.match(new RegExp(`${builderVar}\\.ToTable\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)`));
+    if (tableMatch) {
+      tableName = tableMatch[1];
+      schemaName = tableMatch[2];
+    }
+
+    // Extract Primary Keys: b.HasKey("Id"); or b.HasKey("Id", "TenantId");
+    const primaryKeys: string[] = [];
+    const keyMatch = entityBody.match(new RegExp(`${builderVar}\\.HasKey\\s*\\(\\s*([^)]+)\\s*\\)`));
+    if (keyMatch) {
+      const keys = keyMatch[1].match(/["']([^"']+)["']/g);
+      if (keys) {
+        primaryKeys.push(...keys.map(k => k.replace(/["']/g, '')));
+      }
+    }
+
+    // Extract Properties: b.Property<int>("Id");
+    const properties: EntityProperty[] = [];
+    const propRegex = new RegExp(`${builderVar}\\.Property\\s*(?:<([^>]+)>)?\\s*\\(\\s*["']([^"']+)["']\\s*\\)`, 'g');
+    let propMatch: RegExpExecArray | null;
+
+    while ((propMatch = propRegex.exec(entityBody)) !== null) {
+      const typeStr = propMatch[1] || 'object';
+      const propName = propMatch[2];
+      const isPk = primaryKeys.includes(propName);
+      let isFk = false;
+      let fkTarget: string | undefined;
+
+      if (!isPk && propName.endsWith('Id') && propName.length > 2) {
+        isFk = true;
+        fkTarget = propName === 'TenantId' ? 'Tenant' : propName.slice(0, -2);
+      }
+
+      properties.push({
+        name: propName,
+        type: typeStr,
+        isPrimaryKey: isPk,
+        isForeignKey: isFk,
+        isNullable: typeStr.endsWith('?') || typeStr.startsWith('Nullable<'),
+        isNavigation: false,
+        foreignKeyTargetEntity: fkTarget
+      });
+    }
+
+    // Extract Relationships: b.HasOne(...).WithMany(...).HasForeignKey("FormId");
+    const relationships: EntityRelationship[] = [];
+    const relRegex = new RegExp(
+      `${builderVar}\\.HasOne\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)\\s*\\.WithMany\\s*\\(\\s*(?:["']([^"']+)["'])?\\s*\\)(?:\\s*\\.HasForeignKey\\s*\\(\\s*["']([^"']+)["']\\s*\\))?`,
+      'g'
+    );
+    let relMatch: RegExpExecArray | null;
+
+    while ((relMatch = relRegex.exec(entityBody)) !== null) {
+      const principalFull = relMatch[1];
+      const principalShort = principalFull.split('.').pop() || principalFull;
+      const navName = relMatch[2];
+      const fkName = relMatch[4];
+
+      relationships.push({
+        id: `${principalShort}->${shortName}:${fkName || navName || 'Id'}`,
+        fromEntity: principalShort,
+        fromProperty: 'Id',
+        toEntity: shortName,
+        toProperty: fkName,
+        cardinality: 'one-to-many',
+        foreignKeyName: fkName ? `FK_${shortName}_${principalShort}_${fkName}` : undefined
+      });
+    }
+
+    entities.push({
+      fullName,
+      shortName,
+      tableName,
+      schemaName,
+      primaryKeys,
+      properties,
+      relationships
+    });
+  }
+
+  return {
+    dbContextName,
+    filePath,
+    entities
+  };
+}
 
 export function parseRawClassesFromCSharp(
   code: string,
@@ -309,137 +468,176 @@ export function parseDbContextDbSets(code: string): { dbContextName: string; ent
   return results;
 }
 
-export function buildStrictWorkspaceEntities(
+/**
+ * Builds DbContext-Scoped Entities & Relationships matching EF Core Migration model building.
+ */
+export function buildDbContextScopedModel(
   rawClasses: RawClassInfo[],
   fluentRules: FluentConfigRule[],
-  dbContextSets: { dbContextName: string; entityTypes: string[] }[]
-): EntityModel[] {
+  dbContextSets: { dbContextName: string; entityTypes: string[] }[],
+  snapshots: SnapshotContextResult[]
+): {
+  availableDbContexts: string[];
+  entitiesByContext: Record<string, EntityModel[]>;
+  relationshipsByContext: Record<string, EntityRelationship[]>;
+} {
   const classMap = new Map<string, RawClassInfo>();
   for (const c of rawClasses) {
     classMap.set(c.name.toLowerCase(), c);
   }
 
-  // 1. Pass 1: Build Authoritative Entity Whitelist & Map to owning DbContexts
-  const authoritativeNames = new Set<string>();
-  const entityDbContexts = new Map<string, Set<string>>();
-
-  // 1a. From DbSets
+  // 1. Gather all unique DbContext names
+  const contextNameSet = new Set<string>();
   for (const db of dbContextSets) {
-    for (const type of db.entityTypes) {
-      const lower = type.toLowerCase();
-      authoritativeNames.add(lower);
-      if (!entityDbContexts.has(lower)) {
-        entityDbContexts.set(lower, new Set());
-      }
-      entityDbContexts.get(lower)!.add(db.dbContextName);
-    }
+    contextNameSet.add(db.dbContextName);
+  }
+  for (const snap of snapshots) {
+    contextNameSet.add(snap.dbContextName);
   }
 
-  // 1b. From IEntityTypeConfiguration<T>
-  for (const rule of fluentRules) {
-    authoritativeNames.add(rule.entityName.toLowerCase());
-  }
-
-  // 1c. From [Table] attributes or Base Entity Inheritance or Entity directory location
+  // Resolve inheritance between DbContexts (e.g. CustomAppDbContext -> CustomAppSharedDbContext)
+  const dbContextChildToParent = new Map<string, string>();
   for (const c of rawClasses) {
-    const lowerName = c.name.toLowerCase();
-
-    // Skip strict excluded suffixes unless registered via DbSet/Fluent
-    if (!authoritativeNames.has(lowerName)) {
-      const isExcluded = STRICT_EXCLUDE_SUFFIXES.some(s => c.name.endsWith(s));
-      if (isExcluded) {
-        continue;
+    if (c.isDbContext) {
+      for (const b of c.baseTypes) {
+        if (contextNameSet.has(b) && b !== c.name) {
+          dbContextChildToParent.set(c.name, b);
+        }
       }
     }
-
-    // Has [Table] attribute
-    if (c.hasTableAttribute) {
-      authoritativeNames.add(lowerName);
-    }
-
-    // Derives from known base entity
-    const derivesFromBaseEntity = c.baseTypes.some(b => {
-      const lower = b.toLowerCase();
-      return KNOWN_BASE_ENTITY_NAMES.has(lower) || lower.endsWith('entity') || lower.endsWith('model');
-    });
-
-    if (derivesFromBaseEntity) {
-      authoritativeNames.add(lowerName);
-    }
-
-    // File in Domain/Entities directory with an Id property
-    const normPath = c.filePath.replace(/\\/g, '/');
-    if (
-      (normPath.includes('/Domain/Entities/') || normPath.includes('/Entities/') || normPath.includes('/Models/Entities/')) &&
-      c.properties.some(p => p.isPrimaryKey || p.name === 'Id')
-    ) {
-      authoritativeNames.add(lowerName);
-    }
   }
 
-  // 2. Pass 2: Property Extraction & Base Class Inheritance
-  const entities: EntityModel[] = [];
+  const entitiesByContext: Record<string, EntityModel[]> = {};
+  const relationshipsByContext: Record<string, EntityRelationship[]> = {};
 
-  for (const c of rawClasses) {
-    const lowerName = c.name.toLowerCase();
-    if (!authoritativeNames.has(lowerName)) {
+  for (const contextName of contextNameSet) {
+    // Check if we have a direct ModelSnapshot for this DbContext
+    const snapshot = snapshots.find(s => s.dbContextName.toLowerCase() === contextName.toLowerCase());
+    
+    if (snapshot && snapshot.entities.length > 0) {
+      // Use Snapshot's authoritative entities
+      const entities: EntityModel[] = [];
+      for (const snapEntity of snapshot.entities) {
+        const matchingClass = classMap.get(snapEntity.shortName.toLowerCase());
+        entities.push({
+          id: matchingClass ? `${matchingClass.filePath}:${matchingClass.line}:${snapEntity.shortName}` : `${snapEntity.shortName}`,
+          name: snapEntity.shortName,
+          tableName: snapEntity.tableName,
+          schemaName: snapEntity.schemaName,
+          filePath: matchingClass?.filePath || snapshot.filePath,
+          line: matchingClass?.line || 1,
+          projectName: matchingClass?.projectName || contextName,
+          properties: snapEntity.properties,
+          dbContextNames: [contextName]
+        });
+      }
+
+      // Collect relationships from snapshot + navigations
+      const relationships = buildRelationships(entities);
+      for (const snapEntity of snapshot.entities) {
+        for (const rel of snapEntity.relationships) {
+          if (!relationships.some(r => r.fromEntity === rel.fromEntity && r.toEntity === rel.toEntity)) {
+            relationships.push(rel);
+          }
+        }
+      }
+
+      entitiesByContext[contextName] = entities.sort((a, b) => a.name.localeCompare(b.name));
+      relationshipsByContext[contextName] = relationships;
       continue;
     }
 
-    // Resolve inherited properties from base classes
-    const resolvedProps: EntityProperty[] = [...c.properties];
-    const seenPropNames = new Set(resolvedProps.map(p => p.name.toLowerCase()));
+    // Otherwise, build from DbSet hierarchy + Fluent configurations
+    const entityTypesForContext = new Set<string>();
 
-    // Walk base class chain (TenantEntity -> Entity -> EntityBase)
-    const visited = new Set<string>();
-    const queue = [...c.baseTypes];
+    // 1. Direct DbSets
+    for (const db of dbContextSets) {
+      if (db.dbContextName.toLowerCase() === contextName.toLowerCase()) {
+        db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
+      }
+    }
 
-    while (queue.length > 0) {
-      const baseName = queue.shift()!;
-      const baseLower = baseName.toLowerCase();
-      if (visited.has(baseLower)) continue;
-      visited.add(baseLower);
+    // 2. Inherited DbSets from base DbContext (e.g. CustomAppDbContext inherits CustomAppSharedDbContext)
+    let parent = dbContextChildToParent.get(contextName);
+    while (parent) {
+      for (const db of dbContextSets) {
+        if (db.dbContextName.toLowerCase() === parent.toLowerCase()) {
+          db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
+        }
+      }
+      parent = dbContextChildToParent.get(parent);
+    }
 
-      const baseClass = classMap.get(baseLower);
-      if (baseClass) {
-        for (const p of baseClass.properties) {
-          if (!seenPropNames.has(p.name.toLowerCase())) {
-            seenPropNames.add(p.name.toLowerCase());
-            resolvedProps.push(p);
+    // 3. Collect matching entities
+    const entities: EntityModel[] = [];
+    for (const typeLower of entityTypesForContext) {
+      const rawClass = classMap.get(typeLower);
+      if (!rawClass) continue;
+
+      // Resolve inherited properties (TenantEntity -> Entity<TKey>)
+      const resolvedProps: EntityProperty[] = [...rawClass.properties];
+      const seenPropNames = new Set(resolvedProps.map(p => p.name.toLowerCase()));
+
+      const visited = new Set<string>();
+      const queue = [...rawClass.baseTypes];
+
+      while (queue.length > 0) {
+        const baseName = queue.shift()!;
+        const baseLower = baseName.toLowerCase();
+        if (visited.has(baseLower)) continue;
+        visited.add(baseLower);
+
+        const baseClass = classMap.get(baseLower);
+        if (baseClass) {
+          for (const p of baseClass.properties) {
+            if (!seenPropNames.has(p.name.toLowerCase())) {
+              seenPropNames.add(p.name.toLowerCase());
+              resolvedProps.push(p);
+            }
+          }
+          queue.push(...baseClass.baseTypes);
+        }
+      }
+
+      // Apply Fluent rule overrides
+      const rule = fluentRules.find(r => r.entityName.toLowerCase() === typeLower);
+      let tableName = rule?.tableName || rawClass.tableName || rawClass.name;
+      let schemaName = rule?.schemaName || rawClass.schemaName;
+
+      if (rule?.primaryKeys && rule.primaryKeys.length > 0) {
+        const pkSet = new Set(rule.primaryKeys.map(k => k.toLowerCase()));
+        for (let i = 0; i < resolvedProps.length; i++) {
+          if (pkSet.has(resolvedProps[i].name.toLowerCase())) {
+            resolvedProps[i] = { ...resolvedProps[i], isPrimaryKey: true };
           }
         }
-        queue.push(...baseClass.baseTypes);
       }
+
+      entities.push({
+        id: `${rawClass.filePath}:${rawClass.line}:${rawClass.name}`,
+        name: rawClass.name,
+        tableName,
+        schemaName,
+        filePath: rawClass.filePath,
+        line: rawClass.line,
+        projectName: rawClass.projectName,
+        properties: resolvedProps,
+        dbContextNames: [contextName]
+      });
     }
 
-    // Apply Fluent Rule table name / schema / keys override if present
-    const matchingRule = fluentRules.find(r => r.entityName.toLowerCase() === lowerName);
-    let tableName = matchingRule?.tableName || c.tableName || c.name;
-    let schemaName = matchingRule?.schemaName || c.schemaName;
-
-    if (matchingRule?.primaryKeys && matchingRule.primaryKeys.length > 0) {
-      const pkSet = new Set(matchingRule.primaryKeys.map(k => k.toLowerCase()));
-      for (let i = 0; i < resolvedProps.length; i++) {
-        if (pkSet.has(resolvedProps[i].name.toLowerCase())) {
-          resolvedProps[i] = { ...resolvedProps[i], isPrimaryKey: true };
-        }
-      }
-    }
-
-    entities.push({
-      id: `${c.filePath}:${c.line}:${c.name}`,
-      name: c.name,
-      tableName,
-      schemaName,
-      filePath: c.filePath,
-      line: c.line,
-      projectName: c.projectName,
-      properties: resolvedProps,
-      dbContextNames: Array.from(entityDbContexts.get(lowerName) || [])
-    });
+    const rels = buildRelationships(entities);
+    entitiesByContext[contextName] = entities.sort((a, b) => a.name.localeCompare(b.name));
+    relationshipsByContext[contextName] = rels;
   }
 
-  return entities.sort((a, b) => a.name.localeCompare(b.name));
+  const availableDbContexts = Array.from(contextNameSet).sort();
+
+  return {
+    availableDbContexts,
+    entitiesByContext,
+    relationshipsByContext
+  };
 }
 
 export function buildRelationships(entities: readonly EntityModel[]): EntityRelationship[] {

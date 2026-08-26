@@ -22,12 +22,10 @@ export function renderEfDiagramHtml(): string {
       <div class="sidebar-header">
         <div class="sidebar-title">
           <span style="color: var(--pk-color);">🗄️</span>
-          <span>Entity Palette</span>
+          <span id="sidebarContextTitle">Entity Palette</span>
         </div>
-        <input type="text" class="search-box" id="searchBox" placeholder="Filter entities (e.g. Form, Tenant)..." autocomplete="off" />
-        <select class="context-filter-select" id="contextFilterSelect" title="Filter by DbContext / Database">
-          <option value="ALL">All Databases / Contexts</option>
-        </select>
+        <input type="text" class="search-box" id="searchBox" placeholder="Filter entities in active DbContext..." autocomplete="off" />
+        <button class="btn btn-secondary" id="btnAddAllToCanvas" style="width: 100%; font-size: 11px; padding: 5px;" title="Add all tables of active DbContext to canvas">➕ Add All to Canvas</button>
       </div>
       <div class="entity-list" id="entityList">
         <!-- Injected dynamically via client script -->
@@ -39,6 +37,11 @@ export function renderEfDiagramHtml(): string {
       <!-- Top Toolbar -->
       <div class="toolbar">
         <div class="toolbar-left">
+          <div style="display: flex; align-items: center; gap: 6px; margin-right: 8px;">
+            <span style="font-weight: 600; font-size: 11px; color: var(--pk-color);">🎯 DbContext:</span>
+            <select class="diagram-select" id="dbContextSelect" style="font-weight: 600; min-width: 180px;" title="Select Active DbContext / Database"></select>
+          </div>
+          <span style="color: var(--card-border); margin: 0 4px;">|</span>
           <select class="diagram-select" id="diagramSelect" title="Select Diagram">
             <option value="Default">Default Diagram</option>
           </select>

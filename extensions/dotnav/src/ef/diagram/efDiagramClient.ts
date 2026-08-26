@@ -4,6 +4,11 @@ export function getEfDiagramClientScript(): string {
   const vscode = acquireVsCodeApi();
   
   // State
+  let availableDbContexts = [];
+  let activeDbContext = '';
+  let entitiesByContext = {};
+  let relationshipsByContext = {};
+
   let allEntities = [];
   let allRelationships = [];
   let activePositions = {};
@@ -25,44 +30,42 @@ export function getEfDiagramClientScript(): string {
   const cardsLayer = document.getElementById('cardsLayer');
   const entityListEl = document.getElementById('entityList');
   const searchBox = document.getElementById('searchBox');
-  const contextFilterSelect = document.getElementById('contextFilterSelect');
+  const dbContextSelect = document.getElementById('dbContextSelect');
   const diagramSelect = document.getElementById('diagramSelect');
+  const sidebarContextTitle = document.getElementById('sidebarContextTitle');
+  const btnAddAllToCanvas = document.getElementById('btnAddAllToCanvas');
   const emptyPrompt = document.getElementById('emptyPrompt');
   const zoomDisplay = document.getElementById('zoomDisplay');
-
-  let selectedContextFilter = 'ALL';
-
-  // Helper to determine entity's DbContext or Project group
-  function getEntityGroupName(entity) {
-    if (entity.dbContextNames && entity.dbContextNames.length > 0) {
-      return entity.dbContextNames[0];
-    }
-    return entity.projectName || 'Common / Domain Entities';
-  }
 
   // Initialize
   window.addEventListener('message', event => {
     const msg = event.data;
     switch (msg.type) {
       case 'init':
-        allEntities = msg.allEntities || [];
-        allRelationships = msg.relationships || [];
+        availableDbContexts = msg.availableDbContexts || [];
+        entitiesByContext = msg.entitiesByContext || {};
+        relationshipsByContext = msg.relationshipsByContext || {};
+        activeDbContext = msg.activeDbContext || (availableDbContexts.length > 0 ? availableDbContexts[0] : 'Default');
+
+        allEntities = entitiesByContext[activeDbContext] || msg.allEntities || [];
+        allRelationships = relationshipsByContext[activeDbContext] || msg.relationships || [];
         activePositions = msg.activePositions || {};
         currentDiagramName = msg.activeDiagramName || 'Default';
-        if (msg.initialDbContextFilter) {
-          selectedContextFilter = msg.initialDbContextFilter;
-        }
+
+        updateDbContextSelect();
         updateDiagramSelect(msg.savedDiagramNames || []);
-        updateContextFilterSelect();
+        updateSidebarTitle();
         renderEntityList();
         renderCanvas();
         break;
+
       case 'diagramLoaded':
         activePositions = msg.activePositions || {};
         currentDiagramName = msg.diagramName || 'Default';
         renderEntityList();
         renderCanvas();
         break;
+
       case 'diagramListUpdated':
         updateDiagramSelect(msg.savedDiagramNames || []);
         break;
@@ -71,28 +74,44 @@ export function getEfDiagramClientScript(): string {
 
   vscode.postMessage({ type: 'ready' });
 
-  // Update Context / Database Dropdown
-  function updateContextFilterSelect() {
-    if (!contextFilterSelect) return;
-    const groups = new Set();
-    for (const e of allEntities) {
-      groups.add(getEntityGroupName(e));
-    }
-    contextFilterSelect.innerHTML = '<option value="ALL">All Databases / Contexts</option>';
-    for (const g of Array.from(groups).sort()) {
+  // Update DbContext Dropdown
+  function updateDbContextSelect() {
+    if (!dbContextSelect) return;
+    dbContextSelect.innerHTML = '';
+    for (const ctx of availableDbContexts) {
+      const count = (entitiesByContext[ctx] || []).length;
       const opt = document.createElement('option');
-      opt.value = g;
-      opt.textContent = g;
-      contextFilterSelect.appendChild(opt);
+      opt.value = ctx;
+      opt.textContent = \`\${ctx} (\${count} tables)\`;
+      dbContextSelect.appendChild(opt);
     }
-    contextFilterSelect.value = selectedContextFilter;
+    dbContextSelect.value = activeDbContext;
   }
 
-  if (contextFilterSelect) {
-    contextFilterSelect.addEventListener('change', () => {
-      selectedContextFilter = contextFilterSelect.value;
-      renderEntityList(searchBox.value);
+  if (dbContextSelect) {
+    dbContextSelect.addEventListener('change', () => {
+      activeDbContext = dbContextSelect.value;
+      allEntities = entitiesByContext[activeDbContext] || [];
+      allRelationships = relationshipsByContext[activeDbContext] || [];
+      activePositions = {};
+
+      // Auto-place first 3 entities
+      if (allEntities.length > 0) {
+        allEntities.slice(0, 3).forEach((e, idx) => {
+          activePositions[e.name] = { x: 60 + idx * 300, y: 60 };
+        });
+      }
+
+      updateSidebarTitle();
+      renderEntityList();
+      renderCanvas();
     });
+  }
+
+  function updateSidebarTitle() {
+    if (sidebarContextTitle) {
+      sidebarContextTitle.textContent = \`\${activeDbContext || 'Entity Palette'} (\${allEntities.length})\`;
+    }
   }
 
   // Update Diagram Dropdown
@@ -116,127 +135,86 @@ export function getEfDiagramClientScript(): string {
 
   diagramSelect.addEventListener('change', () => {
     const val = diagramSelect.value;
-    vscode.postMessage({ type: 'loadDiagram', name: val });
+    vscode.postMessage({ type: 'loadDiagram', name: val, dbContext: activeDbContext });
   });
 
-  // Render Sidebar Entity List with Accordion Groups
+  // Render Sidebar Entity List
   function renderEntityList(filter = '') {
     entityListEl.innerHTML = '';
     const q = filter.trim().toLowerCase();
 
-    // Group entities
-    const groups = {};
-    for (const entity of allEntities) {
-      const groupName = getEntityGroupName(entity);
-      if (selectedContextFilter !== 'ALL' && groupName !== selectedContextFilter) {
-        continue;
-      }
-      if (q && !entity.name.toLowerCase().includes(q) && !(entity.tableName && entity.tableName.toLowerCase().includes(q))) {
-        continue;
-      }
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-      groups[groupName].push(entity);
-    }
+    const filtered = allEntities.filter(e => {
+      if (!q) return true;
+      return e.name.toLowerCase().includes(q) || (e.tableName && e.tableName.toLowerCase().includes(q));
+    });
 
-    const groupKeys = Object.keys(groups).sort();
-    if (groupKeys.length === 0) {
-      entityListEl.innerHTML = '<div style="padding: 12px; font-size: 11px; color: var(--text-muted); text-align: center;">No entities found.</div>';
+    if (filtered.length === 0) {
+      entityListEl.innerHTML = '<div style="padding: 14px; font-size: 11px; color: var(--text-muted); text-align: center;">No entities found in this DbContext.</div>';
       return;
     }
 
-    for (const groupName of groupKeys) {
-      const entitiesInGroup = groups[groupName];
-      const groupEl = document.createElement('div');
-      groupEl.className = 'entity-group';
+    for (const entity of filtered) {
+      const item = document.createElement('div');
+      item.className = 'entity-list-item' + (activePositions[entity.name] ? ' in-diagram' : '');
+      item.draggable = true;
+      item.dataset.entityName = entity.name;
 
-      const headerEl = document.createElement('div');
-      headerEl.className = 'entity-group-header';
-      headerEl.innerHTML = \`
-        <div class="entity-group-title">
-          <span class="entity-group-toggle">▼</span>
-          <span>📁 \${escapeHtml(groupName)}</span>
-          <span class="entity-item-badge">\${entitiesInGroup.length}</span>
+      const tableLabel = entity.tableName ? (entity.schemaName ? entity.schemaName + '.' + entity.tableName : entity.tableName) : '';
+
+      item.innerHTML = \`
+        <div class="entity-item-info">
+          <span style="color: var(--pk-color);">🔑</span>
+          <div style="display: flex; flex-direction: column; overflow: hidden;">
+            <span class="entity-item-name">\${escapeHtml(entity.name)}</span>
+            \${tableLabel ? \`<span style="font-size: 10px; color: var(--text-muted);">\${escapeHtml(tableLabel)}</span>\` : ''}
+          </div>
         </div>
-        <button class="entity-group-add-all-btn" title="Add all \${entitiesInGroup.length} tables to diagram">➕ Add All</button>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <span class="entity-item-badge">\${entity.properties.length} cols</span>
+          <button class="entity-add-btn" title="Add to Diagram">➕</button>
+        </div>
       \`;
 
-      // Accordion toggle
-      headerEl.addEventListener('click', () => {
-        groupEl.classList.toggle('collapsed');
+      // Drag start from sidebar
+      item.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', entity.name);
       });
 
-      // Add all entities in this group to canvas
-      const addAllBtn = headerEl.querySelector('.entity-group-add-all-btn');
-      addAllBtn.addEventListener('click', e => {
+      // Click add button
+      const addBtn = item.querySelector('.entity-add-btn');
+      addBtn.addEventListener('click', e => {
         e.stopPropagation();
-        addAllEntitiesToCanvas(entitiesInGroup);
+        addEntityToCanvas(entity.name);
       });
 
-      const contentEl = document.createElement('div');
-      contentEl.className = 'entity-group-content';
+      // Double-click to add
+      item.addEventListener('dblclick', () => {
+        addEntityToCanvas(entity.name);
+      });
 
-      for (const entity of entitiesInGroup) {
-        const item = document.createElement('div');
-        item.className = 'entity-list-item' + (activePositions[entity.name] ? ' in-diagram' : '');
-        item.draggable = true;
-        item.dataset.entityName = entity.name;
-
-        item.innerHTML = \`
-          <div class="entity-item-info">
-            <span style="color: var(--pk-color);">🔑</span>
-            <span class="entity-item-name">\${escapeHtml(entity.name)}</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 4px;">
-            <span class="entity-item-badge">\${entity.properties.length} cols</span>
-            <button class="entity-add-btn" title="Add to Diagram">➕</button>
-          </div>
-        \`;
-
-        // Drag start from sidebar
-        item.addEventListener('dragstart', e => {
-          e.dataTransfer.setData('text/plain', entity.name);
-        });
-
-        // Click add button
-        const addBtn = item.querySelector('.entity-add-btn');
-        addBtn.addEventListener('click', e => {
-          e.stopPropagation();
-          addEntityToCanvas(entity.name);
-        });
-
-        // Double-click to add
-        item.addEventListener('dblclick', () => {
-          addEntityToCanvas(entity.name);
-        });
-
-        contentEl.appendChild(item);
-      }
-
-      groupEl.appendChild(headerEl);
-      groupEl.appendChild(contentEl);
-      entityListEl.appendChild(groupEl);
+      entityListEl.appendChild(item);
     }
   }
 
-  // Batch add multiple entities to canvas in a grid layout
-  function addAllEntitiesToCanvas(entities) {
-    let currentCount = Object.keys(activePositions).length;
-    let added = 0;
+  // Add All Button Click
+  if (btnAddAllToCanvas) {
+    btnAddAllToCanvas.addEventListener('click', () => {
+      let currentCount = Object.keys(activePositions).length;
+      let added = 0;
 
-    for (const entity of entities) {
-      if (!activePositions[entity.name]) {
-        const idx = currentCount + added;
-        const posX = 60 + (idx % 3) * 320;
-        const posY = 60 + Math.floor(idx / 3) * 340;
-        activePositions[entity.name] = { x: Math.round(posX), y: Math.round(posY) };
-        added++;
+      for (const entity of allEntities) {
+        if (!activePositions[entity.name]) {
+          const idx = currentCount + added;
+          const posX = 60 + (idx % 3) * 320;
+          const posY = 60 + Math.floor(idx / 3) * 340;
+          activePositions[entity.name] = { x: Math.round(posX), y: Math.round(posY) };
+          added++;
+        }
       }
-    }
 
-    renderEntityList(searchBox.value);
-    renderCanvas();
+      renderEntityList(searchBox.value);
+      renderCanvas();
+    });
   }
 
   searchBox.addEventListener('input', () => {
@@ -265,8 +243,8 @@ export function getEfDiagramClientScript(): string {
     } else {
       // Auto position offset
       const count = Object.keys(activePositions).length;
-      posX = 60 + (count % 4) * 300;
-      posY = 60 + Math.floor(count / 4) * 320;
+      posX = 60 + (count % 3) * 320;
+      posY = 60 + Math.floor(count / 3) * 340;
     }
 
     activePositions[entityName] = { x: Math.round(posX), y: Math.round(posY) };
@@ -341,135 +319,149 @@ export function getEfDiagramClientScript(): string {
         removeEntityFromCanvas(entity.name);
       });
 
-      // Smart Expand Button on FK/Nav lines
-      card.querySelectorAll('.col-expand-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const target = btn.dataset.targetEntity;
-          if (target) {
-            // Position child near parent
-            addEntityToCanvas(target, pos.x + 320, pos.y + 40);
-          }
-        });
-      });
-
-      // Drag Card
+      // Card dragging
       header.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
         draggedCard = card;
         const rect = card.getBoundingClientRect();
         dragOffsetX = (e.clientX - rect.left) / zoom;
         dragOffsetY = (e.clientY - rect.top) / zoom;
-        card.classList.add('selected');
+        card.style.zIndex = '100';
         e.stopPropagation();
       });
 
       cardsLayer.appendChild(card);
     }
 
-    // Render Relationships
-    updateConnectors();
-    applyTransform();
+    // Attach expandable [+] buttons inside card rows
+    cardsLayer.querySelectorAll('.prop-expand-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const targetEntity = btn.dataset.targetEntity;
+        if (targetEntity) {
+          const currentCard = btn.closest('.table-card');
+          const currentLeft = parseInt(currentCard.style.left, 10) || 100;
+          const currentTop = parseInt(currentCard.style.top, 10) || 100;
+          
+          if (!activePositions[targetEntity]) {
+            activePositions[targetEntity] = {
+              x: currentLeft + 340,
+              y: currentTop
+            };
+            renderEntityList(searchBox.value);
+            renderCanvas();
+          }
+        }
+      });
+    });
+
+    // Redraw SVG Crow's Foot connection lines
+    requestAnimationFrame(updateSvgLinks);
   }
 
   function renderPropertyRow(entity, prop) {
-    let icon = '<span class="col-icon-normal">📝</span>';
-    let isPk = prop.isPrimaryKey;
-    let isFk = prop.isForeignKey;
-    let isNav = prop.isNavigation;
+    let badge = '';
+    let rowClass = 'prop-row';
+    let expandBtn = '';
 
-    if (isPk) icon = '<span class="col-icon-pk">🔑</span>';
-    else if (isFk) icon = '<span class="col-icon-fk">🔗</span>';
-    else if (isNav) icon = '<span class="col-icon-nav">🌐</span>';
-
-    const expandBtn = (isFk && prop.foreignKeyTargetEntity && !activePositions[prop.foreignKeyTargetEntity])
-      ? \`<button class="col-expand-btn" data-target-entity="\${escapeHtml(prop.foreignKeyTargetEntity)}" title="Add \${escapeHtml(prop.foreignKeyTargetEntity)} to Diagram">➕</button>\`
-      : (isNav && prop.navigationTargetEntity && !activePositions[prop.navigationTargetEntity])
-      ? \`<button class="col-expand-btn" data-target-entity="\${escapeHtml(prop.navigationTargetEntity)}" title="Add \${escapeHtml(prop.navigationTargetEntity)} to Diagram">➕</button>\`
-      : '';
+    if (prop.isPrimaryKey) {
+      rowClass += ' pk';
+      badge = '<span class="prop-badge pk">PK</span>';
+    } else if (prop.isForeignKey) {
+      rowClass += ' fk';
+      badge = '<span class="prop-badge fk">FK</span>';
+      if (prop.foreignKeyTargetEntity && allEntities.some(e => e.name === prop.foreignKeyTargetEntity)) {
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.foreignKeyTargetEntity)}" title="Add \${escapeHtml(prop.foreignKeyTargetEntity)} to canvas">➕</button>\`;
+      }
+    } else if (prop.isNavigation) {
+      badge = '<span class="prop-badge nav">NAV</span>';
+      if (prop.navigationTargetEntity && allEntities.some(e => e.name === prop.navigationTargetEntity)) {
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.navigationTargetEntity)}" title="Add \${escapeHtml(prop.navigationTargetEntity)} to canvas">➕</button>\`;
+      }
+    }
 
     return \`
-      <div class="column-row">
-        <div class="col-left">
-          \${icon}
-          <span class="col-name \${isPk ? 'pk' : ''}">\${escapeHtml(prop.name)}</span>
-          <span class="col-type">\${escapeHtml(prop.type)}</span>
+      <div class="\${rowClass}" data-prop-name="\${escapeHtml(prop.name)}">
+        <div class="prop-name">
+          \${badge}
+          <span>\${escapeHtml(prop.name)}</span>
         </div>
-        \${expandBtn}
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <span class="prop-type">\${escapeHtml(prop.type)}</span>
+          \${expandBtn}
+        </div>
       </div>
     \`;
   }
 
-  // Update SVG Connectors
-  function updateConnectors() {
+  // Draw Crow's Foot SVG Connectors
+  function updateSvgLinks() {
     linksSvg.innerHTML = '';
     const activeNames = new Set(Object.keys(activePositions));
 
     for (const rel of allRelationships) {
       if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
-        drawRelationshipLink(rel);
+        drawCrowFootLink(rel);
       }
     }
   }
 
-  function drawRelationshipLink(rel) {
-    const cardA = document.getElementById('card-' + rel.fromEntity);
-    const cardB = document.getElementById('card-' + rel.toEntity);
-    if (!cardA || !cardB) return;
+  function drawCrowFootLink(rel) {
+    const fromCard = document.getElementById('card-' + rel.fromEntity);
+    const toCard = document.getElementById('card-' + rel.toEntity);
+    if (!fromCard || !toCard) return;
 
-    const posA = activePositions[rel.fromEntity];
-    const posB = activePositions[rel.toEntity];
-    const widthA = 260;
-    const widthB = 260;
-    const heightA = cardA.offsetHeight || 200;
-    const heightB = cardB.offsetHeight || 200;
+    const fromPos = activePositions[rel.fromEntity];
+    const toPos = activePositions[rel.toEntity];
 
-    // Calculate best anchor sides
+    const fromWidth = fromCard.offsetWidth;
+    const fromHeight = fromCard.offsetHeight;
+    const toWidth = toCard.offsetWidth;
+    const toHeight = toCard.offsetHeight;
+
+    // Anchor points: left or right side depending on relative position
     let x1, y1, x2, y2;
-    if (posA.x + widthA < posB.x) {
-      // A is left of B
-      x1 = posA.x + widthA;
-      y1 = posA.y + Math.min(heightA, 120);
-      x2 = posB.x;
-      y2 = posB.y + Math.min(heightB, 120);
-    } else if (posB.x + widthB < posA.x) {
-      // B is left of A
-      x1 = posA.x;
-      y1 = posA.y + Math.min(heightA, 120);
-      x2 = posB.x + widthB;
-      y2 = posB.y + Math.min(heightB, 120);
+    if (fromPos.x + fromWidth / 2 < toPos.x + toWidth / 2) {
+      // From right to Left
+      x1 = fromPos.x + fromWidth;
+      y1 = fromPos.y + Math.min(60, fromHeight / 2);
+      x2 = toPos.x;
+      y2 = toPos.y + Math.min(60, toHeight / 2);
     } else {
-      // Vertically stacked
-      x1 = posA.x + widthA / 2;
-      y1 = posA.y + heightA;
-      x2 = posB.x + widthB / 2;
-      y2 = posB.y;
+      // From left to Right
+      x1 = fromPos.x;
+      y1 = fromPos.y + Math.min(60, fromHeight / 2);
+      x2 = toPos.x + toWidth;
+      y2 = toPos.y + Math.min(60, toHeight / 2);
     }
 
-    const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-    const pathD = \`M \${x1} \${y1} C \${x1 + (x2 > x1 ? dx : -dx)} \${y1}, \${x2 + (x2 > x1 ? -dx : dx)} \${y2}, \${x2} \${y2}\`;
+    // Cubic bezier curve path
+    const dx = Math.abs(x2 - x1) * 0.5;
+    const cx1 = x1 < x2 ? x1 + dx : x1 - dx;
+    const cx2 = x1 < x2 ? x2 - dx : x2 + dx;
+
+    const pathData = \`M \${x1} \${y1} C \${cx1} \${y1}, \${cx2} \${y2}, \${x2} \${y2}\`;
 
     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    pathEl.setAttribute('d', pathD);
-    pathEl.setAttribute('class', 'rel-line');
-    pathEl.innerHTML = \`<title>\${escapeHtml(rel.fromEntity)} (1) ➔ \${escapeHtml(rel.toEntity)} (∞)</title>\`;
-
-    // Crow's foot circle markers
-    const circleA = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circleA.setAttribute('cx', x1);
-    circleA.setAttribute('cy', y1);
-    circleA.setAttribute('r', '4');
-    circleA.setAttribute('class', 'rel-marker');
-
-    const circleB = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circleB.setAttribute('cx', x2);
-    circleB.setAttribute('cy', y2);
-    circleB.setAttribute('r', '4');
-    circleB.setAttribute('class', 'rel-marker');
-
+    pathEl.setAttribute('d', pathData);
+    pathEl.setAttribute('class', 'link-path');
     linksSvg.appendChild(pathEl);
-    linksSvg.appendChild(circleA);
-    linksSvg.appendChild(circleB);
+
+    // One indicator (from 1)
+    const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle1.setAttribute('cx', x1);
+    circle1.setAttribute('cy', y1);
+    circle1.setAttribute('r', 3);
+    circle1.setAttribute('class', 'link-endpoint');
+    linksSvg.appendChild(circle1);
+
+    // Many indicator (Crow's Foot at toEntity)
+    const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle2.setAttribute('cx', x2);
+    circle2.setAttribute('cy', y2);
+    circle2.setAttribute('r', 4);
+    circle2.setAttribute('class', 'link-crowfoot');
+    linksSvg.appendChild(circle2);
   }
 
   // Pan & Zoom
@@ -480,8 +472,8 @@ export function getEfDiagramClientScript(): string {
 
   viewport.addEventListener('wheel', e => {
     e.preventDefault();
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.min(2.0, Math.max(0.3, zoom * zoomFactor));
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newZoom = Math.min(Math.max(0.3, zoom * zoomFactor), 2.5);
 
     const rect = viewport.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -490,15 +482,19 @@ export function getEfDiagramClientScript(): string {
     panX = mouseX - (mouseX - panX) * (newZoom / zoom);
     panY = mouseY - (mouseY - panY) * (newZoom / zoom);
     zoom = newZoom;
-    applyTransform();
-  });
 
+    applyTransform();
+  }, { passive: false });
+
+  // Pan Canvas
   viewport.addEventListener('mousedown', e => {
-    if (e.button === 1 || (e.button === 0 && e.target === viewport)) {
-      isPanning = true;
-      startPanX = e.clientX - panX;
-      startPanY = e.clientY - panY;
-      viewport.classList.add('panning');
+    if (e.target === viewport || e.target === canvasTransform || e.target === linksSvg || e.target.closest('#emptyPrompt')) {
+      if (e.button === 0 || e.button === 1) {
+        isPanning = true;
+        startPanX = e.clientX - panX;
+        startPanY = e.clientY - panY;
+        viewport.style.cursor = 'grabbing';
+      }
     }
   });
 
@@ -509,31 +505,34 @@ export function getEfDiagramClientScript(): string {
       applyTransform();
     } else if (draggedCard) {
       const rect = viewport.getBoundingClientRect();
-      const newX = Math.round((e.clientX - rect.left - panX) / zoom - dragOffsetX);
-      const newY = Math.round((e.clientY - rect.top - panY) / zoom - dragOffsetY);
-      const entityName = draggedCard.id.replace(/^card-/, '');
+      const newX = (e.clientX - rect.left - panX) / zoom - dragOffsetX;
+      const newY = (e.clientY - rect.top - panY) / zoom - dragOffsetY;
 
-      draggedCard.style.left = newX + 'px';
-      draggedCard.style.top = newY + 'px';
-      activePositions[entityName] = { x: newX, y: newY };
-      updateConnectors();
+      draggedCard.style.left = Math.round(newX) + 'px';
+      draggedCard.style.top = Math.round(newY) + 'px';
+
+      const entityName = draggedCard.querySelector('.card-header').dataset.entityName;
+      activePositions[entityName] = { x: Math.round(newX), y: Math.round(newY) };
+
+      updateSvgLinks();
     }
   });
 
   window.addEventListener('mouseup', () => {
     if (isPanning) {
       isPanning = false;
-      viewport.classList.remove('panning');
+      viewport.style.cursor = 'grab';
     }
     if (draggedCard) {
-      draggedCard.classList.remove('selected');
+      draggedCard.style.zIndex = '1';
       draggedCard = null;
     }
   });
 
-  // HTML5 Drag & Drop from Sidebar
+  // Drag & Drop from Sidebar to Canvas
   viewport.addEventListener('dragover', e => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   });
 
   viewport.addEventListener('drop', e => {
@@ -544,14 +543,71 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
-  // Toolbar Handlers
+  // Toolbar Actions
+  document.getElementById('btnNew').addEventListener('click', async () => {
+    activePositions = {};
+    currentDiagramName = 'New Diagram';
+    renderEntityList(searchBox.value);
+    renderCanvas();
+  });
+
+  document.getElementById('btnSave').addEventListener('click', () => {
+    vscode.postMessage({
+      type: 'saveDiagram',
+      name: \`\${activeDbContext}_\${currentDiagramName}\`,
+      positions: activePositions
+    });
+  });
+
+  document.getElementById('btnAutoLayout').addEventListener('click', () => {
+    const names = Object.keys(activePositions);
+    names.forEach((name, idx) => {
+      const posX = 60 + (idx % 3) * 320;
+      const posY = 60 + Math.floor(idx / 3) * 340;
+      activePositions[name] = { x: posX, y: posY };
+    });
+    renderCanvas();
+  });
+
+  document.getElementById('btnExportMermaid').addEventListener('click', () => {
+    let mermaid = 'erDiagram\\n';
+    const activeNames = new Set(Object.keys(activePositions));
+
+    for (const name of activeNames) {
+      const entity = allEntities.find(e => e.name === name);
+      if (!entity) continue;
+      mermaid += \`  \${entity.name} {\\n\`;
+      for (const p of entity.properties) {
+        const cleanType = p.type.replace(/[^A-Za-z0-9_]/g, '_');
+        const keyType = p.isPrimaryKey ? 'PK' : (p.isForeignKey ? 'FK' : '');
+        mermaid += \`    \${cleanType} \${p.name} \${keyType}\\n\`;
+      }
+      mermaid += '  }\\n';
+    }
+
+    for (const rel of allRelationships) {
+      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
+        mermaid += \`  \${rel.fromEntity} ||--o{ \${rel.toEntity} : contains\\n\`;
+      }
+    }
+
+    navigator.clipboard.writeText(mermaid).then(() => {
+      vscode.postMessage({
+        type: 'saveDiagram',
+        name: 'mermaid_copied',
+        positions: {}
+      });
+      alert('Mermaid ERD code copied to clipboard!');
+    });
+  });
+
   document.getElementById('btnZoomIn').addEventListener('click', () => {
-    zoom = Math.min(2.0, zoom * 1.15);
+    zoom = Math.min(2.5, zoom * 1.2);
     applyTransform();
   });
 
   document.getElementById('btnZoomOut').addEventListener('click', () => {
-    zoom = Math.max(0.3, zoom * 0.85);
+    zoom = Math.max(0.3, zoom / 1.2);
     applyTransform();
   });
 
@@ -562,77 +618,15 @@ export function getEfDiagramClientScript(): string {
     applyTransform();
   });
 
-  document.getElementById('btnAutoLayout').addEventListener('click', () => {
-    const names = Object.keys(activePositions);
-    let col = 0;
-    let row = 0;
-    for (const name of names) {
-      activePositions[name] = {
-        x: 60 + col * 320,
-        y: 60 + row * 340
-      };
-      col++;
-      if (col >= 3) {
-        col = 0;
-        row++;
-      }
-    }
-    renderCanvas();
-  });
-
-  document.getElementById('btnSave').addEventListener('click', () => {
-    vscode.postMessage({
-      type: 'saveDiagram',
-      name: currentDiagramName,
-      positions: activePositions
-    });
-  });
-
-  document.getElementById('btnNew').addEventListener('click', () => {
-    const name = prompt('Enter new diagram name:', 'Custom Diagram');
-    if (name) {
-      currentDiagramName = name.trim();
-      activePositions = {};
-      renderEntityList();
-      renderCanvas();
-      vscode.postMessage({
-        type: 'saveDiagram',
-        name: currentDiagramName,
-        positions: {}
-      });
-    }
-  });
-
-  document.getElementById('btnExportMermaid').addEventListener('click', () => {
-    let mermaid = 'erDiagram\\n';
-    const activeNames = new Set(Object.keys(activePositions));
-
-    for (const rel of allRelationships) {
-      if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
-        mermaid += \`  \${rel.fromEntity} ||--o{ \${rel.toEntity} : "\${rel.foreignKeyName || 'FK'}"\\n\`;
-      }
-    }
-
-    for (const name of activeNames) {
-      const entity = allEntities.find(e => e.name === name);
-      if (entity) {
-        mermaid += \`  \${entity.name} {\\n\`;
-        for (const p of entity.properties.slice(0, 8)) {
-          mermaid += \`    \${p.type.replace(/[^a-zA-Z0-9_]/g, '')} \${p.name}\\n\`;
-        }
-        mermaid += '  }\\n';
-      }
-    }
-
-    navigator.clipboard.writeText(mermaid).then(() => {
-      alert('Mermaid ERD copied to clipboard!');
-    });
-  });
-
   function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 })();
-  `;
+`;
 }

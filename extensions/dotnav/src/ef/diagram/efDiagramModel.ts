@@ -47,12 +47,17 @@ export interface DiagramEntityPosition {
 export interface DiagramFile {
   readonly version: number;
   readonly name: string;
+  readonly dbContext?: string;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly entities: Record<string, { x: number; y: number }>;
 }
 
 export interface DiagramWebviewInitialState {
+  readonly availableDbContexts: readonly string[];
+  readonly activeDbContext: string;
+  readonly entitiesByContext: Record<string, readonly EntityModel[]>;
+  readonly relationshipsByContext: Record<string, readonly EntityRelationship[]>;
   readonly allEntities: readonly EntityModel[];
   readonly relationships: readonly EntityRelationship[];
   readonly activeDiagramName: string;

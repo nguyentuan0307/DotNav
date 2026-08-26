@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { EntityModel, EntityRelationship } from './efDiagramModel';
 import {
-  buildRelationships,
-  buildStrictWorkspaceEntities,
+  buildDbContextScopedModel,
   parseDbContextDbSets,
   parseFluentConfigurations,
+  parseModelSnapshotFromCSharp,
   parseRawClassesFromCSharp,
   RawClassInfo,
-  FluentConfigRule
+  FluentConfigRule,
+  SnapshotContextResult
 } from './efDiagramScanner';
 import {
   listSavedDiagrams,
@@ -21,24 +22,26 @@ import { renderEfDiagramHtml } from './efDiagramHtml';
 
 let currentDiagramPanel: vscode.WebviewPanel | undefined;
 
-export async function scanWorkspaceEntities(): Promise<{
-  entities: EntityModel[];
-  relationships: EntityRelationship[];
+export async function scanWorkspaceDbContextsAndEntities(): Promise<{
+  availableDbContexts: string[];
+  entitiesByContext: Record<string, EntityModel[]>;
+  relationshipsByContext: Record<string, EntityRelationship[]>;
 }> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
-    return { entities: [], relationships: [] };
+    return { availableDbContexts: [], entitiesByContext: {}, relationshipsByContext: {} };
   }
 
   const csFiles = await vscode.workspace.findFiles(
     '**/*.cs',
     '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
-    2500
+    3000
   );
 
   const rawClasses: RawClassInfo[] = [];
   const fluentRules: FluentConfigRule[] = [];
   const dbContextSets: { dbContextName: string; entityTypes: string[] }[] = [];
+  const snapshots: SnapshotContextResult[] = [];
 
   for (const uri of csFiles) {
     try {
@@ -46,7 +49,15 @@ export async function scanWorkspaceEntities(): Promise<{
       const relPath = path.relative(workspaceRoot, uri.fsPath);
       const projName = relPath.split(path.sep)[0] || 'Workspace';
 
-      // 1. Check for DbSets
+      // 1. ModelSnapshot check
+      if (uri.fsPath.endsWith('ModelSnapshot.cs') || content.includes('[DbContext(')) {
+        const snap = parseModelSnapshotFromCSharp(content, uri.fsPath);
+        if (snap) {
+          snapshots.push(snap);
+        }
+      }
+
+      // 2. DbSets
       if (content.includes('DbSet<')) {
         const foundSets = parseDbContextDbSets(content);
         if (foundSets.length > 0) {
@@ -54,7 +65,7 @@ export async function scanWorkspaceEntities(): Promise<{
         }
       }
 
-      // 2. Check for IEntityTypeConfiguration<T>
+      // 3. IEntityTypeConfiguration<T>
       if (content.includes('IEntityTypeConfiguration<')) {
         const foundRules = parseFluentConfigurations(content);
         if (foundRules.length > 0) {
@@ -62,7 +73,7 @@ export async function scanWorkspaceEntities(): Promise<{
         }
       }
 
-      // 3. Collect Raw Classes
+      // 4. Raw Classes
       if (content.includes('class ') || content.includes('record ')) {
         const foundClasses = parseRawClassesFromCSharp(content, uri.fsPath, projName);
         if (foundClasses.length > 0) {
@@ -74,10 +85,7 @@ export async function scanWorkspaceEntities(): Promise<{
     }
   }
 
-  const entities = buildStrictWorkspaceEntities(rawClasses, fluentRules, dbContextSets);
-  const relationships = buildRelationships(entities);
-
-  return { entities, relationships };
+  return buildDbContextScopedModel(rawClasses, fluentRules, dbContextSets, snapshots);
 }
 
 export async function openEfDiagramPanel(
@@ -103,15 +111,21 @@ export async function openEfDiagramPanel(
   if (currentDiagramPanel) {
     currentDiagramPanel.reveal(vscode.ViewColumn.One);
     if (initialEntityName || initialDbContextFilter) {
-      // Add initial entity or filter to canvas
-      const { entities, relationships } = await scanWorkspaceEntities();
+      const model = await scanWorkspaceDbContextsAndEntities();
+      const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
+      const entities = model.entitiesByContext[activeCtx] || [];
+      const relationships = model.relationshipsByContext[activeCtx] || [];
+
       currentDiagramPanel.webview.postMessage({
         type: 'init',
+        availableDbContexts: model.availableDbContexts,
+        activeDbContext: activeCtx,
+        entitiesByContext: model.entitiesByContext,
+        relationshipsByContext: model.relationshipsByContext,
         allEntities: entities,
         relationships,
         activeDiagramName: 'Default',
-        activePositions: initialEntityName ? { [initialEntityName]: { x: 120, y: 120 } } : undefined,
-        initialDbContextFilter
+        activePositions: initialEntityName ? { [initialEntityName]: { x: 120, y: 120 } } : undefined
       });
     }
     return;
@@ -139,7 +153,10 @@ export async function openEfDiagramPanel(
   panel.webview.onDidReceiveMessage(async msg => {
     switch (msg.type) {
       case 'ready': {
-        const { entities, relationships } = await scanWorkspaceEntities();
+        const model = await scanWorkspaceDbContextsAndEntities();
+        const activeCtx = initialDbContextFilter || model.availableDbContexts[0] || 'Default';
+        const entities = model.entitiesByContext[activeCtx] || [];
+        const relationships = model.relationshipsByContext[activeCtx] || [];
         const savedDiagrams = await listSavedDiagrams(workspaceRoot);
         let activePositions: Record<string, { x: number; y: number }> = {};
 
@@ -147,7 +164,7 @@ export async function openEfDiagramPanel(
           activePositions[initialEntityName] = { x: 120, y: 120 };
         } else {
           // Load default diagram if exists
-          const saved = await loadDiagramFromFile('Default', workspaceRoot);
+          const saved = await loadDiagramFromFile(`${activeCtx}_Default`, workspaceRoot) || await loadDiagramFromFile('Default', workspaceRoot);
           if (saved) {
             activePositions = liveSyncDiagramWithCode(saved, entities);
           } else if (entities.length > 0) {
@@ -160,18 +177,23 @@ export async function openEfDiagramPanel(
 
         panel.webview.postMessage({
           type: 'init',
+          availableDbContexts: model.availableDbContexts,
+          activeDbContext: activeCtx,
+          entitiesByContext: model.entitiesByContext,
+          relationshipsByContext: model.relationshipsByContext,
           allEntities: entities,
           relationships,
           activeDiagramName: 'Default',
           activePositions,
-          savedDiagramNames: savedDiagrams,
-          initialDbContextFilter
+          savedDiagramNames: savedDiagrams
         });
         break;
       }
 
       case 'loadDiagram': {
-        const { entities } = await scanWorkspaceEntities();
+        const model = await scanWorkspaceDbContextsAndEntities();
+        const activeCtx = msg.dbContext || model.availableDbContexts[0] || 'Default';
+        const entities = model.entitiesByContext[activeCtx] || [];
         const saved = await loadDiagramFromFile(msg.name, workspaceRoot);
         const synced = liveSyncDiagramWithCode(saved, entities);
         panel.webview.postMessage({
