@@ -122,13 +122,8 @@ export function getEfDiagramClientScript(): string {
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
   const layoutModeSelect = document.getElementById('layoutModeSelect');
-  const btnAutoLayout = document.getElementById('btnAutoLayout');
   const btnAddNote = document.getElementById('btnAddNote');
   const exportSelect = document.getElementById('exportSelect');
-
-  const btnAlignLeft = document.getElementById('btnAlignLeft');
-  const btnAlignTop = document.getElementById('btnAlignTop');
-  const btnDistributeH = document.getElementById('btnDistributeH');
 
   // Filter Chips
   const chipAll = document.getElementById('chipAll');
@@ -2184,10 +2179,13 @@ export function getEfDiagramClientScript(): string {
     renderNotes();
   }
 
-  if (btnAutoLayout) {
-    btnAutoLayout.addEventListener('click', () => {
-      const mode = layoutModeSelect ? layoutModeSelect.value : 'column';
-      autoLayoutEntities(null, mode);
+  if (layoutModeSelect) {
+    layoutModeSelect.addEventListener('change', () => {
+      const mode = layoutModeSelect.value;
+      if (mode) {
+        autoLayoutEntities(null, mode);
+        layoutModeSelect.value = '';
+      }
     });
   }
 

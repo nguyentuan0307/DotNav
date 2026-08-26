@@ -86,17 +86,14 @@ export function renderEfDiagramHtml(): string {
 
           <div class="toolbar-divider"></div>
 
-          <!-- Multi-Layout Selector Dropdown -->
-          <select class="diagram-select" id="layoutModeSelect" title="Select Auto Layout Algorithm">
+          <!-- Auto-Arrange Layout Selector (Instant Trigger) -->
+          <select class="diagram-select" id="layoutModeSelect" title="Auto-Arrange Diagram Layout">
+            <option value="" disabled selected>📐 Arrange Layout...</option>
             <option value="column">📐 Layout: Columns (DAG)</option>
             <option value="hierarchical">🌲 Layout: Tree Hierarchy</option>
             <option value="radial">⭐ Layout: Radial Star</option>
             <option value="grid">▦ Layout: Compact Grid</option>
           </select>
-
-          <button class="btn btn-secondary" id="btnAutoLayout" title="Apply Auto Layout Algorithm">
-            Arrange
-          </button>
 
           <!-- Add Sticky Note Button -->
           <button class="btn btn-secondary" id="btnAddNote" title="Add Sticky Note to Canvas">
@@ -106,22 +103,15 @@ export function renderEfDiagramHtml(): string {
 
           <div class="toolbar-divider"></div>
 
-          <!-- Column View Mode Filter Chips -->
+          <!-- Column View Mode Segmented Control -->
           <div class="filter-chips-group" title="Column Visibility Mode">
-            <button class="filter-chip active" id="chipAll" data-mode="all">All Columns</button>
+            <button class="filter-chip active" id="chipAll" data-mode="all">All</button>
             <button class="filter-chip" id="chipKeys" data-mode="keys">🔑 Keys</button>
             <button class="filter-chip" id="chipNoAudit" data-mode="no-audit">🛡️ No Audit</button>
           </div>
         </div>
 
         <div class="toolbar-right">
-          <!-- Align & Distribute Group -->
-          <button class="btn-icon" id="btnAlignLeft" title="Align Selected Left">⇤</button>
-          <button class="btn-icon" id="btnAlignTop" title="Align Selected Top">⇡</button>
-          <button class="btn-icon" id="btnDistributeH" title="Distribute Horizontally">⇹</button>
-
-          <div class="toolbar-divider"></div>
-
           <!-- Export Actions -->
           <select class="diagram-select" id="exportSelect" title="Export Diagram">
             <option value="" disabled selected>📤 Export...</option>
@@ -130,13 +120,6 @@ export function renderEfDiagramHtml(): string {
             <option value="svg">📐 Vector (SVG)</option>
             <option value="mermaid">📋 Copy Mermaid ERD</option>
           </select>
-
-          <div class="zoom-controls">
-            <button class="btn-icon" id="btnZoomOut" title="Zoom Out">−</button>
-            <span id="zoomDisplay" class="zoom-display">100%</span>
-            <button class="btn-icon" id="btnZoomIn" title="Zoom In">+</button>
-            <button class="btn-icon" id="btnZoomReset" title="Reset Zoom">Fit</button>
-          </div>
         </div>
       </div>
 
@@ -154,6 +137,14 @@ export function renderEfDiagramHtml(): string {
 
           <!-- DOM Table Cards Layer -->
           <div id="cardsLayer"></div>
+        </div>
+
+        <!-- Floating Canvas Controls Dock (Bottom-Right) -->
+        <div class="floating-canvas-controls" id="floatingZoomControls">
+          <button class="btn-icon" id="btnZoomOut" title="Zoom Out">−</button>
+          <span id="zoomDisplay" class="zoom-display">100%</span>
+          <button class="btn-icon" id="btnZoomIn" title="Zoom In">+</button>
+          <button class="btn-icon" id="btnZoomReset" title="Reset Zoom (Fit)">⛶</button>
         </div>
 
         <!-- Interactive Canvas Minimap -->

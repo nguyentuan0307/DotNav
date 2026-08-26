@@ -874,6 +874,25 @@ body, html {
   display: none;
 }
 
+/* Floating Canvas Controls Dock (Bottom-Right, above Minimap) */
+.floating-canvas-controls {
+  position: absolute;
+  bottom: 146px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(28, 32, 40, 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 3px 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+  user-select: none;
+}
+
 /* Interactive Canvas Minimap */
 .canvas-minimap {
   position: absolute;
