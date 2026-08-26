@@ -38,10 +38,13 @@ export interface EntityRelationship {
   readonly deleteBehavior?: string;
 }
 
-export interface DiagramEntityPosition {
-  readonly name: string;
+export interface DiagramEntityState {
   readonly x: number;
   readonly y: number;
+  readonly width?: number;
+  readonly color?: string;
+  readonly hiddenColumns?: readonly string[];
+  readonly isMinimized?: boolean;
 }
 
 export interface DiagramFile {
@@ -50,7 +53,7 @@ export interface DiagramFile {
   readonly dbContext?: string;
   readonly createdAt: number;
   readonly updatedAt: number;
-  readonly entities: Record<string, { x: number; y: number }>;
+  readonly entities: Record<string, DiagramEntityState | { x: number; y: number }>;
 }
 
 export interface DiagramWebviewInitialState {
@@ -61,6 +64,6 @@ export interface DiagramWebviewInitialState {
   readonly allEntities: readonly EntityModel[];
   readonly relationships: readonly EntityRelationship[];
   readonly activeDiagramName: string;
-  readonly activePositions: Record<string, { x: number; y: number }>;
+  readonly activePositions: Record<string, DiagramEntityState | { x: number; y: number }>;
   readonly savedDiagramNames: readonly string[];
 }

@@ -385,7 +385,7 @@ body, html {
   pointer-events: none;
 }
 
-/* SVG Connection Lines */
+/* SVG Relationships Layer */
 .links-svg {
   position: absolute;
   top: 0;
@@ -442,8 +442,7 @@ body, html {
   pointer-events: auto;
   cursor: default;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
-  overflow: hidden;
-  resize: horizontal;
+  overflow: visible;
 }
 
 .table-card.selected {
@@ -455,15 +454,25 @@ body, html {
   border-color: #555b66;
 }
 
+/* Card Header with Color Tag Support */
 .card-header {
   padding: 8px 12px;
   background: var(--card-header-bg);
   border-bottom: 1px solid var(--card-border);
+  border-top-left-radius: 7px;
+  border-top-right-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: move;
   gap: 8px;
+  position: relative;
+}
+
+.table-card.minimized .card-header {
+  border-bottom-left-radius: 7px;
+  border-bottom-right-radius: 7px;
+  border-bottom: none;
 }
 
 .card-title-group {
@@ -494,6 +503,16 @@ body, html {
   white-space: nowrap;
 }
 
+.card-visibility-badge {
+  font-size: 10px;
+  color: #60a5fa;
+  font-family: monospace;
+  background: rgba(59, 130, 246, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
 .card-actions {
   display: flex;
   align-items: center;
@@ -512,6 +531,7 @@ body, html {
   align-items: center;
   justify-content: center;
   transition: all 0.12s ease;
+  font-size: 12px;
 }
 
 .card-action-btn:hover {
@@ -531,8 +551,8 @@ body, html {
   padding: 4px 0;
 }
 
-.table-card.minimized .card-body {
-  display: none;
+.table-card.minimized .card-body, .table-card.minimized .card-hidden-footer {
+  display: none !important;
 }
 
 .prop-row {
@@ -550,7 +570,7 @@ body, html {
   background: var(--row-hover-bg);
 }
 
-.prop-row.hidden-by-filter {
+.prop-row.hidden-prop {
   display: none !important;
 }
 
@@ -608,6 +628,38 @@ body, html {
   border: 1px solid rgba(168, 85, 247, 0.4);
 }
 
+.prop-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Inline 1-Click Eye Hide Button on Row Hover */
+.prop-eye-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+  font-size: 11px;
+}
+
+.prop-row:hover .prop-eye-btn {
+  opacity: 0.7;
+}
+
+.prop-eye-btn:hover {
+  opacity: 1 !important;
+  color: #60a5fa;
+}
+
 .prop-expand-btn {
   background: rgba(59, 130, 246, 0.15);
   color: var(--fk-color);
@@ -621,12 +673,176 @@ body, html {
   justify-content: center;
   cursor: pointer;
   transition: all 0.12s ease;
-  margin-left: 4px;
 }
 
 .prop-expand-btn:hover {
   background: var(--fk-color);
   color: #ffffff;
+}
+
+/* Hidden Columns Footer Notice */
+.card-hidden-footer {
+  padding: 5px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border-top: 1px dashed var(--card-border);
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.card-hidden-footer:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+}
+
+/* Floating Column Visibility Popover */
+.columns-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  width: 260px;
+  background: #1e2227;
+  border: 1px solid #4b5263;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: default;
+}
+
+.popover-header {
+  padding: 8px 10px;
+  background: #282c34;
+  border-bottom: 1px solid #3c4048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 11px;
+  color: #ffffff;
+}
+
+.popover-search {
+  padding: 6px 10px;
+  border-bottom: 1px solid #3c4048;
+}
+
+.popover-search input {
+  width: 100%;
+  background: #14161a;
+  border: 1px solid #3c4048;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #ffffff;
+  outline: none;
+}
+
+.popover-list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.popover-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.popover-actions {
+  padding: 6px 10px;
+  background: #181a1f;
+  border-top: 1px solid #3c4048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.popover-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-main);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.popover-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Custom Right-Click Context Menu */
+.card-context-menu {
+  position: fixed;
+  background: #1e2227;
+  border: 1px solid #4b5263;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  min-width: 170px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.context-menu-item:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: #3c4048;
+  margin: 4px 0;
+}
+
+.color-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+}
+
+.color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: transform 0.12s ease;
+}
+
+.color-dot:hover {
+  transform: scale(1.2);
 }
 
 /* Empty Prompt */

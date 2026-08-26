@@ -78,7 +78,7 @@ export async function listSavedDiagrams(storageRoot?: string, workspaceRoot?: st
 
 export async function saveDiagramToFile(
   diagramName: string,
-  positions: Record<string, { x: number; y: number }>,
+  positions: Record<string, any>,
   storageRoot?: string,
   workspaceRoot?: string
 ): Promise<boolean> {
@@ -141,13 +141,13 @@ export async function loadDiagramFromFile(
 export function liveSyncDiagramWithCode(
   savedFile: DiagramFile | undefined,
   currentEntities: readonly EntityModel[]
-): Record<string, { x: number; y: number }> {
+): Record<string, any> {
   if (!savedFile || !savedFile.entities) {
     return {};
   }
 
   const validEntityNames = new Set(currentEntities.map(e => e.name.toLowerCase()));
-  const syncedPositions: Record<string, { x: number; y: number }> = {};
+  const syncedPositions: Record<string, any> = {};
 
   for (const [name, pos] of Object.entries(savedFile.entities)) {
     if (validEntityNames.has(name.toLowerCase())) {
