@@ -2146,6 +2146,15 @@ export function getEfDiagramClientScript(): string {
   }
 
   // Export Engine: High-DPI PNG, SVG Vector, Mermaid Syntax
+  const NOTE_COLOR_MAP = {
+    yellow:  { bg: '#fef08a', text: '#1f2937', headerBg: '#fde047', border: '#facc15' },
+    emerald: { bg: '#a7f3d0', text: '#064e3b', headerBg: '#6ee7b7', border: '#34d399' },
+    blue:    { bg: '#bfdbfe', text: '#1e3a8a', headerBg: '#93c5fd', border: '#60a5fa' },
+    rose:    { bg: '#fecdd3', text: '#881337', headerBg: '#fda4af', border: '#fb7185' },
+    purple:  { bg: '#e9d5ff', text: '#581c87', headerBg: '#d8b4fe', border: '#c084fc' },
+    dark:    { bg: '#1e2430', text: '#f1f5f9', headerBg: '#151922', border: '#334155' }
+  };
+
   function exportDiagram(type) {
     const activeNames = Object.keys(activePositions);
     if (activeNames.length === 0 && notes.length === 0) {
@@ -2203,8 +2212,8 @@ export function getEfDiagramClientScript(): string {
 
       const pad = 60;
       minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const width = maxX - minX;
-      const height = maxY - minY;
+      const width = Math.max(300, maxX - minX);
+      const height = Math.max(300, maxY - minY);
 
       const dpr = 2; // High-DPI 2x
       const offscreen = document.createElement('canvas');
@@ -2247,7 +2256,7 @@ export function getEfDiagramClientScript(): string {
             ctx.moveTo(startX, startY);
             ctx.bezierCurveTo(c1x, c1y, c2x, c2y, endX, endY);
 
-            ctx.strokeStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : '#3b82f6';
+            ctx.strokeStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : (rel.cardinality === 'many-to-many' ? '#f59e0b' : '#3b82f6');
             ctx.lineWidth = 2;
             if (rel.isRequired === false) ctx.setLineDash([6, 4]);
             else ctx.setLineDash([]);
@@ -2255,27 +2264,29 @@ export function getEfDiagramClientScript(): string {
             ctx.setLineDash([]);
 
             // Draw circle endpoints
-            ctx.fillStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : '#3b82f6';
+            ctx.fillStyle = rel.cardinality === 'one-to-one' ? '#a855f7' : (rel.cardinality === 'many-to-many' ? '#f59e0b' : '#3b82f6');
             ctx.beginPath(); ctx.arc(startX, startY, 4, 0, 2 * Math.PI); ctx.fill();
             ctx.beginPath(); ctx.arc(endX, endY, 5, 0, 2 * Math.PI); ctx.fill();
           }
         }
       }
 
-      // Draw Table Cards
+      // Draw Table Cards with Pixel-Perfect UI Matching Webview
       activeNames.forEach(name => {
         const entity = allEntities.find(e => e.name === name);
         if (!entity) return;
         const p = activePositions[name];
-        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
+        const visibleProps = entity.properties.filter(prop => !isPropertyHidden(entity, prop, hiddenSet));
+        const w = 310;
+        const h = Math.max(70, 48 + visibleProps.length * 26 + 10);
         const x = p.x - minX;
         const y = p.y - minY;
-        const w = s.width;
-        const h = s.height;
+        const customColor = colorByEntity[name] || '#f59e0b';
 
         // Card Container
-        ctx.fillStyle = isLight ? '#f8fafc' : '#21252b';
-        ctx.strokeStyle = isLight ? '#cbd5e1' : '#3c4048';
+        ctx.fillStyle = isLight ? '#ffffff' : '#1c2028';
+        ctx.strokeStyle = isLight ? '#cbd5e1' : '#2f3542';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, 8);
@@ -2283,61 +2294,124 @@ export function getEfDiagramClientScript(): string {
         ctx.stroke();
 
         // Card Top Color Stripe
-        const customColor = colorByEntity[name];
-        if (customColor) {
-          ctx.fillStyle = customColor;
-          ctx.fillRect(x, y, w, 4);
-        }
-
-        // Header Background
-        ctx.fillStyle = isLight ? '#f1f5f9' : '#282c34';
+        ctx.fillStyle = customColor;
         ctx.beginPath();
-        ctx.roundRect(x, y + (customColor ? 4 : 0), w, 36, [8, 8, 0, 0]);
+        ctx.roundRect(x, y, w, 3.5, [8, 8, 0, 0]);
         ctx.fill();
 
-        // Header Text
-        ctx.fillStyle = isLight ? '#0f172a' : '#ffffff';
-        ctx.font = 'bold 13px system-ui, sans-serif';
-        ctx.fillText(entity.name, x + 12, y + 23);
+        // Header Background
+        ctx.fillStyle = isLight ? '#f1f5f9' : '#232732';
+        ctx.beginPath();
+        ctx.roundRect(x, y + 3.5, w, 38, [4, 4, 0, 0]);
+        ctx.fill();
+
+        // Table Icon Square
+        ctx.fillStyle = customColor;
+        ctx.beginPath();
+        ctx.roundRect(x + 12, y + 15, 10, 10, 2);
+        ctx.fill();
+
+        // Header Entity Name
+        ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
+        ctx.font = 'bold 12.5px system-ui, -apple-system, sans-serif';
+        ctx.fillText(entity.name, x + 28, y + 23);
+
+        // Header Subname (Table Name)
+        ctx.fillStyle = isLight ? '#64748b' : '#8892b0';
+        ctx.font = '9.5px system-ui, sans-serif';
+        const subname = entity.tableName || entity.name.toLowerCase();
+        ctx.fillText(subname, x + 28, y + 36);
 
         // Properties List
-        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
-        let curY = y + 54;
-        entity.properties.forEach(prop => {
-          if (isPropertyHidden(entity, prop, hiddenSet)) return;
+        let curY = y + 62;
+        visibleProps.forEach(prop => {
+          // Badges for PK / FK
+          if (prop.isPrimaryKey) {
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.18)';
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(x + 12, curY - 11, 22, 15, 3);
+            ctx.fill();
+            ctx.stroke();
 
-          // Prop Name
-          ctx.font = prop.isPrimaryKey ? 'bold 11px system-ui, sans-serif' : '11px system-ui, sans-serif';
-          ctx.fillStyle = prop.isPrimaryKey ? '#f59e0b' : (isLight ? '#334155' : '#d4d4d4');
-          ctx.fillText((prop.isPrimaryKey ? 'PK ' : prop.isForeignKey ? 'FK ' : '   ') + prop.name, x + 12, curY);
+            ctx.fillStyle = '#f59e0b';
+            ctx.font = 'bold 8.5px system-ui, sans-serif';
+            ctx.fillText('PK', x + 16, curY);
+
+            ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
+            ctx.font = '11.5px system-ui, sans-serif';
+            ctx.fillText(prop.name, x + 40, curY);
+          } else if (prop.isForeignKey) {
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.18)';
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(x + 12, curY - 11, 22, 15, 3);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#3b82f6';
+            ctx.font = 'bold 8.5px system-ui, sans-serif';
+            ctx.fillText('FK', x + 16, curY);
+
+            ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
+            ctx.font = '11.5px system-ui, sans-serif';
+            ctx.fillText(prop.name, x + 40, curY);
+          } else {
+            ctx.fillStyle = isLight ? '#334155' : '#cbd5e1';
+            ctx.font = '11.5px system-ui, sans-serif';
+            ctx.fillText(prop.name, x + 14, curY);
+          }
 
           // Prop Type
-          ctx.font = '10px monospace';
-          ctx.fillStyle = isLight ? '#0284c7' : '#4ec9b0';
+          ctx.font = '10px "Cascadia Code", "Fira Code", monospace';
+          ctx.fillStyle = isLight ? '#0284c7' : '#38bdf8';
           const typeW = ctx.measureText(prop.type).width;
-          ctx.fillText(prop.type, x + w - typeW - 12, curY);
+          ctx.fillText(prop.type, x + w - typeW - 14, curY);
 
-          curY += 22;
+          curY += 26;
         });
       });
 
-      // Draw Notes
+      // Draw Themed Notes
       notes.forEach(n => {
+        const theme = NOTE_COLOR_MAP[n.color || 'yellow'] || NOTE_COLOR_MAP.yellow;
         const x = n.x - minX;
         const y = n.y - minY;
         const w = n.width || 220;
         const h = n.height || 120;
 
-        ctx.fillStyle = '#fef08a';
+        // Note Card Container
+        ctx.fillStyle = theme.bg;
+        ctx.strokeStyle = theme.border;
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 6);
+        ctx.roundRect(x, y, w, h, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // Note Header
+        ctx.fillStyle = theme.headerBg;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, 22, [8, 8, 0, 0]);
         ctx.fill();
 
-        ctx.fillStyle = '#1f2937';
-        ctx.font = '11.5px system-ui, sans-serif';
-        const lines = (n.text || '').split('\n');
+        // Color Dots
+        const dotColors = ['#fef08a', '#a7f3d0', '#bfdbfe', '#fecdd3', '#e9d5ff', '#2d3748'];
+        dotColors.forEach((dc, di) => {
+          ctx.fillStyle = dc;
+          ctx.beginPath();
+          ctx.arc(x + 12 + di * 11, y + 11, 3.5, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        // Note Text
+        ctx.fillStyle = theme.text;
+        ctx.font = '11.5px system-ui, -apple-system, sans-serif';
+        const lines = (n.text || '').split('\\n');
         lines.forEach((line, idx) => {
-          ctx.fillText(line, x + 10, y + 26 + idx * 16);
+          ctx.fillText(line, x + 12, y + 42 + idx * 17);
         });
       });
 
@@ -2370,8 +2444,8 @@ export function getEfDiagramClientScript(): string {
 
       const pad = 60;
       minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const width = Math.max(200, maxX - minX);
-      const height = Math.max(200, maxY - minY);
+      const width = Math.max(300, maxX - minX);
+      const height = Math.max(300, maxY - minY);
 
       let svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" style="background:#14161a; font-family:system-ui, -apple-system, sans-serif;">\\n';
 
@@ -2403,45 +2477,55 @@ export function getEfDiagramClientScript(): string {
         const entity = allEntities.find(e => e.name === name);
         if (!entity) return;
         const p = activePositions[name];
-        const s = cardSizeCache[name] || { width: 310, height: 200 };
+        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
+        const visibleProps = entity.properties.filter(prop => !isPropertyHidden(entity, prop, hiddenSet));
+        const w = 310;
+        const h = Math.max(70, 48 + visibleProps.length * 26 + 10);
         const x = p.x - minX;
         const y = p.y - minY;
-        const w = s.width;
-        const h = s.height;
-        const customColor = colorByEntity[name];
+        const customColor = colorByEntity[name] || '#f59e0b';
+        const subname = entity.tableName || entity.name.toLowerCase();
 
         svgContent += '  <g transform="translate(' + x + ', ' + y + ')">\\n';
-        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="8" fill="#21252b" stroke="#3c4048" stroke-width="1"/>\\n';
-        if (customColor) {
-          svgContent += '    <rect width="' + w + '" height="4" rx="2" fill="' + customColor + '"/>\\n';
-        }
-        svgContent += '    <path d="M 0 4 Q 0 0 8 0 L ' + (w - 8) + ' 0 Q ' + w + ' 0 ' + w + ' 8 L ' + w + ' 36 L 0 36 Z" fill="#282c34"/>\\n';
-        svgContent += '    <text x="12" y="23" fill="#ffffff" font-size="13" font-weight="bold">' + escapeHtml(entity.name) + '</text>\\n';
+        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="8" fill="#1c2028" stroke="#2f3542" stroke-width="1"/>\\n';
+        svgContent += '    <rect width="' + w + '" height="3.5" rx="2" fill="' + customColor + '"/>\\n';
+        svgContent += '    <path d="M 0 3.5 L ' + w + ' 3.5 L ' + w + ' 42 L 0 42 Z" fill="#232732"/>\\n';
+        svgContent += '    <rect x="12" y="15" width="10" height="10" rx="2" fill="' + customColor + '"/>\\n';
+        svgContent += '    <text x="28" y="23" fill="#f8fafc" font-size="12.5" font-weight="bold">' + escapeHtml(entity.name) + '</text>\\n';
+        svgContent += '    <text x="28" y="36" fill="#8892b0" font-size="9.5">' + escapeHtml(subname) + '</text>\\n';
 
-        const hiddenSet = hiddenColumnsByEntity[name] || new Set();
-        let curY = 54;
-        entity.properties.forEach(prop => {
-          if (isPropertyHidden(entity, prop, hiddenSet)) return;
-          const keyLabel = prop.isPrimaryKey ? 'PK ' : (prop.isForeignKey ? 'FK ' : '   ');
-          const nameColor = prop.isPrimaryKey ? '#f59e0b' : '#d4d4d4';
-          svgContent += '    <text x="12" y="' + curY + '" fill="' + nameColor + '" font-size="11">' + keyLabel + escapeHtml(prop.name) + '</text>\\n';
-          svgContent += '    <text x="' + (w - 12) + '" y="' + curY + '" fill="#4ec9b0" font-size="10" text-anchor="end" font-family="monospace">' + escapeHtml(prop.type) + '</text>\\n';
-          curY += 22;
+        let curY = 62;
+        visibleProps.forEach(prop => {
+          if (prop.isPrimaryKey) {
+            svgContent += '    <rect x="12" y="' + (curY - 11) + '" width="22" height="15" rx="3" fill="rgba(245,158,11,0.18)" stroke="rgba(245,158,11,0.4)" stroke-width="1"/>\\n';
+            svgContent += '    <text x="16" y="' + curY + '" fill="#f59e0b" font-size="8.5" font-weight="bold">PK</text>\\n';
+            svgContent += '    <text x="40" y="' + curY + '" fill="#f8fafc" font-size="11.5">' + escapeHtml(prop.name) + '</text>\\n';
+          } else if (prop.isForeignKey) {
+            svgContent += '    <rect x="12" y="' + (curY - 11) + '" width="22" height="15" rx="3" fill="rgba(59,130,246,0.18)" stroke="rgba(59,130,246,0.4)" stroke-width="1"/>\\n';
+            svgContent += '    <text x="16" y="' + curY + '" fill="#3b82f6" font-size="8.5" font-weight="bold">FK</text>\\n';
+            svgContent += '    <text x="40" y="' + curY + '" fill="#f8fafc" font-size="11.5">' + escapeHtml(prop.name) + '</text>\\n';
+          } else {
+            svgContent += '    <text x="14" y="' + curY + '" fill="#cbd5e1" font-size="11.5">' + escapeHtml(prop.name) + '</text>\\n';
+          }
+          svgContent += '    <text x="' + (w - 14) + '" y="' + curY + '" fill="#38bdf8" font-size="10" text-anchor="end" font-family="monospace">' + escapeHtml(prop.type) + '</text>\\n';
+          curY += 26;
         });
         svgContent += '  </g>\\n';
       });
 
       // Notes
       notes.forEach(n => {
+        const theme = NOTE_COLOR_MAP[n.color || 'yellow'] || NOTE_COLOR_MAP.yellow;
         const x = n.x - minX;
         const y = n.y - minY;
         const w = n.width || 220;
         const h = n.height || 120;
         svgContent += '  <g transform="translate(' + x + ', ' + y + ')">\\n';
-        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="6" fill="#fef08a"/>\\n';
+        svgContent += '    <rect width="' + w + '" height="' + h + '" rx="8" fill="' + theme.bg + '" stroke="' + theme.border + '" stroke-width="1"/>\\n';
+        svgContent += '    <path d="M 0 0 Q 0 0 8 0 L ' + (w - 8) + ' 0 Q ' + w + 0 + ' ' + w + ' 8 L ' + w + ' 22 L 0 22 Z" fill="' + theme.headerBg + '"/>\\n';
         const lines = (n.text || '').split('\\n');
         lines.forEach((line, idx) => {
-          svgContent += '    <text x="10" y="' + (26 + idx * 16) + '" fill="#1f2937" font-size="11.5">' + escapeHtml(line) + '</text>\\n';
+          svgContent += '    <text x="12" y="' + (42 + idx * 17) + '" fill="' + theme.text + '" font-size="11.5">' + escapeHtml(line) + '</text>\\n';
         });
         svgContent += '  </g>\\n';
       });
