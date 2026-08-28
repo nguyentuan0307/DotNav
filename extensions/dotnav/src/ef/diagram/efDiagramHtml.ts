@@ -128,6 +128,12 @@ export function renderEfDiagramHtml(): string {
             + Note
           </button>
 
+          <!-- Quick Finder Button -->
+          <button class="btn btn-secondary" id="btnQuickFind" title="Quick Find Table or Column (Ctrl+F / Cmd+F)">
+            <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+            Find
+          </button>
+
           <div class="toolbar-divider"></div>
 
           <!-- Column View Mode Segmented Control -->
@@ -145,7 +151,7 @@ export function renderEfDiagramHtml(): string {
               <svg class="icon-svg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.5 6a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-5a.5.5 0 0 0-1 0v4.5h-8V6.5a.5.5 0 0 0-.5-.5z"/><path fill-rule="evenodd" d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V10.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
               Export ▾
             </button>
-            <div class="dropdown-menu" id="exportDropdownMenu" style="right: 0; left: auto; min-width: 280px;">
+            <div class="dropdown-menu" id="exportDropdownMenu" style="right: 0; left: auto; min-width: 290px;">
               <div class="dropdown-item" data-export="png-dark">
                 <span class="dropdown-icon">📸</span>
                 <div class="dropdown-text">
@@ -167,6 +173,27 @@ export function renderEfDiagramHtml(): string {
                   <div class="dropdown-desc">Infinitely scalable vector format</div>
                 </div>
               </div>
+              <div class="dropdown-item" data-export="sql">
+                <span class="dropdown-icon">🗄️</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">SQL DDL Schema (.sql)</div>
+                  <div class="dropdown-desc">CREATE TABLE & FOREIGN KEY scripts</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-export="markdown">
+                <span class="dropdown-icon">📝</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Markdown Data Dictionary (.md)</div>
+                  <div class="dropdown-desc">Table schema documentation & types</div>
+                </div>
+              </div>
+              <div class="dropdown-item" data-export="print">
+                <span class="dropdown-icon">🖨️</span>
+                <div class="dropdown-text">
+                  <div class="dropdown-title">Print / PDF Document</div>
+                  <div class="dropdown-desc">Export via native print dialog</div>
+                </div>
+              </div>
               <div class="dropdown-item" data-export="mermaid">
                 <span class="dropdown-icon">📋</span>
                 <div class="dropdown-text">
@@ -183,6 +210,23 @@ export function renderEfDiagramHtml(): string {
       <div class="canvas-viewport" id="viewport">
         <!-- Floating Toast Message -->
         <div class="diagram-toast" id="diagramToast">✨ Layout Applied</div>
+
+        <!-- Floating Focus Mode Banner -->
+        <div class="focus-mode-banner" id="focusModeBanner">
+          <span class="focus-banner-badge">FOCUS MODE</span>
+          <span id="focusBannerText">Focusing on Entity</span>
+          <button class="focus-banner-btn" id="btnExitFocusMode" title="Exit Focus Mode (Esc)">✕ Exit Focus</button>
+        </div>
+
+        <!-- Floating Canvas Quick Finder Modal -->
+        <div class="canvas-quick-finder" id="canvasQuickFinder">
+          <div class="finder-header">
+            <svg class="finder-search-icon" style="width: 16px; height: 16px; min-width: 16px; min-height: 16px; flex-shrink: 0;" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+            <input type="text" id="finderInput" class="finder-input" placeholder="Find table, column, or note... (↑↓ to navigate, Enter to jump)" autocomplete="off" spellcheck="false" />
+            <span class="finder-esc-badge">ESC</span>
+          </div>
+          <div class="finder-results" id="finderResults"></div>
+        </div>
 
         <!-- Marquee Selection Rectangle Box -->
         <div class="marquee-box" id="marqueeBox"></div>

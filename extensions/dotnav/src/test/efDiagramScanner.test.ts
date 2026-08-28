@@ -227,4 +227,180 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('extracts HasColumnName and HasColumnType from multi-line snapshot chains', () => {
+    const snapshotCode = `
+      modelBuilder.Entity("MyApp.Domain.Order", b =>
+      {
+          b.Property<int>("Id")
+              .ValueGeneratedOnAdd()
+              .HasColumnType("int")
+              .HasColumnName("order_id");
+
+          b.Property<string>("CustomerCode")
+              .IsRequired()
+              .HasMaxLength(50)
+              .HasColumnType("varchar(50)")
+              .HasColumnName("cust_code");
+
+          b.Property<decimal>("TotalAmount")
+              .HasColumnType("decimal(18,2)")
+              .HasColumnName("total_amt");
+
+          b.HasKey("Id");
+          b.ToTable("orders", "sales");
+      });
+    `;
+
+    const result = parseModelSnapshotFromCSharp(
+      `[DbContext(typeof(AppDbContext))] partial class AppDbContextModelSnapshot : ModelSnapshot { protected override void BuildModel(ModelBuilder modelBuilder) { ${snapshotCode} } }`,
+      '/src/AppDbContextModelSnapshot.cs'
+    );
+
+    assert.ok(result);
+    const order = result?.entities.find(e => e.shortName === 'Order');
+    assert.ok(order);
+    assert.equal(order?.tableName, 'orders');
+    assert.equal(order?.schemaName, 'sales');
+
+    const idProp = order?.properties.find(p => p.name === 'Id');
+    assert.equal(idProp?.columnName, 'order_id');
+    assert.equal(idProp?.columnType, 'int');
+
+    const custProp = order?.properties.find(p => p.name === 'CustomerCode');
+    assert.equal(custProp?.columnName, 'cust_code');
+    assert.equal(custProp?.columnType, 'varchar(50)');
+
+    const totalProp = order?.properties.find(p => p.name === 'TotalAmount');
+    assert.equal(totalProp?.columnName, 'total_amt');
+    assert.equal(totalProp?.columnType, 'decimal(18,2)');
+  });
+
+  it('parsePropertiesFromBody extracts [Column] attribute and infers SQL types', () => {
+    const classBody = `
+      [Key]
+      public int Id { get; set; }
+
+      [Column("user_name", TypeName = "varchar(100)")]
+      public string UserName { get; set; }
+
+      [Column("created_at")]
+      public DateTime CreatedAt { get; set; }
+    `;
+
+    const props = parsePropertiesFromBody(classBody, 'UserProfile');
+    const userProp = props.find(p => p.name === 'UserName');
+    assert.equal(userProp?.columnName, 'user_name');
+    assert.equal(userProp?.columnType, 'varchar(100)');
+
+    const createdProp = props.find(p => p.name === 'CreatedAt');
+    assert.equal(createdProp?.columnName, 'created_at');
+    assert.equal(createdProp?.columnType, 'datetime2');
+  });
+
+  it('buildDbContextScopedModel performs hybrid reconciliation: adds unmigrated entities and appends new C# properties', () => {
+    // 1. Snapshot has migrated entity 'Category' with 1 property
+    const snapshot: any = {
+      dbContextName: 'AppDbContext',
+      filePath: '/src/Snapshot.cs',
+      entities: [
+        {
+          fullName: 'MyApp.Category',
+          shortName: 'Category',
+          tableName: 'categories',
+          primaryKeys: ['Id'],
+          properties: [
+            { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false, columnName: 'id', columnType: 'int' }
+          ],
+          relationships: []
+        }
+      ]
+    };
+
+    // 2. Live C# classes have:
+    // - Category with NEW property 'Description'
+    // - Product (new entity with DbSet, not yet in Snapshot!)
+    const rawClasses = [
+      ...parseRawClassesFromCSharp(
+        `public class Category { public int Id { get; set; } public string Description { get; set; } }`,
+        '/src/Category.cs',
+        'App'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class Product { public int Id { get; set; } public int CategoryId { get; set; } }`,
+        '/src/Product.cs',
+        'App'
+      )
+    ];
+
+    const dbContextSets = [
+      { dbContextName: 'AppDbContext', entityTypes: ['Category', 'Product'] }
+    ];
+
+    const model = buildDbContextScopedModel(rawClasses, [], dbContextSets, [snapshot]);
+    assert.deepEqual(model.availableDbContexts, ['AppDbContext']);
+
+    const entities = model.entitiesByContext['AppDbContext'];
+    assert.equal(entities.length, 2, 'Should reconcile 2 entities (1 migrated + 1 unmigrated)');
+
+    const cat = entities.find(e => e.name === 'Category');
+    assert.ok(cat);
+    const descProp = cat?.properties.find(p => p.name === 'Description');
+    assert.ok(descProp, 'Should append unmigrated Description property to Category');
+    assert.equal(descProp?.isUnmigrated, true);
+
+    const prod = entities.find(e => e.name === 'Product');
+    assert.ok(prod, 'Should discover unmigrated Product entity');
+    assert.equal(prod?.isUnmigrated, true);
+  });
+
+  it('preserves all snapshot entities even if they do not have direct DbSet properties in DbContext (e.g. ActionCommandSetting)', () => {
+    const snapshot: any = {
+      dbContextName: 'CustomAppSharedDbContext',
+      filePath: '/src/Snapshot.cs',
+      entities: [
+        {
+          fullName: 'ELDesk.CustomApp.SharedDomain.Entities.ActionCommandSetting',
+          shortName: 'ActionCommandSetting',
+          tableName: 'actioncommandsetting',
+          primaryKeys: ['Id'],
+          properties: [
+            { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false, columnName: 'id', columnType: 'int' }
+          ],
+          relationships: []
+        },
+        {
+          fullName: 'ELDesk.CustomApp.SharedDomain.Entities.ActionCommandMappingSetting',
+          shortName: 'ActionCommandMappingSetting',
+          tableName: 'actioncommandmappingsetting',
+          primaryKeys: ['Id'],
+          properties: [
+            { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false, columnName: 'id', columnType: 'int' }
+          ],
+          relationships: []
+        }
+      ]
+    };
+
+    // DbContext only lists Application in DbSet, but snapshot has ActionCommandSetting and ActionCommandMappingSetting
+    const dbContextSets = [
+      { dbContextName: 'CustomAppSharedDbContext', entityTypes: ['Application'] }
+    ];
+
+    const rawClasses = [
+      ...parseRawClassesFromCSharp(
+        `public class Application { public int Id { get; set; } }`,
+        '/src/Application.cs',
+        'App'
+      )
+    ];
+
+    const model = buildDbContextScopedModel(rawClasses, [], dbContextSets, [snapshot]);
+    const entities = model.entitiesByContext['CustomAppSharedDbContext'];
+
+    assert.ok(entities.some(e => e.name === 'ActionCommandSetting'), 'ActionCommandSetting MUST be preserved from snapshot');
+    assert.ok(entities.some(e => e.name === 'ActionCommandMappingSetting'), 'ActionCommandMappingSetting MUST be preserved from snapshot');
+    assert.ok(entities.some(e => e.name === 'Application'), 'Application (unmigrated) MUST be included');
+    assert.equal(entities.length, 3);
+  });
 });

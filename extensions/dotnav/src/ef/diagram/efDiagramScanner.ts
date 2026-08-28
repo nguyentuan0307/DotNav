@@ -22,6 +22,7 @@ export interface FluentConfigRule {
   tableName?: string;
   schemaName?: string;
   primaryKeys?: string[];
+  propertyRules?: Record<string, { columnName?: string; columnType?: string; isRequired?: boolean }>;
   relationships: Array<{
     principalEntity?: string;
     dependentEntity?: string;
@@ -63,6 +64,50 @@ const KNOWN_BASE_ENTITY_NAMES = new Set([
   'idomainentity', 'domainentity', 'identityuser', 'identityrole',
   'entitybase', 'iauditentitybase', 'auditentity', 'fullauditentity'
 ]);
+
+/**
+ * Infers SQL standard column type from C# data type and property attributes.
+ */
+export function inferSqlTypeFromCSharp(csharpType: string, attrs: string = ''): string {
+  const colTypeMatch = attrs.match(/TypeName\s*=\s*["']([^"']+)["']/i);
+  if (colTypeMatch) return colTypeMatch[1];
+
+  const cleanType = csharpType.replace(/\?$/, '').replace(/^Nullable<([^>]+)>$/, '$1').trim();
+
+  if (cleanType === 'string') {
+    const lenMatch = attrs.match(/(?:MaxLength|StringLength)\s*\(\s*(\d+)\s*\)/i);
+    if (lenMatch) return `nvarchar(${lenMatch[1]})`;
+    return 'nvarchar(max)';
+  }
+
+  if (cleanType === 'decimal') {
+    const precMatch = attrs.match(/Precision\s*\(\s*(\d+)\s*(?:,\s*(\d+))?\s*\)/i);
+    if (precMatch) {
+      const p = precMatch[1];
+      const s = precMatch[2] || '2';
+      return `decimal(${p},${s})`;
+    }
+    return 'decimal(18,2)';
+  }
+
+  switch (cleanType) {
+    case 'int': return 'int';
+    case 'long': return 'bigint';
+    case 'short': return 'smallint';
+    case 'byte': return 'tinyint';
+    case 'bool': return 'bit';
+    case 'Guid': return 'uniqueidentifier';
+    case 'DateTime': return 'datetime2';
+    case 'DateTimeOffset': return 'datetimeoffset';
+    case 'DateOnly': return 'date';
+    case 'TimeOnly':
+    case 'TimeSpan': return 'time';
+    case 'double': return 'float';
+    case 'float': return 'real';
+    case 'byte[]': return 'varbinary(max)';
+    default: return cleanType;
+  }
+}
 
 /**
  * Parses EF Core *ModelSnapshot.cs files with authoritative PK and FK extraction.
@@ -162,16 +207,41 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
       const propName = propMatch[2];
       const isPk = entityInfo.primaryKeys.includes(propName);
 
-      // Avoid duplicate properties
-      if (!entityInfo.properties.some(p => p.name.toLowerCase() === propName.toLowerCase())) {
+      // Extract chain details (up to semicolon)
+      const afterProp = entityBody.substring(propMatch.index);
+      const chainEnd = afterProp.indexOf(';');
+      const propChain = chainEnd !== -1 ? afterProp.substring(0, chainEnd) : afterProp;
+
+      const colNameMatch = propChain.match(/\.HasColumnName\s*\(\s*["']([^"']+)["']\s*\)/);
+      const columnName = colNameMatch ? colNameMatch[1] : propName;
+
+      const colTypeMatch = propChain.match(/\.HasColumnType\s*\(\s*["']([^"']+)["']\s*\)/);
+      let columnType = colTypeMatch ? colTypeMatch[1] : undefined;
+      if (!columnType) {
+        const maxLenMatch = propChain.match(/\.HasMaxLength\s*\(\s*(\d+)\s*\)/);
+        if (maxLenMatch && typeStr.includes('string')) {
+          columnType = `nvarchar(${maxLenMatch[1]})`;
+        } else {
+          columnType = inferSqlTypeFromCSharp(typeStr);
+        }
+      }
+
+      // Avoid duplicate properties or update existing
+      const existingProp = entityInfo.properties.find(p => p.name.toLowerCase() === propName.toLowerCase());
+      if (!existingProp) {
         entityInfo.properties.push({
           name: propName,
           type: typeStr,
           isPrimaryKey: isPk,
           isForeignKey: false, // will be explicitly set by HasForeignKey
           isNullable: typeStr.endsWith('?') || typeStr.startsWith('Nullable<'),
-          isNavigation: false
+          isNavigation: false,
+          columnName,
+          columnType
         });
+      } else {
+        if (colNameMatch) (existingProp as any).columnName = colNameMatch[1];
+        if (colTypeMatch) (existingProp as any).columnType = colTypeMatch[1];
       }
     }
 
@@ -430,6 +500,16 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
       }
     }
 
+    // Check explicit [Column(...)]
+    let columnName = p.name;
+    let columnType = inferSqlTypeFromCSharp(p.cleanType, p.attrs);
+
+    const colAttrMatch = p.attrs.match(/Column\s*\(\s*(?:["']([^"']+)["'])?(?:\s*,?\s*TypeName\s*=\s*["']([^"']+)["'])?\s*\)/i);
+    if (colAttrMatch) {
+      if (colAttrMatch[1]) columnName = colAttrMatch[1];
+      if (colAttrMatch[2]) columnType = colAttrMatch[2];
+    }
+
     properties.push({
       name: p.name,
       type: p.type,
@@ -439,7 +519,9 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
       isNavigation,
       foreignKeyTargetEntity,
       navigationTargetEntity,
-      isCollectionNavigation
+      isCollectionNavigation,
+      columnName,
+      columnType
     });
   }
 
@@ -474,6 +556,30 @@ export function parseFluentConfigurations(code: string): FluentConfigRule[] {
         rule.primaryKeys = [keyMatch[2]];
       } else if (keyMatch[1]) {
         rule.primaryKeys = keyMatch[1].split(',').map(k => k.trim().split('.').pop() || '').filter(Boolean);
+      }
+    }
+
+    // Property configuration: builder.Property(x => x.PropName).HasColumnName("...").HasColumnType("...")
+    const propConfigRegex = /builder\.Property\s*(?:<[^>]+>)?\s*\(\s*(?:[a-zA-Z0-9_]+\s*=>\s*[a-zA-Z0-9_.]+\.([a-zA-Z0-9_]+)|["']([^"']+)["'])\s*\)/g;
+    let pMatch: RegExpExecArray | null;
+    while ((pMatch = propConfigRegex.exec(code)) !== null) {
+      const propName = pMatch[1] || pMatch[2];
+      if (!propName) continue;
+      const afterProp = code.substring(pMatch.index);
+      const chainEnd = afterProp.indexOf(';');
+      const propChain = chainEnd !== -1 ? afterProp.substring(0, chainEnd) : afterProp;
+
+      const colNameMatch = propChain.match(/\.HasColumnName\s*\(\s*["']([^"']+)["']\s*\)/);
+      const colTypeMatch = propChain.match(/\.HasColumnType\s*\(\s*["']([^"']+)["']\s*\)/);
+      const isReq = propChain.includes('.IsRequired()');
+
+      if (colNameMatch || colTypeMatch || isReq) {
+        rule.propertyRules = rule.propertyRules || {};
+        rule.propertyRules[propName.toLowerCase()] = {
+          columnName: colNameMatch ? colNameMatch[1] : undefined,
+          columnType: colTypeMatch ? colTypeMatch[1] : undefined,
+          isRequired: isReq
+        };
       }
     }
 
@@ -602,12 +708,91 @@ export function buildDbContextScopedModel(
   for (const contextName of contextNameSet) {
     // Check if we have a direct ModelSnapshot for this DbContext
     const snapshot = snapshots.find(s => s.dbContextName.toLowerCase() === contextName.toLowerCase());
+
+    // Gather entity types declared in DbSets (including inheritance)
+    const entityTypesForContext = new Set<string>();
+    for (const db of dbContextSets) {
+      if (db.dbContextName.toLowerCase() === contextName.toLowerCase()) {
+        db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
+      }
+    }
+    let parent = dbContextChildToParent.get(contextName);
+    while (parent) {
+      for (const db of dbContextSets) {
+        if (db.dbContextName.toLowerCase() === parent.toLowerCase()) {
+          db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
+        }
+      }
+      parent = dbContextChildToParent.get(parent);
+    }
     
     if (snapshot && snapshot.entities.length > 0) {
-      // Use Snapshot's authoritative entities
+      // 1. Snapshot Authoritative Baseline + Reconciliation with Live C# Code
       const entities: EntityModel[] = [];
+      const snapEntityNameSet = new Set<string>();
+
       for (const snapEntity of snapshot.entities) {
-        const matchingClass = classMap.get(snapEntity.shortName.toLowerCase());
+        const shortLower = snapEntity.shortName.toLowerCase();
+        snapEntityNameSet.add(shortLower);
+        const matchingClass = classMap.get(shortLower);
+
+        const mergedProperties: EntityProperty[] = [...snapEntity.properties];
+        const seenPropNames = new Set(mergedProperties.map(p => p.name.toLowerCase()));
+
+        // If C# source class is available, reconcile unmigrated properties and annotations
+        if (matchingClass) {
+          // Collect all C# properties including base class inheritance
+          const liveProps: EntityProperty[] = [...matchingClass.properties];
+          const visited = new Set<string>();
+          const queue = [...matchingClass.baseTypes];
+
+          while (queue.length > 0) {
+            const baseName = queue.shift()!;
+            const baseLower = baseName.toLowerCase();
+            if (visited.has(baseLower)) continue;
+            visited.add(baseLower);
+
+            const baseClass = classMap.get(baseLower);
+            if (baseClass) {
+              for (const p of baseClass.properties) {
+                if (!liveProps.some(lp => lp.name.toLowerCase() === p.name.toLowerCase())) {
+                  liveProps.push(p);
+                }
+              }
+              queue.push(...baseClass.baseTypes);
+            }
+          }
+
+          // 1. Check for newly added C# properties not yet in Snapshot
+          for (const lp of liveProps) {
+            if (!seenPropNames.has(lp.name.toLowerCase())) {
+              seenPropNames.add(lp.name.toLowerCase());
+              mergedProperties.push({
+                ...lp,
+                isUnmigrated: true
+              });
+            }
+          }
+
+          // 2. Enhance existing snapshot properties with Fluent / Data Annotation column details
+          const fluentRule = fluentRules.find(r => r.entityName.toLowerCase() === shortLower);
+          for (let i = 0; i < mergedProperties.length; i++) {
+            const p = mergedProperties[i];
+            const pLower = p.name.toLowerCase();
+            const liveProp = liveProps.find(lp => lp.name.toLowerCase() === pLower);
+            const fluentPropRule = fluentRule?.propertyRules?.[pLower];
+
+            const colName = fluentPropRule?.columnName || liveProp?.columnName || p.columnName || p.name;
+            const colType = fluentPropRule?.columnType || liveProp?.columnType || p.columnType || inferSqlTypeFromCSharp(p.type);
+
+            mergedProperties[i] = {
+              ...p,
+              columnName: colName,
+              columnType: colType
+            };
+          }
+        }
+
         entities.push({
           id: matchingClass ? `${matchingClass.filePath}:${matchingClass.line}:${snapEntity.shortName}` : `${snapEntity.shortName}`,
           name: snapEntity.shortName,
@@ -616,12 +801,72 @@ export function buildDbContextScopedModel(
           filePath: matchingClass?.filePath || snapshot.filePath,
           line: matchingClass?.line || 1,
           projectName: matchingClass?.projectName || contextName,
-          properties: snapEntity.properties,
+          properties: mergedProperties,
           dbContextNames: [contextName]
         });
       }
 
-      // Collect relationships from snapshot + navigations
+      // 2. Supplement unmigrated new entities (in DbSet or with Table attribute) not in Snapshot
+      if (rawClasses.length > 0) {
+        for (const typeLower of entityTypesForContext) {
+          if (snapEntityNameSet.has(typeLower)) continue;
+
+          const rawClass = classMap.get(typeLower);
+          if (!rawClass) continue;
+
+          // Resolve inherited properties
+          const resolvedProps: EntityProperty[] = [...rawClass.properties];
+          const seenPropNames = new Set(resolvedProps.map(p => p.name.toLowerCase()));
+          const visited = new Set<string>();
+          const queue = [...rawClass.baseTypes];
+
+          while (queue.length > 0) {
+            const baseName = queue.shift()!;
+            const baseLower = baseName.toLowerCase();
+            if (visited.has(baseLower)) continue;
+            visited.add(baseLower);
+
+            const baseClass = classMap.get(baseLower);
+            if (baseClass) {
+              for (const p of baseClass.properties) {
+                if (!seenPropNames.has(p.name.toLowerCase())) {
+                  seenPropNames.add(p.name.toLowerCase());
+                  resolvedProps.push(p);
+                }
+              }
+              queue.push(...baseClass.baseTypes);
+            }
+          }
+
+          const rule = fluentRules.find(r => r.entityName.toLowerCase() === typeLower);
+          const tableName = rule?.tableName || rawClass.tableName || rawClass.name;
+          const schemaName = rule?.schemaName || rawClass.schemaName;
+
+          if (rule?.primaryKeys && rule.primaryKeys.length > 0) {
+            const pkSet = new Set(rule.primaryKeys.map(k => k.toLowerCase()));
+            for (let i = 0; i < resolvedProps.length; i++) {
+              if (pkSet.has(resolvedProps[i].name.toLowerCase())) {
+                resolvedProps[i] = { ...resolvedProps[i], isPrimaryKey: true };
+              }
+            }
+          }
+
+          entities.push({
+            id: `${rawClass.filePath}:${rawClass.line}:${rawClass.name}`,
+            name: rawClass.name,
+            tableName,
+            schemaName,
+            filePath: rawClass.filePath,
+            line: rawClass.line,
+            projectName: rawClass.projectName,
+            properties: resolvedProps.map(p => ({ ...p, isUnmigrated: true })),
+            dbContextNames: [contextName],
+            isUnmigrated: true
+          });
+        }
+      }
+
+      // 3. Build & Merge Relationships
       const relationships = buildRelationships(entities);
       for (const snapEntity of snapshot.entities) {
         for (const rel of snapEntity.relationships) {
@@ -636,28 +881,7 @@ export function buildDbContextScopedModel(
       continue;
     }
 
-    // Otherwise, build from DbSet hierarchy + Fluent configurations
-    const entityTypesForContext = new Set<string>();
-
-    // 1. Direct DbSets
-    for (const db of dbContextSets) {
-      if (db.dbContextName.toLowerCase() === contextName.toLowerCase()) {
-        db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
-      }
-    }
-
-    // 2. Inherited DbSets from base DbContext
-    let parent = dbContextChildToParent.get(contextName);
-    while (parent) {
-      for (const db of dbContextSets) {
-        if (db.dbContextName.toLowerCase() === parent.toLowerCase()) {
-          db.entityTypes.forEach(t => entityTypesForContext.add(t.toLowerCase()));
-        }
-      }
-      parent = dbContextChildToParent.get(parent);
-    }
-
-    // 3. Collect matching entities
+    // Otherwise, build from DbSet hierarchy + Fluent configurations (Tier 2 only)
     const entities: EntityModel[] = [];
     for (const typeLower of entityTypesForContext) {
       const rawClass = classMap.get(typeLower);

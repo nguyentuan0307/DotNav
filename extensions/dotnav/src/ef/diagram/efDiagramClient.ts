@@ -42,16 +42,20 @@ export function getEfDiagramClientScript(): string {
   let isPanning = false;
   let startPanX = 0;
   let startPanY = 0;
+  let panPointerStartX = 0;
+  let panPointerStartY = 0;
+  let hasPanMoved = false;
 
   let draggedCard = null;
-  let dragStartMouseX = 0;
-  let dragStartMouseY = 0;
+  let dragStartWorldX = 0;
+  let dragStartWorldY = 0;
+  let lastPointerClientX = 0;
+  let lastPointerClientY = 0;
   let batchDragInitialPositions = {};
+  let autoPanRAF = null;
 
   // Draggable Note State
   let draggedNote = null;
-  let noteDragStartMouseX = 0;
-  let noteDragStartMouseY = 0;
   let noteInitialX = 0;
   let noteInitialY = 0;
 
@@ -87,6 +91,16 @@ export function getEfDiagramClientScript(): string {
   const minimapBody = document.getElementById('minimapBody');
   const btnToggleMinimap = document.getElementById('btnToggleMinimap');
   const floatingZoomControls = document.getElementById('floatingZoomControls');
+
+  // Focus Mode & Quick Finder Elements
+  let focusedEntityName = null;
+  const focusModeBanner = document.getElementById('focusModeBanner');
+  const focusBannerText = document.getElementById('focusBannerText');
+  const btnExitFocusMode = document.getElementById('btnExitFocusMode');
+  const canvasQuickFinder = document.getElementById('canvasQuickFinder');
+  const finderInput = document.getElementById('finderInput');
+  const finderResults = document.getElementById('finderResults');
+  const btnQuickFind = document.getElementById('btnQuickFind');
 
   // Loading & Error Overlay Elements
   const loadingOverlay = document.getElementById('loadingOverlay');
@@ -245,50 +259,60 @@ export function getEfDiagramClientScript(): string {
         break;
 
       case 'init':
-        availableDbContexts = msg.availableDbContexts || [];
-        entitiesByContext = msg.entitiesByContext || {};
-        relationshipsByContext = msg.relationshipsByContext || {};
-        activeDbContext = msg.activeDbContext || (availableDbContexts.length > 0 ? availableDbContexts[0] : 'Default');
+        try {
+          availableDbContexts = msg.availableDbContexts || [];
+          entitiesByContext = msg.entitiesByContext || {};
+          relationshipsByContext = msg.relationshipsByContext || {};
+          activeDbContext = msg.activeDbContext || (availableDbContexts.length > 0 ? availableDbContexts[0] : 'Default');
 
-        allEntities = entitiesByContext[activeDbContext] || msg.allEntities || [];
-        allRelationships = relationshipsByContext[activeDbContext] || msg.relationships || [];
-        activePositions = {};
-        notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
-        hiddenColumnsByEntity = {};
-        colorByEntity = {};
-        minimizedCards.clear();
-        selectedEntityNames.clear();
-        activeSelectedRelId = null;
+          allEntities = entitiesByContext[activeDbContext] || msg.allEntities || [];
+          allRelationships = relationshipsByContext[activeDbContext] || msg.relationships || [];
+          activePositions = {};
+          notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
+          hiddenColumnsByEntity = {};
+          colorByEntity = {};
+          minimizedCards.clear();
+          selectedEntityNames.clear();
+          activeSelectedRelId = null;
 
-        restoreEntityStates(msg.activePositions || {});
-        currentDiagramName = msg.activeDiagramName || '';
+          restoreEntityStates(msg.activePositions || {});
+          currentDiagramName = msg.activeDiagramName || '';
 
-        updateDbContextSelect();
-        updateDiagramSelect(msg.savedDiagramNames || []);
-        updateSidebarTitle();
-        renderEntityList();
-        renderCanvas();
-        renderNotes();
-        updateDiagramUIState();
-        hideLoading();
+          updateDbContextSelect();
+          updateDiagramSelect(msg.savedDiagramNames || []);
+          updateSidebarTitle();
+          renderEntityList();
+          renderCanvas();
+          renderNotes();
+          updateDiagramUIState();
+        } catch (err) {
+          console.error('[DotNav EF Diagram] Error during init:', err);
+        } finally {
+          hideLoading();
+        }
         break;
 
       case 'diagramLoaded':
-        activePositions = {};
-        notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
-        hiddenColumnsByEntity = {};
-        colorByEntity = {};
-        minimizedCards.clear();
-        selectedEntityNames.clear();
-        activeSelectedRelId = null;
+        try {
+          activePositions = {};
+          notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
+          hiddenColumnsByEntity = {};
+          colorByEntity = {};
+          minimizedCards.clear();
+          selectedEntityNames.clear();
+          activeSelectedRelId = null;
 
-        restoreEntityStates(msg.activePositions || {});
-        currentDiagramName = msg.diagramName || '';
-        renderEntityList();
-        renderCanvas();
-        renderNotes();
-        updateDiagramUIState();
-        hideLoading();
+          restoreEntityStates(msg.activePositions || {});
+          currentDiagramName = msg.diagramName || '';
+          renderEntityList();
+          renderCanvas();
+          renderNotes();
+          updateDiagramUIState();
+        } catch (err) {
+          console.error('[DotNav EF Diagram] Error during diagramLoaded:', err);
+        } finally {
+          hideLoading();
+        }
         break;
 
       case 'diagramCreated': {
@@ -704,6 +728,9 @@ export function getEfDiagramClientScript(): string {
         openCreateModal();
         return;
       }
+      if (focusedEntityName) {
+        clearFocusMode();
+      }
       pushHistory();
       for (const e of allEntities) {
         if (!activePositions[e.name]) {
@@ -724,6 +751,9 @@ export function getEfDiagramClientScript(): string {
     if (!currentDiagramName) {
       openCreateModal();
       return;
+    }
+    if (focusedEntityName) {
+      clearFocusMode();
     }
     if (activePositions[entityName]) {
       focusCard(entityName);
@@ -747,6 +777,9 @@ export function getEfDiagramClientScript(): string {
   }
 
   function removeEntityFromCanvas(entityName) {
+    if (focusedEntityName) {
+      clearFocusMode();
+    }
     pushHistory();
     delete activePositions[entityName];
     minimizedCards.delete(entityName);
@@ -835,7 +868,7 @@ export function getEfDiagramClientScript(): string {
       let visibleCount = 0;
       const propRowsHtml = entity.properties.map(p => {
         const isHidden = isPropertyHidden(entity, p, hiddenSet);
-        if (!isHidden) visibleCount++;
+      if (!isHidden) visibleCount++;
         return renderPropertyRow(entity, p, isHidden);
       }).join('');
 
@@ -844,7 +877,7 @@ export function getEfDiagramClientScript(): string {
 
       card.innerHTML = \`
         <div class="card-header" data-entity-name="\${escapeHtml(entity.name)}">
-          <div class="card-title-group">
+          <div class="card-title-group" title="Double-click to open C# source (\${escapeHtml(entity.name)}.cs)">
             <span class="card-title">
               <svg class="icon-svg" style="color: \${customColor || 'var(--pk-color)'}; flex-shrink: 0;" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9zm1.5-.5a.5.5 0 0 0-.5.5v1h10v-1a.5.5 0 0 0-.5-.5h-9z"/>
@@ -854,6 +887,8 @@ export function getEfDiagramClientScript(): string {
             <span class="card-subtitle">\${escapeHtml(tableDisplay)}</span>
           </div>
           <div class="card-actions">
+            <button class="card-action-btn card-focus-btn" title="Focus Mode (Highlight relationship network)"><svg style="width:11.5px;height:11.5px;display:block;" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg></button>
+            <button class="card-action-btn card-code-btn" title="Open C# Source File (&lt;/&gt;)">&lt;/&gt;</button>
             <button class="card-action-btn card-columns-btn" title="Manage Columns (Show/Hide)">
               \${columnVisibilityIcon(true)}
             </button>
@@ -867,12 +902,45 @@ export function getEfDiagramClientScript(): string {
         \${hiddenCount > 0 ? \`<div class="card-hidden-footer" title="Click to manage hidden columns"><span>\${columnVisibilityIcon(false)} + \${hiddenCount} hidden columns</span><span style="opacity:0.7;">manage ▸</span></div>\` : ''}
       \`;
 
-      // Header double-click to toggle minimize
+      // Header double-click to jump to C# source code
       const header = card.querySelector('.card-header');
       header.addEventListener('dblclick', e => {
+        if (e.target.closest('.card-actions')) return;
         e.stopPropagation();
-        toggleCardMinimize(entity.name);
+        vscode.postMessage({
+          type: 'openEntitySource',
+          entityName: entity.name,
+          filePath: entity.filePath,
+          line: entity.line
+        });
       });
+
+      // Code button to open C# source
+      const codeBtn = card.querySelector('.card-code-btn');
+      if (codeBtn) {
+        codeBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          vscode.postMessage({
+            type: 'openEntitySource',
+            entityName: entity.name,
+            filePath: entity.filePath,
+            line: entity.line
+          });
+        });
+      }
+
+      // Focus button to toggle relationship focus
+      const focusBtn = card.querySelector('.card-focus-btn');
+      if (focusBtn) {
+        focusBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          if (focusedEntityName === entity.name) {
+            clearFocusMode();
+          } else {
+            activateFocusMode(entity.name);
+          }
+        });
+      }
 
       // Header columns button
       const colsBtn = card.querySelector('.card-columns-btn');
@@ -933,14 +1001,36 @@ export function getEfDiagramClientScript(): string {
           }
         });
 
-        dragStartMouseX = e.clientX;
-        dragStartMouseY = e.clientY;
+        dragStartWorldX = (e.clientX - panX) / zoom;
+        dragStartWorldY = (e.clientY - panY) / zoom;
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
         closeAllPopovers();
         e.stopPropagation();
       });
 
       cardsLayer.appendChild(card);
     }
+
+    // Attach property row C# navigation
+    cardsLayer.querySelectorAll('.prop-name-text').forEach(propText => {
+      propText.addEventListener('click', e => {
+        e.stopPropagation();
+        const card = propText.closest('.table-card');
+        const entityName = card?.querySelector('.card-header')?.dataset?.entityName;
+        const row = propText.closest('.prop-row');
+        const propName = row?.dataset?.propName;
+        const ent = allEntities.find(en => en.name === entityName);
+        if (ent && propName) {
+          vscode.postMessage({
+            type: 'openPropertySource',
+            entityName: ent.name,
+            propName: propName,
+            filePath: ent.filePath
+          });
+        }
+      });
+    });
 
     // Attach row eye button & expand [+] buttons
     cardsLayer.querySelectorAll('.prop-eye-btn').forEach(btn => {
@@ -1011,8 +1101,10 @@ export function getEfDiagramClientScript(): string {
         if (e.target.closest('.note-dot') || e.target.closest('.note-close-btn')) return;
         draggedNote = noteEl;
         header.setPointerCapture(e.pointerId);
-        noteDragStartMouseX = e.clientX;
-        noteDragStartMouseY = e.clientY;
+        dragStartWorldX = (e.clientX - panX) / zoom;
+        dragStartWorldY = (e.clientY - panY) / zoom;
+        lastPointerClientX = e.clientX;
+        lastPointerClientY = e.clientY;
         noteInitialX = note.x;
         noteInitialY = note.y;
         closeAllPopovers();
@@ -1118,6 +1210,8 @@ export function getEfDiagramClientScript(): string {
     let badge = '';
     let rowClass = 'prop-row' + (isHidden ? ' hidden-prop' : '');
     let expandBtn = '';
+    const target = prop.foreignKeyTargetEntity || prop.navigationTargetEntity;
+    const isTargetOnCanvas = target ? !!activePositions[target] : false;
 
     if (prop.isPrimaryKey) {
       rowClass += ' pk';
@@ -1125,28 +1219,39 @@ export function getEfDiagramClientScript(): string {
     } else if (prop.isForeignKey) {
       rowClass += ' fk';
       badge = '<span class="prop-badge fk">FK</span>';
-      if (prop.foreignKeyTargetEntity && allEntities.some(e => e.name === prop.foreignKeyTargetEntity)) {
-        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.foreignKeyTargetEntity)}" title="Add \${escapeHtml(prop.foreignKeyTargetEntity)} to canvas">+</button>\`;
+      if (target && !isTargetOnCanvas && allEntities.some(e => e.name === target)) {
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(target)}" title="Add \${escapeHtml(target)} to canvas">+</button>\`;
       }
     } else if (prop.isNavigation) {
       badge = '<span class="prop-badge nav">NAV</span>';
-      if (prop.navigationTargetEntity && allEntities.some(e => e.name === prop.navigationTargetEntity)) {
-        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(prop.navigationTargetEntity)}" title="Add \${escapeHtml(prop.navigationTargetEntity)} to canvas">+</button>\`;
+      if (target && !isTargetOnCanvas && allEntities.some(e => e.name === target)) {
+        expandBtn = \`<button class="prop-expand-btn" data-target-entity="\${escapeHtml(target)}" title="Add \${escapeHtml(target)} to canvas">+</button>\`;
       }
     }
 
+    const colName = prop.columnName || prop.name;
+    const colType = prop.columnType || prop.type;
+    const unmigratedBadge = prop.isUnmigrated ? '<span class="prop-unmigrated-badge" title="Unmigrated in C# Code">NEW</span>' : '';
+
     return \`
-      <div class="\${rowClass}" data-prop-name="\${escapeHtml(prop.name)}">
+      <div class="\${rowClass}" data-prop-name="\${escapeHtml(prop.name)}" data-col-name="\${escapeHtml(colName)}" data-col-type="\${escapeHtml(colType)}">
         <div class="prop-name">
           \${badge}
-          <span>\${escapeHtml(prop.name)}</span>
+          \${unmigratedBadge}
+          <span class="prop-name-text">\${escapeHtml(prop.name)}</span>
         </div>
-        <div class="prop-actions">
+        <div class="prop-type-col">
           <span class="prop-type">\${escapeHtml(prop.type)}</span>
+        </div>
+        <div class="prop-hover-actions">
           <button class="prop-eye-btn" data-prop-name="\${escapeHtml(prop.name)}" title="Hide column">
             \${columnVisibilityIcon(true)}
           </button>
           \${expandBtn}
+        </div>
+        <div class="prop-tooltip">
+          <span class="prop-tooltip-title">DB: \${escapeHtml(colName)}</span>
+          <span class="prop-tooltip-type">SQL: \${escapeHtml(colType)} &bull; C#: \${escapeHtml(prop.type)}</span>
         </div>
       </div>
     \`;
@@ -1929,7 +2034,7 @@ export function getEfDiagramClientScript(): string {
     updateMinimap();
   }
 
-  // Real-Time Pointer Dragging on Minimap
+  // Real-Time Pointer Dragging on Minimap Body (Pan Canvas)
   let isDraggingMinimap = false;
 
   if (minimapBody || canvasMinimap) {
@@ -1963,23 +2068,92 @@ export function getEfDiagramClientScript(): string {
     });
   }
 
-  // Toggle Collapse Minimap
+  // Draggable Minimap Position (Header Drag)
+  let isDraggingMinimapPosition = false;
+  let minimapDragStartX = 0;
+  let minimapDragStartY = 0;
+  let minimapInitialLeft = 0;
+  let minimapInitialTop = 0;
+
+  function pinMinimapToTopLeft() {
+    if (!canvasMinimap) return;
+    // Convert bottom/right positioning to top/left for stable absolute positioning
+    const vpRect = viewport.getBoundingClientRect();
+    const mmRect = canvasMinimap.getBoundingClientRect();
+    const currentLeft = mmRect.left - vpRect.left;
+    const currentTop = mmRect.top - vpRect.top;
+    canvasMinimap.style.bottom = 'auto';
+    canvasMinimap.style.right = 'auto';
+    canvasMinimap.style.left = currentLeft + 'px';
+    canvasMinimap.style.top = currentTop + 'px';
+  }
+
+  if (minimapHeader && canvasMinimap) {
+    minimapHeader.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('.minimap-toggle-btn')) return;
+      e.stopPropagation();
+      e.preventDefault();
+
+      // Pin to top/left on first drag if still using bottom/right
+      if (canvasMinimap.style.left === '') {
+        pinMinimapToTopLeft();
+      }
+
+      isDraggingMinimapPosition = true;
+      minimapHeader.setPointerCapture(e.pointerId);
+      minimapDragStartX = e.clientX;
+      minimapDragStartY = e.clientY;
+      minimapInitialLeft = parseInt(canvasMinimap.style.left, 10) || 0;
+      minimapInitialTop = parseInt(canvasMinimap.style.top, 10) || 0;
+    });
+
+    minimapHeader.addEventListener('pointermove', e => {
+      if (!isDraggingMinimapPosition) return;
+      e.stopPropagation();
+      e.preventDefault();
+
+      const deltaX = e.clientX - minimapDragStartX;
+      const deltaY = e.clientY - minimapDragStartY;
+      let newLeft = minimapInitialLeft + deltaX;
+      let newTop = minimapInitialTop + deltaY;
+
+      // Clamp inside viewport
+      const vpW = viewport.clientWidth;
+      const vpH = viewport.clientHeight;
+      const mmW = canvasMinimap.offsetWidth;
+      const mmH = canvasMinimap.offsetHeight;
+      newLeft = Math.max(0, Math.min(vpW - mmW, newLeft));
+      newTop = Math.max(0, Math.min(vpH - mmH, newTop));
+
+      canvasMinimap.style.left = newLeft + 'px';
+      canvasMinimap.style.top = newTop + 'px';
+    });
+
+    minimapHeader.addEventListener('pointerup', e => {
+      if (isDraggingMinimapPosition) {
+        isDraggingMinimapPosition = false;
+        e.stopPropagation();
+      }
+    });
+
+    minimapHeader.addEventListener('pointercancel', () => {
+      isDraggingMinimapPosition = false;
+    });
+  }
+
+  // Toggle Collapse Minimap (button only, not entire header)
   function toggleMinimap(e) {
-    if (e) e.stopPropagation();
+    if (e) { e.stopPropagation(); e.preventDefault(); }
     if (!canvasMinimap) return;
     canvasMinimap.classList.toggle('collapsed');
     const isCollapsed = canvasMinimap.classList.contains('collapsed');
     if (btnToggleMinimap) btnToggleMinimap.textContent = isCollapsed ? '▴' : '▾';
-    if (floatingZoomControls) {
-      floatingZoomControls.style.bottom = isCollapsed ? '48px' : '180px';
-    }
   }
   if (btnToggleMinimap) btnToggleMinimap.addEventListener('click', toggleMinimap);
-  if (minimapHeader) minimapHeader.addEventListener('click', toggleMinimap);
 
   // Pan & Zoom
   function applyTransform() {
-    canvasTransform.style.transform = \`translate3d(\${panX}px, \${panY}px, 0) scale(\${zoom})\`;
+    canvasTransform.style.transform = \`translate(\${panX}px, \${panY}px) scale(\${zoom})\`;
     zoomDisplay.textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -2035,12 +2209,14 @@ export function getEfDiagramClientScript(): string {
         } else {
           // Normal Canvas Pan
           isPanning = true;
+          canvasTransform.classList.add('is-panning');
           viewport.setPointerCapture(e.pointerId);
           startPanX = e.clientX - panX;
           startPanY = e.clientY - panY;
+          panPointerStartX = e.clientX;
+          panPointerStartY = e.clientY;
+          hasPanMoved = false;
           viewport.style.cursor = 'grabbing';
-          selectedEntityNames.clear();
-          cardsLayer.querySelectorAll('.table-card').forEach(c => c.classList.remove('multi-selected'));
           closeAllPopovers();
         }
       }
@@ -2049,6 +2225,9 @@ export function getEfDiagramClientScript(): string {
 
   window.addEventListener('pointermove', e => {
     if (isPanning) {
+      if (!hasPanMoved && Math.hypot(e.clientX - panPointerStartX, e.clientY - panPointerStartY) > 4) {
+        hasPanMoved = true;
+      }
       panX = e.clientX - startPanX;
       panY = e.clientY - startPanY;
       applyTransform();
@@ -2088,41 +2267,15 @@ export function getEfDiagramClientScript(): string {
         }
       }
     } else if (draggedCard) {
-      const deltaX = Math.round((e.clientX - dragStartMouseX) / zoom);
-      const deltaY = Math.round((e.clientY - dragStartMouseY) / zoom);
-
-      // Move all selected cards in batch
-      selectedEntityNames.forEach(selName => {
-        const init = batchDragInitialPositions[selName];
-        if (init) {
-          const cardEl = document.getElementById('card-' + selName);
-          const posX = init.x + deltaX;
-          const posY = init.y + deltaY;
-          activePositions[selName] = { x: posX, y: posY };
-          if (cardEl) {
-            cardEl.style.left = posX + 'px';
-            cardEl.style.top = posY + 'px';
-          }
-        }
-      });
-
-      scheduleSvgUpdate();
+      lastPointerClientX = e.clientX;
+      lastPointerClientY = e.clientY;
+      updateDraggingCardsPositions();
+      checkEdgeAutoPan();
     } else if (draggedNote) {
-      const deltaX = Math.round((e.clientX - noteDragStartMouseX) / zoom);
-      const deltaY = Math.round((e.clientY - noteDragStartMouseY) / zoom);
-      const newX = noteInitialX + deltaX;
-      const newY = noteInitialY + deltaY;
-
-      draggedNote.style.left = newX + 'px';
-      draggedNote.style.top = newY + 'px';
-
-      const noteId = draggedNote.querySelector('.note-header').dataset.noteId;
-      const note = notes.find(n => n.id === noteId);
-      if (note) {
-        note.x = newX;
-        note.y = newY;
-      }
-      updateMinimap();
+      lastPointerClientX = e.clientX;
+      lastPointerClientY = e.clientY;
+      updateDraggingNotePosition();
+      checkEdgeAutoPan();
     } else if (draggedInspector) {
       const vpRect = viewport.getBoundingClientRect();
       let newLeft = e.clientX - inspectorDragOffsetX;
@@ -2136,9 +2289,120 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
+  function updateDraggingCardsPositions() {
+    if (!draggedCard) return;
+    const currentWorldX = (lastPointerClientX - panX) / zoom;
+    const currentWorldY = (lastPointerClientY - panY) / zoom;
+    const deltaWorldX = currentWorldX - dragStartWorldX;
+    const deltaWorldY = currentWorldY - dragStartWorldY;
+
+    selectedEntityNames.forEach(selName => {
+      const init = batchDragInitialPositions[selName];
+      if (init) {
+        const cardEl = document.getElementById('card-' + selName);
+        const posX = Math.round(init.x + deltaWorldX);
+        const posY = Math.round(init.y + deltaWorldY);
+        activePositions[selName] = { x: posX, y: posY };
+        if (cardEl) {
+          cardEl.style.left = posX + 'px';
+          cardEl.style.top = posY + 'px';
+        }
+      }
+    });
+
+    scheduleSvgUpdate();
+    updateMinimap();
+  }
+
+  function updateDraggingNotePosition() {
+    if (!draggedNote) return;
+    const currentWorldX = (lastPointerClientX - panX) / zoom;
+    const currentWorldY = (lastPointerClientY - panY) / zoom;
+    const deltaWorldX = currentWorldX - dragStartWorldX;
+    const deltaWorldY = currentWorldY - dragStartWorldY;
+
+    const newX = Math.round(noteInitialX + deltaWorldX);
+    const newY = Math.round(noteInitialY + deltaWorldY);
+    draggedNote.style.left = newX + 'px';
+    draggedNote.style.top = newY + 'px';
+
+    const noteId = draggedNote.querySelector('.note-header')?.dataset.noteId;
+    const note = notes.find(n => n.id === noteId);
+    if (note) {
+      note.x = newX;
+      note.y = newY;
+    }
+    updateMinimap();
+  }
+
+  function checkEdgeAutoPan() {
+    if (!draggedCard && !draggedNote) {
+      stopEdgeAutoPan();
+      return;
+    }
+
+    const vpRect = viewport.getBoundingClientRect();
+    const margin = 50;
+    const maxSpeed = 16;
+
+    let vx = 0;
+    let vy = 0;
+
+    // Left edge
+    if (lastPointerClientX < vpRect.left + margin) {
+      const ratio = 1 - Math.max(0, lastPointerClientX - vpRect.left) / margin;
+      vx = maxSpeed * ratio;
+    }
+    // Right edge
+    else if (lastPointerClientX > vpRect.right - margin) {
+      const ratio = 1 - Math.max(0, vpRect.right - lastPointerClientX) / margin;
+      vx = -maxSpeed * ratio;
+    }
+
+    // Top edge
+    if (lastPointerClientY < vpRect.top + margin) {
+      const ratio = 1 - Math.max(0, lastPointerClientY - vpRect.top) / margin;
+      vy = maxSpeed * ratio;
+    }
+    // Bottom edge
+    else if (lastPointerClientY > vpRect.bottom - margin) {
+      const ratio = 1 - Math.max(0, vpRect.bottom - lastPointerClientY) / margin;
+      vy = -maxSpeed * ratio;
+    }
+
+    if (vx !== 0 || vy !== 0) {
+      panX += Math.round(vx);
+      panY += Math.round(vy);
+      applyTransform();
+
+      if (draggedCard) updateDraggingCardsPositions();
+      else if (draggedNote) updateDraggingNotePosition();
+
+      if (!autoPanRAF) {
+        autoPanRAF = requestAnimationFrame(autoPanLoop);
+      }
+    } else {
+      stopEdgeAutoPan();
+    }
+  }
+
+  function autoPanLoop() {
+    autoPanRAF = null;
+    checkEdgeAutoPan();
+  }
+
+  function stopEdgeAutoPan() {
+    if (autoPanRAF) {
+      cancelAnimationFrame(autoPanRAF);
+      autoPanRAF = null;
+    }
+  }
+
   window.addEventListener('pointerup', () => {
+    stopEdgeAutoPan();
     if (isPanning) {
       isPanning = false;
+      canvasTransform.classList.remove('is-panning');
       viewport.style.cursor = 'grab';
     }
     if (isMarqueeSelecting) {
@@ -2150,9 +2414,38 @@ export function getEfDiagramClientScript(): string {
       draggedCard.classList.remove('dragging');
       draggedCard.style.zIndex = '2';
       draggedCard = null;
+      selectedEntityNames.forEach(name => cacheCardLayout(name));
+      scheduleSvgUpdate();
+      updateMinimap();
     }
     if (draggedNote) {
       pushHistory();
+      draggedNote.classList.remove('dragging');
+      draggedNote = null;
+      updateMinimap();
+    }
+    if (draggedInspector) {
+      draggedInspector = null;
+    }
+  });
+
+  window.addEventListener('pointercancel', () => {
+    stopEdgeAutoPan();
+    if (isPanning) {
+      isPanning = false;
+      canvasTransform.classList.remove('is-panning');
+      viewport.style.cursor = 'grab';
+    }
+    if (isMarqueeSelecting) {
+      isMarqueeSelecting = false;
+      marqueeBox.style.display = 'none';
+    }
+    if (draggedCard) {
+      draggedCard.classList.remove('dragging');
+      draggedCard.style.zIndex = '2';
+      draggedCard = null;
+    }
+    if (draggedNote) {
       draggedNote.classList.remove('dragging');
       draggedNote = null;
     }
@@ -2174,6 +2467,365 @@ export function getEfDiagramClientScript(): string {
       const worldX = (e.clientX - rect.left - panX) / zoom;
       const worldY = (e.clientY - rect.top - panY) / zoom;
       addEntityToCanvas(entityName, worldX, worldY);
+    }
+  });
+
+  // =========================================================================
+  // Focus Mode & Network Highlighting
+  // =========================================================================
+  function activateFocusMode(entityName) {
+    if (!activePositions[entityName]) return;
+    focusedEntityName = entityName;
+    viewport.classList.add('focus-active');
+
+    // Find all directly connected entities (both incoming and outgoing)
+    const connectedEntities = new Set();
+    const connectedRelIds = new Set();
+
+    allRelationships.forEach(rel => {
+      if (rel.fromEntity === entityName) {
+        connectedEntities.add(rel.toEntity);
+        connectedRelIds.add(rel.id);
+      } else if (rel.toEntity === entityName) {
+        connectedEntities.add(rel.fromEntity);
+        connectedRelIds.add(rel.id);
+      }
+    });
+
+    // Update cards classes
+    cardsLayer.querySelectorAll('.table-card').forEach(card => {
+      const name = card.querySelector('.card-header')?.dataset?.entityName;
+      card.classList.remove('focused-primary', 'focused-connected');
+      if (name === entityName) {
+        card.classList.add('focused-primary');
+      } else if (connectedEntities.has(name)) {
+        card.classList.add('focused-connected');
+      }
+    });
+
+    // Update SVG links classes
+    linksSvg.querySelectorAll('.link-path').forEach(path => {
+      const relId = path.dataset.relId;
+      if (connectedRelIds.has(relId)) {
+        path.classList.add('focused-rel');
+      } else {
+        path.classList.remove('focused-rel');
+      }
+    });
+
+    if (focusModeBanner && focusBannerText) {
+      const count = connectedEntities.size;
+      focusBannerText.textContent = \`Focusing on \${entityName} (\${count} connected table\${count === 1 ? '' : 's'})\`;
+      focusModeBanner.classList.add('show');
+    }
+  }
+
+  function clearFocusMode() {
+    focusedEntityName = null;
+    viewport.classList.remove('focus-active');
+    cardsLayer.querySelectorAll('.table-card').forEach(card => {
+      card.classList.remove('focused-primary', 'focused-connected');
+    });
+    linksSvg.querySelectorAll('.link-path').forEach(path => {
+      path.classList.remove('focused-rel');
+    });
+    if (focusModeBanner) {
+      focusModeBanner.classList.remove('show');
+    }
+  }
+
+  if (btnExitFocusMode) {
+    btnExitFocusMode.addEventListener('click', e => {
+      e.stopPropagation();
+      clearFocusMode();
+    });
+  }
+
+  // =========================================================================
+  // Canvas Quick Finder & Smooth Camera Animation
+  // =========================================================================
+  let finderSelectedIndex = 0;
+  let finderCurrentItems = [];
+  let cameraAnimationRAF = null;
+
+  function openQuickFinder() {
+    if (!canvasQuickFinder || !finderInput) return;
+    canvasQuickFinder.classList.add('show');
+    finderInput.value = '';
+    finderInput.focus();
+    renderFinderResults('');
+  }
+
+  function closeQuickFinder() {
+    if (!canvasQuickFinder) return;
+    canvasQuickFinder.classList.remove('show');
+  }
+
+  function renderFinderResults(query) {
+    if (!finderResults) return;
+    const q = (query || '').trim().toLowerCase();
+    finderResults.innerHTML = '';
+    finderCurrentItems = [];
+    finderSelectedIndex = 0;
+
+    const results = [];
+
+    // Search tables
+    allEntities.forEach(ent => {
+      const nameMatch = ent.name.toLowerCase().includes(q);
+      const tableMatch = ent.tableName && ent.tableName.toLowerCase().includes(q);
+      const isOnCanvas = !!activePositions[ent.name];
+
+      if (nameMatch || tableMatch || q.length === 0) {
+        results.push({
+          type: 'table',
+          entityName: ent.name,
+          title: ent.name,
+          subtitle: ent.tableName ? \`Table: \${ent.tableName}\` : \`\${ent.properties.length} columns\`,
+          badge: isOnCanvas ? 'On Canvas' : 'Add to Canvas',
+          isOnCanvas,
+          propName: null
+        });
+      }
+
+      // Search columns inside entities
+      ent.properties.forEach(p => {
+        const propNameMatch = p.name.toLowerCase().includes(q);
+        const colNameMatch = p.columnName && p.columnName.toLowerCase().includes(q);
+        if ((propNameMatch || colNameMatch) && q.length > 0) {
+          results.push({
+            type: 'column',
+            entityName: ent.name,
+            title: \`\${ent.name}.\${p.name}\`,
+            subtitle: \`\${p.columnType || p.type}\${p.isPrimaryKey ? ' • PK' : ''}\${p.isForeignKey ? ' • FK' : ''}\`,
+            badge: isOnCanvas ? 'Column' : 'Add Table',
+            isOnCanvas,
+            propName: p.name
+          });
+        }
+      });
+    });
+
+    // Search notes
+    if (q.length > 0) {
+      notes.forEach((note, idx) => {
+        if (note.text && note.text.toLowerCase().includes(q)) {
+          results.push({
+            type: 'note',
+            noteId: note.id,
+            title: \`Sticky Note #\${idx + 1}\`,
+            subtitle: note.text.slice(0, 40) + (note.text.length > 40 ? '...' : ''),
+            badge: 'Note',
+            isOnCanvas: true,
+            x: note.x,
+            y: note.y
+          });
+        }
+      });
+    }
+
+    // Limit to top 25 results
+    finderCurrentItems = results.slice(0, 25);
+
+    if (finderCurrentItems.length === 0) {
+      finderResults.innerHTML = '<div class="finder-empty">No matching tables, columns, or notes found</div>';
+      return;
+    }
+
+    finderCurrentItems.forEach((item, index) => {
+      const div = document.createElement('div');
+      div.className = 'finder-item' + (index === 0 ? ' active' : '');
+      div.dataset.index = index;
+      div.innerHTML = \`
+        <div class="finder-item-left">
+          <span class="finder-item-icon">\${item.type === 'table' ? '📦' : item.type === 'column' ? '🔹' : '📝'}</span>
+          <div>
+            <div class="finder-item-title">\${escapeHtml(item.title)}</div>
+            <div class="finder-item-sub">\${escapeHtml(item.subtitle)}</div>
+          </div>
+        </div>
+        <span class="finder-item-badge \${item.type}">\${escapeHtml(item.badge)}</span>
+      \`;
+
+      div.addEventListener('click', () => {
+        selectFinderItem(item);
+      });
+
+      div.addEventListener('mouseenter', () => {
+        setFinderSelectedIndex(index);
+      });
+
+      finderResults.appendChild(div);
+    });
+  }
+
+  function setFinderSelectedIndex(index) {
+    if (!finderResults) return;
+    const items = finderResults.querySelectorAll('.finder-item');
+    if (items.length === 0) return;
+    finderSelectedIndex = Math.max(0, Math.min(items.length - 1, index));
+    items.forEach((it, i) => {
+      if (i === finderSelectedIndex) {
+        it.classList.add('active');
+        it.scrollIntoView({ block: 'nearest' });
+      } else {
+        it.classList.remove('active');
+      }
+    });
+  }
+
+  function selectFinderItem(item) {
+    closeQuickFinder();
+    if (!item) return;
+
+    if (item.type === 'note') {
+      smoothPanToCoordinates(item.x + 100, item.y + 60);
+      const noteEl = document.getElementById('note-' + item.noteId);
+      if (noteEl) {
+        noteEl.classList.add('card-target-highlight');
+        setTimeout(() => noteEl.classList.remove('card-target-highlight'), 2000);
+      }
+    } else {
+      smoothPanToEntity(item.entityName, item.propName);
+    }
+  }
+
+  function smoothPanToCoordinates(targetWorldX, targetWorldY) {
+    if (cameraAnimationRAF) {
+      cancelAnimationFrame(cameraAnimationRAF);
+      cameraAnimationRAF = null;
+    }
+
+    const startPanX = panX;
+    const startPanY = panY;
+    const targetPanX = Math.round(viewport.clientWidth / 2 - targetWorldX * zoom);
+    const targetPanY = Math.round(viewport.clientHeight / 2 - targetWorldY * zoom);
+
+    const startTime = performance.now();
+    const duration = 380;
+
+    function easeInOutCubic(t) {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    function stepCamera(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const ease = easeInOutCubic(progress);
+
+      panX = Math.round(startPanX + (targetPanX - startPanX) * ease);
+      panY = Math.round(startPanY + (targetPanY - startPanY) * ease);
+      applyTransform();
+      updateMinimap();
+
+      if (progress < 1) {
+        cameraAnimationRAF = requestAnimationFrame(stepCamera);
+      } else {
+        cameraAnimationRAF = null;
+      }
+    }
+
+    cameraAnimationRAF = requestAnimationFrame(stepCamera);
+  }
+
+  function smoothPanToEntity(entityName, propNameToHighlight) {
+    if (!activePositions[entityName]) {
+      const slot = findFreeCanvasSlot(Math.round(100 - panX / zoom), Math.round(100 - panY / zoom));
+      addEntityToCanvas(entityName, slot.x, slot.y);
+    }
+
+    const pos = activePositions[entityName] || { x: 100, y: 100 };
+    const size = cardSizeCache[entityName] || { width: 310, height: 200 };
+    const centerX = pos.x + size.width / 2;
+    const centerY = pos.y + size.height / 2;
+
+    smoothPanToCoordinates(centerX, centerY);
+
+    setTimeout(() => {
+      const cardEl = document.getElementById('card-' + entityName);
+      if (cardEl) {
+        cardEl.classList.remove('card-target-highlight');
+        void cardEl.offsetWidth;
+        cardEl.classList.add('card-target-highlight');
+        setTimeout(() => cardEl.classList.remove('card-target-highlight'), 2000);
+
+        if (propNameToHighlight) {
+          const row = cardEl.querySelector(\`.prop-row[data-prop-name="\${propNameToHighlight}"]\`);
+          if (row) {
+            row.classList.remove('prop-target-highlight');
+            void row.offsetWidth;
+            row.classList.add('prop-target-highlight');
+            setTimeout(() => row.classList.remove('prop-target-highlight'), 2200);
+          }
+        }
+      }
+    }, 120);
+  }
+
+  if (btnQuickFind) {
+    btnQuickFind.addEventListener('click', e => {
+      e.stopPropagation();
+      openQuickFinder();
+    });
+  }
+
+  if (finderInput) {
+    finderInput.addEventListener('input', e => {
+      renderFinderResults(e.target.value);
+    });
+
+    finderInput.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFinderSelectedIndex(finderSelectedIndex + 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFinderSelectedIndex(finderSelectedIndex - 1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (finderCurrentItems[finderSelectedIndex]) {
+          selectFinderItem(finderCurrentItems[finderSelectedIndex]);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeQuickFinder();
+      }
+    });
+  }
+
+  // Global Keyboard Shortcuts
+  window.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      openQuickFinder();
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      if (canvasQuickFinder && canvasQuickFinder.classList.contains('show')) {
+        closeQuickFinder();
+        return;
+      }
+      if (focusedEntityName) {
+        clearFocusMode();
+        return;
+      }
+    }
+  });
+
+  // Clicking empty viewport background clears Focus Mode only on static click
+  viewport.addEventListener('click', e => {
+    if (e.target === viewport || e.target === canvasTransform || e.target === linksSvg) {
+      if (hasPanMoved) {
+        hasPanMoved = false;
+        return;
+      }
+      if (focusedEntityName) {
+        clearFocusMode();
+      }
+      selectedEntityNames.clear();
+      cardsLayer.querySelectorAll('.table-card').forEach(c => c.classList.remove('multi-selected'));
+      closeQuickFinder();
     }
   });
 
@@ -2273,6 +2925,9 @@ export function getEfDiagramClientScript(): string {
 
   // 60FPS Animated Multi-Layout Engine: Column DAG, Hierarchical Tree, Radial Star, Compact Grid
   function autoLayoutEntities(explicitEntities, algorithm = 'column') {
+    if (focusedEntityName) {
+      clearFocusMode();
+    }
     pushHistory();
     const activeKeys = Object.keys(activePositions);
     let targetEntities = explicitEntities;
@@ -2553,6 +3208,148 @@ export function getEfDiagramClientScript(): string {
         content: mermaid
       });
       showToast('📋 Mermaid ERD code copied to clipboard!');
+      return;
+    }
+
+    if (type === 'sql') {
+      let sql = \`-- ========================================================\\n-- DotNav EF Core Schema Export: \${escapeHtml(getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Database')}\\n-- Exported: \${new Date().toISOString()}\\n-- ========================================================\\n\\n\`;
+
+      for (const name of activeNames) {
+        const entity = allEntities.find(e => e.name === name);
+        if (!entity) continue;
+        const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
+
+        const schema = entity.schemaName ? \`[\${entity.schemaName}].\` : '';
+        const table = \`[\${entity.tableName || entity.name}]\`;
+
+        sql += \`CREATE TABLE \${schema}\${table} (\\n\`;
+
+        const colDefs = [];
+        const pkCols = [];
+
+        for (const p of entity.properties) {
+          if (hiddenSet.has(p.name)) continue;
+          const colName = \`[\${p.columnName || p.name}]\`;
+          const colType = p.columnType || 'nvarchar(max)';
+          const nullability = p.isPrimaryKey || !p.isNullable ? 'NOT NULL' : 'NULL';
+          colDefs.push(\`    \${colName} \${colType} \${nullability}\`);
+
+          if (p.isPrimaryKey) {
+            pkCols.push(colName);
+          }
+        }
+
+        if (pkCols.length > 0) {
+          const pkConstraintName = \`[PK_\${(entity.tableName || entity.name).replace(/[^a-zA-Z0-9_]/g, '_')}]\`;
+          colDefs.push(\`    CONSTRAINT \${pkConstraintName} PRIMARY KEY (\${pkCols.join(', ')})\`);
+        }
+
+        sql += colDefs.join(',\\n') + '\\n);\\n\\n';
+      }
+
+      // Foreign Keys
+      for (const rel of allRelationships) {
+        if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
+          const fromEntity = allEntities.find(e => e.name === rel.fromEntity);
+          const toEntity = allEntities.find(e => e.name === rel.toEntity);
+          if (!fromEntity || !toEntity) continue;
+
+          const fromSchema = fromEntity.schemaName ? \`[\${fromEntity.schemaName}].\` : '';
+          const fromTable = \`[\${fromEntity.tableName || fromEntity.name}]\`;
+          const toSchema = toEntity.schemaName ? \`[\${toEntity.schemaName}].\` : '';
+          const toTable = \`[\${toEntity.tableName || toEntity.name}]\`;
+
+          const fromProp = fromEntity.properties.find(p => p.name === rel.fromProperty || p.isPrimaryKey);
+          const toProp = toEntity.properties.find(p => p.name === rel.toProperty);
+
+          const fromCol = \`[\${fromProp?.columnName || fromProp?.name || 'Id'}]\`;
+          const toCol = \`[\${toProp?.columnName || toProp?.name || rel.toProperty}]\`;
+
+          const fkName = \`[\${rel.foreignKeyName || \`FK_\${toEntity.tableName || toEntity.name}_\${fromEntity.tableName || fromEntity.name}_\${rel.toProperty || 'Id'}\`}]\`;
+          const deleteClause = rel.deleteBehavior ? \` ON DELETE \${rel.deleteBehavior.toUpperCase()}\` : '';
+
+          sql += \`ALTER TABLE \${toSchema}\${toTable}\\n\`;
+          sql += \`    ADD CONSTRAINT \${fkName}\\n\`;
+          sql += \`    FOREIGN KEY (\${toCol}) REFERENCES \${fromSchema}\${fromTable} (\${fromCol})\${deleteClause};\\n\\n\`;
+        }
+      }
+
+      const filename = \`\${(getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Schema').replace(/[^a-zA-Z0-9_-]/g, '_')}.sql\`;
+      vscode.postMessage({
+        type: 'exportFile',
+        filename,
+        content: sql,
+        fileType: 'sql',
+        filters: { 'SQL Script (*.sql)': ['sql'] }
+      });
+      showToast('🗄️ Opening save dialog for SQL DDL schema...');
+      return;
+    }
+
+    if (type === 'markdown') {
+      let md = \`# Database Schema — \${getDisplayDiagramName(currentDiagramName) || activeDbContext || 'EF Core Data Dictionary'}\\n\\n\`;
+      md += \`*Generated by DotNav EF Core Visualizer on \${new Date().toLocaleDateString()}*\` + '\\n\\n';
+
+      for (const name of activeNames) {
+        const entity = allEntities.find(e => e.name === name);
+        if (!entity) continue;
+        const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
+
+        const fullTableName = entity.schemaName ? \`\${entity.schemaName}.\${entity.tableName || entity.name}\` : (entity.tableName || entity.name);
+        md += \`## Table: \\\`\${fullTableName}\\\` (Entity: \\\`\${entity.name}\\\`)\\n\\n\`;
+        if (entity.filePath) {
+          md += \`*Source: \\\`\${entity.filePath}\\\`*\\n\\n\`;
+        }
+
+        md += '| Column Name | Property Name | SQL Type | C# Type | Key | Nullable | References |\\n';
+        md += '|---|---|---|---|---|---|---|\\n';
+
+        for (const p of entity.properties) {
+          if (hiddenSet.has(p.name)) continue;
+          const col = \`\\\`\${p.columnName || p.name}\\\`\`;
+          const prop = \`\\\`\${p.name}\\\`\`;
+          const sqlType = \`\\\`\${p.columnType || p.type}\\\`\`;
+          const csType = \`\\\`\${p.type}\\\`\`;
+          let keyBadge = '-';
+          if (p.isPrimaryKey) keyBadge = '🔑 **PK**';
+          else if (p.isForeignKey) keyBadge = '🔗 **FK**';
+          else if (p.isNavigation) keyBadge = '🧭 NAV';
+
+          const nullable = p.isNullable ? 'Yes' : 'No';
+          const ref = p.foreignKeyTargetEntity ? \`\\\`\${p.foreignKeyTargetEntity}\\\`\` : (p.navigationTargetEntity ? \`\\\`\${p.navigationTargetEntity}\\\`\` : '-');
+
+          md += \`| \${col} | \${prop} | \${sqlType} | \${csType} | \${keyBadge} | \${nullable} | \${ref} |\\n\`;
+        }
+        md += '\\n';
+      }
+
+      md += '### Foreign Key Relationships\\n\\n';
+      let hasRels = false;
+      for (const rel of allRelationships) {
+        if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
+          hasRels = true;
+          md += \`- **\\\`\${rel.fromEntity}\\\`** \\\`||--o{\\\` **\\\`\${rel.toEntity}\\\`** (Foreign Key: \\\`\${rel.toProperty || 'FK'}\\\`, Action: \\\`\${rel.deleteBehavior || 'Cascade'}\\\`)\\n\`;
+        }
+      }
+      if (!hasRels) {
+        md += '*No active relationships on canvas.*\\n';
+      }
+
+      const filename = \`\${(getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Data_Dictionary').replace(/[^a-zA-Z0-9_-]/g, '_')}.md\`;
+      vscode.postMessage({
+        type: 'exportFile',
+        filename,
+        content: md,
+        fileType: 'markdown',
+        filters: { 'Markdown Document (*.md)': ['md'] }
+      });
+      showToast('📝 Opening save dialog for Markdown Data Dictionary...');
+      return;
+    }
+
+    if (type === 'print') {
+      window.print();
+      showToast('🖨️ Opening browser print / PDF dialog...');
       return;
     }
 

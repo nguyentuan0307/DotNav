@@ -44,10 +44,18 @@ export async function scanWorkspaceDbContextsAndEntities(forceRefresh = false): 
     return { availableDbContexts: [], entitiesByContext: {}, relationshipsByContext: {} };
   }
 
-  // Tier 1: Instant Snapshot-First Scanning (reads ~7 files in ~15ms, zero cache/RAM retention)
-  const snapshotFiles = await vscode.workspace.findFiles('**/*ModelSnapshot.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}');
-  const snapshots: SnapshotContextResult[] = [];
+  // Parallel Snapshot and Live C# Codebase Scanning
+  const [snapshotFiles, contextFiles, entityFiles] = await Promise.all([
+    vscode.workspace.findFiles('**/*ModelSnapshot.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}'),
+    vscode.workspace.findFiles('**/*Context*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}'),
+    vscode.workspace.findFiles(
+      '{**/EntitiesConfig/**/*.cs,**/Domain/Entities/**/*.cs,**/Entities/**/*.cs,**/Domain/Aggregates/**/*.cs,**/Models/**/*.cs}',
+      '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
+      2000
+    )
+  ]);
 
+  const snapshots: SnapshotContextResult[] = [];
   if (snapshotFiles.length > 0) {
     const snapshotResults = await Promise.all(
       snapshotFiles.map(async u => {
@@ -66,23 +74,6 @@ export async function scanWorkspaceDbContextsAndEntities(forceRefresh = false): 
       }
     }
   }
-
-  // If snapshots cover the database, build model immediately (< 25ms total!)
-  if (snapshots.length > 0) {
-    const res = buildDbContextScopedModel([], [], [], snapshots);
-    cachedWorkspaceModel = { ...res, timestamp: Date.now() };
-    return res;
-  }
-
-  // Tier 2: Fallback for projects without migrations / snapshots (Parallel Read)
-  const [contextFiles, entityFiles] = await Promise.all([
-    vscode.workspace.findFiles('**/*Context*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}'),
-    vscode.workspace.findFiles(
-      '{**/EntitiesConfig/**/*.cs,**/Domain/Entities/**/*.cs,**/Entities/**/*.cs,**/Domain/Aggregates/**/*.cs,**/Models/**/*.cs}',
-      '{**/bin/**,**/obj/**,**/node_modules/**,**/.git/**}',
-      2000
-    )
-  ]);
 
   const fileUriMap = new Map<string, vscode.Uri>();
   for (const u of [...contextFiles, ...entityFiles]) {
@@ -380,6 +371,107 @@ export async function openEfDiagramPanel(
           } catch {
             vscode.window.showErrorMessage(`Cannot open file: ${msg.filePath}`);
           }
+        }
+        break;
+      }
+
+      case 'openEntitySource': {
+        const entityName = msg.entityName;
+        let filePath = msg.filePath;
+        let targetLine = msg.line || 1;
+
+        try {
+          // If filePath is snapshot or missing, search workspace for class file
+          if (!filePath || filePath.endsWith('ModelSnapshot.cs') || !fs.existsSync(filePath)) {
+            const files = await vscode.workspace.findFiles(`**/${entityName}.cs`, '{**/bin/**,**/obj/**,**/node_modules/**}', 5);
+            if (files.length > 0) {
+              filePath = files[0].fsPath;
+            } else {
+              const matches = await vscode.workspace.findFiles('**/*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/Migrations/**}', 300);
+              for (const f of matches) {
+                const content = fs.readFileSync(f.fsPath, 'utf-8');
+                const classRegex = new RegExp(`\\bclass\\s+${entityName}\\b`);
+                if (classRegex.test(content)) {
+                  filePath = f.fsPath;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (filePath && fs.existsSync(filePath)) {
+            const doc = await vscode.workspace.openTextDocument(filePath);
+            const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+
+            if (targetLine <= 1) {
+              const text = doc.getText();
+              const lines = text.split('\n');
+              const classRegex = new RegExp(`\\bclass\\s+${entityName}\\b`);
+              for (let i = 0; i < lines.length; i++) {
+                if (classRegex.test(lines[i])) {
+                  targetLine = i + 1;
+                  break;
+                }
+              }
+            }
+
+            const pos = new vscode.Position(Math.max(0, targetLine - 1), 0);
+            editor.selection = new vscode.Selection(pos, pos);
+            editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+          } else {
+            vscode.window.showInformationMessage(`Could not locate source file for ${entityName}`);
+          }
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to open source for ${entityName}: ${err}`);
+        }
+        break;
+      }
+
+      case 'openPropertySource': {
+        const entityName = msg.entityName;
+        const propName = msg.propName;
+        let filePath = msg.filePath;
+
+        try {
+          if (!filePath || filePath.endsWith('ModelSnapshot.cs') || !fs.existsSync(filePath)) {
+            const files = await vscode.workspace.findFiles(`**/${entityName}.cs`, '{**/bin/**,**/obj/**,**/node_modules/**}', 5);
+            if (files.length > 0) {
+              filePath = files[0].fsPath;
+            }
+          }
+
+          if (filePath && fs.existsSync(filePath)) {
+            const doc = await vscode.workspace.openTextDocument(filePath);
+            const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+
+            const text = doc.getText();
+            const lines = text.split('\n');
+            let foundLine = -1;
+            const propRegex = new RegExp(`\\b(public|protected|internal|private)?\\s+[^=;{]+\\b${propName}\\s*\\{`);
+
+            for (let i = 0; i < lines.length; i++) {
+              if (propRegex.test(lines[i])) {
+                foundLine = i;
+                break;
+              }
+            }
+
+            if (foundLine === -1) {
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes(propName)) {
+                  foundLine = i;
+                  break;
+                }
+              }
+            }
+
+            const lineNum = foundLine >= 0 ? foundLine : 0;
+            const pos = new vscode.Position(lineNum, 0);
+            editor.selection = new vscode.Selection(pos, pos);
+            editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+          }
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to open property ${propName}: ${err}`);
         }
         break;
       }
