@@ -466,6 +466,9 @@ body, html {
   background-size: 24px 24px;
   cursor: grab;
   touch-action: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .canvas-viewport:active {
@@ -480,6 +483,10 @@ body, html {
   width: 10000px;
   height: 10000px;
   pointer-events: none;
+  overflow: visible;
+}
+
+.canvas-transform.is-panning {
   will-change: transform;
 }
 
@@ -492,6 +499,8 @@ body, html {
   height: 10000px;
   pointer-events: none;
   z-index: 1;
+  shape-rendering: geometricPrecision;
+  overflow: visible;
 }
 
 .rel-hitbox {
@@ -749,12 +758,12 @@ body, html {
 }
 
 .prop-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
   padding: 5px 12px;
   font-size: 12px;
-  gap: 8px;
+  gap: 10px;
   transition: background 0.1s ease;
   position: relative;
 }
@@ -784,7 +793,15 @@ body, html {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  min-width: 0;
+}
+
+.prop-type-col {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .prop-type {
@@ -792,6 +809,7 @@ body, html {
   font-size: 11px;
   color: var(--type-color);
   white-space: nowrap;
+  text-align: right;
 }
 
 .prop-badge {
@@ -821,13 +839,31 @@ body, html {
   border: 1px solid rgba(168, 85, 247, 0.4);
 }
 
-.prop-actions {
+/* Floating Hover Actions (Hidden by default, smooth slide-in on hover) */
+.prop-hover-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  opacity: 0;
+  pointer-events: none;
+  background: #1e222a;
+  padding: 2px 4px 2px 8px;
+  border-radius: 4px;
+  box-shadow: -10px 0 10px #1e222a, 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: opacity 0.12s ease;
+  z-index: 2;
 }
 
-/* Inline 1-Click Eye Hide Button on Row Hover */
+.prop-row:hover .prop-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Inline 1-Click Eye Hide Button in Hover Bar */
 .prop-eye-btn {
   background: transparent;
   border: none;
@@ -839,28 +875,23 @@ body, html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease;
-}
-
-.prop-row:hover .prop-eye-btn {
-  opacity: 0.7;
+  transition: all 0.12s ease;
 }
 
 .prop-eye-btn:hover {
-  opacity: 1 !important;
   color: #60a5fa;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .prop-expand-btn {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--fk-color);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
   border-radius: 3px;
-  width: 16px;
-  height: 16px;
-  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  font-weight: bold;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -869,8 +900,10 @@ body, html {
 }
 
 .prop-expand-btn:hover {
-  background: var(--fk-color);
+  background: #3b82f6;
   color: #ffffff;
+  border-color: #3b82f6;
+  transform: scale(1.08);
 }
 
 /* Hidden Columns Footer Notice */
@@ -993,10 +1026,10 @@ body, html {
   display: none;
 }
 
-/* Floating Canvas Controls Dock (Bottom-Right, above Minimap) */
+/* Floating Canvas Controls Dock (Bottom-Right) */
 .floating-canvas-controls {
   position: absolute;
-  bottom: 180px;
+  bottom: 16px;
   right: 16px;
   display: flex;
   align-items: center;
@@ -1010,13 +1043,12 @@ body, html {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   z-index: 30;
   user-select: none;
-  transition: bottom 0.2s ease;
 }
 
 /* Interactive Canvas Minimap */
 .canvas-minimap {
   position: absolute;
-  bottom: 16px;
+  bottom: 48px;
   right: 16px;
   background: rgba(24, 26, 32, 0.92);
   backdrop-filter: blur(12px);
@@ -1028,7 +1060,6 @@ body, html {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: all 0.2s ease;
 }
 
 .minimap-header {
@@ -1039,7 +1070,11 @@ body, html {
   background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   user-select: none;
-  cursor: pointer;
+  cursor: grab;
+}
+
+.minimap-header:active {
+  cursor: grabbing;
 }
 
 .minimap-title {
@@ -1586,5 +1621,425 @@ body, html {
   justify-content: flex-end;
   gap: 8px;
 }
-`;
+
+/* Floating Property DB Info Tooltip */
+.prop-tooltip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 12px;
+  background: rgba(15, 17, 23, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: #f1f5f9;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
+  line-height: 1.4;
 }
+
+.prop-row:hover .prop-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.prop-tooltip-title {
+  font-weight: 600;
+  color: #60a5fa;
+  font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
+}
+
+.prop-tooltip-type {
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
+}
+
+.prop-unmigrated-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+/* Print and PDF Generation Stylesheet */
+@media print {
+  body, .main-area, .canvas-viewport {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+  }
+
+  .sidebar, .toolbar, .canvas-minimap, .floating-canvas-controls,
+  .diagram-toast, .diagram-modal, .empty-canvas-prompt, .prop-eye-btn, .prop-expand-btn {
+    display: none !important;
+  }
+
+  .canvas-transform {
+    transform: none !important;
+    position: static !important;
+  }
+
+  .table-card {
+    background: #ffffff !important;
+    border: 1.5px solid #334155 !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+  }
+
+  .card-header {
+    background: #f1f5f9 !important;
+    border-bottom: 1.5px solid #334155 !important;
+    color: #0f172a !important;
+  }
+
+  .card-title {
+    color: #0f172a !important;
+  }
+
+  .prop-row {
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  .prop-row.pk {
+    background: #fef3c7 !important;
+  }
+
+  .prop-row.fk {
+    background: #dbeafe !important;
+  }
+
+  .prop-name, .prop-type {
+    color: #0f172a !important;
+  }
+
+  .links-svg {
+    display: block !important;
+  }
+
+  .rel-path {
+    stroke: #475569 !important;
+  }
+}
+
+/* Code Jump Action & C# Navigation */
+.card-code-btn:hover {
+  background: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+.card-focus-btn:hover {
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+}
+
+.card-title-group {
+  cursor: pointer;
+}
+
+.card-title-group:hover .card-title {
+  color: #60a5fa;
+}
+
+.prop-name-text {
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.prop-name-text:hover {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+/* ======================================================== */
+/* 2. Interactive Focus Mode & Neon Relationship Glow       */
+/* ======================================================== */
+.canvas-viewport.focus-active .table-card:not(.focused-primary):not(.focused-connected) {
+  opacity: 0.14 !important;
+  filter: grayscale(0.7) blur(0.5px);
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.canvas-viewport.focus-active .sticky-note {
+  opacity: 0.12 !important;
+  filter: grayscale(0.8);
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.canvas-viewport.focus-active .link-path:not(.focused-rel) {
+  opacity: 0.05 !important;
+  transition: opacity 0.25s ease;
+}
+
+.table-card.focused-primary {
+  box-shadow: 0 0 0 2.5px #38bdf8, 0 16px 48px rgba(56, 189, 248, 0.45) !important;
+  z-index: 60 !important;
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.table-card.focused-connected {
+  box-shadow: 0 0 0 2px #34d399, 0 12px 36px rgba(52, 211, 153, 0.35) !important;
+  z-index: 50 !important;
+  transition: box-shadow 0.25s ease;
+}
+
+.link-path.focused-rel {
+  stroke: #38bdf8 !important;
+  stroke-width: 3.5px !important;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.8)) drop-shadow(0 0 16px rgba(56, 189, 248, 0.4));
+  z-index: 25;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+/* Floating Focus Mode Banner */
+.focus-mode-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #e2e8f0;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.2);
+  z-index: 500;
+  animation: slideDownFocus 0.2s ease-out;
+}
+
+.focus-mode-banner.show {
+  display: flex;
+}
+
+.focus-banner-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.focus-banner-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.focus-banner-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+@keyframes slideDownFocus {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ======================================================== */
+/* 3. Canvas Quick Finder Modal & Smooth Navigation         */
+/* ======================================================== */
+.canvas-quick-finder {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  max-width: 92vw;
+  background: rgba(20, 24, 33, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  z-index: 1000;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  animation: finderPopIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.canvas-quick-finder.show {
+  display: flex;
+}
+
+@keyframes finderPopIn {
+  from { opacity: 0; transform: translate(-50%, -14px) scale(0.97); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.finder-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 10px;
+}
+
+.finder-search-icon {
+  width: 16px;
+  height: 16px;
+  color: #60a5fa;
+  flex-shrink: 0;
+}
+
+.finder-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f1f5f9;
+  font-size: 13.5px;
+  font-family: inherit;
+}
+
+.finder-input::placeholder {
+  color: #64748b;
+}
+
+.finder-esc-badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 10px;
+  font-family: monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.finder-results {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.finder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.finder-item:hover, .finder-item.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+}
+
+.finder-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-item-title {
+  font-weight: 500;
+}
+
+.finder-item-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+.finder-item-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.finder-item-badge.table {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.finder-item-badge.column {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.finder-item-badge.note {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.finder-empty {
+  padding: 20px;
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+}
+
+/* Pulse Highlight on Target Card */
+.card-target-highlight {
+  animation: cardPulseGlow 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes cardPulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.9), 0 0 30px rgba(56, 189, 248, 0.8);
+    transform: scale(1.04);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(56, 189, 248, 0.5), 0 0 50px rgba(56, 189, 248, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+    transform: scale(1);
+  }
+}
+
+.prop-target-highlight {
+  animation: propPulseFlash 2s ease-out forwards;
+}
+
+@keyframes propPulseFlash {
+  0% { background: rgba(56, 189, 248, 0.4); }
+  50% { background: rgba(56, 189, 248, 0.25); }
+  100% { background: transparent; }
+}
+`;
+};

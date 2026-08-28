@@ -11,6 +11,9 @@ export interface EntityProperty {
   readonly foreignKeyTargetProperty?: string;
   readonly navigationTargetEntity?: string;
   readonly isCollectionNavigation?: boolean;
+  readonly columnName?: string;
+  readonly columnType?: string;
+  readonly isUnmigrated?: boolean;
 }
 
 export interface EntityModel {
@@ -23,6 +26,7 @@ export interface EntityModel {
   readonly projectName: string;
   readonly properties: readonly EntityProperty[];
   readonly dbContextNames?: readonly string[];
+  readonly isUnmigrated?: boolean;
 }
 
 export type RelationshipCardinality = 'one-to-many' | 'one-to-one' | 'many-to-many';
