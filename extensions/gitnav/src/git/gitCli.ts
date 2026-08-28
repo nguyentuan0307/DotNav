@@ -7,7 +7,10 @@ export interface GitResult {
   readonly stderr: string;
   readonly exitCode: number;
   readonly cancelled: boolean;
+  readonly timedOut?: boolean;
 }
+
+export const DEFAULT_GIT_TIMEOUT_MS = 25_000;
 
 const repoRootCache = new Map<string, string | undefined>();
 
@@ -16,7 +19,8 @@ export async function runGit(
   args: string[],
   token?: vscode.CancellationToken,
   stdin?: string,
-  env?: NodeJS.ProcessEnv
+  env?: NodeJS.ProcessEnv,
+  timeoutMs: number = DEFAULT_GIT_TIMEOUT_MS
 ): Promise<GitResult> {
   return new Promise(resolve => {
     const child = spawn('git', args, { cwd, shell: false, env: env ? { ...process.env, ...env } : undefined });
@@ -24,6 +28,9 @@ export async function runGit(
     const stderr: Buffer[] = [];
     let settled = false;
     let cancelled = false;
+    let timedOut = false;
+    let timeoutTimer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
 
     const finish = (exitCode: number) => {
       if (settled) {
@@ -31,12 +38,15 @@ export async function runGit(
       }
 
       settled = true;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
       cancellation?.dispose();
       resolve({
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
         exitCode,
-        cancelled
+        cancelled,
+        timedOut
       });
     };
 
@@ -47,13 +57,33 @@ export async function runGit(
       }
     });
 
+    if (timeoutMs > 0) {
+      timeoutTimer = setTimeout(() => {
+        if (!settled) {
+          timedOut = true;
+          stderr.push(Buffer.from(`Git operation timed out after ${timeoutMs}ms (high CPU load or repository lock): git ${args.slice(0, 2).join(' ')}\n`));
+          try {
+            child.kill('SIGTERM');
+          } catch {}
+          killTimer = setTimeout(() => {
+            if (!settled) {
+              try {
+                child.kill('SIGKILL');
+              } catch {}
+              finish(124);
+            }
+          }, 1500);
+        }
+      }, timeoutMs);
+    }
+
     child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
     child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
     child.on('error', error => {
       stderr.push(Buffer.from(error.message));
       finish(1);
     });
-    child.on('close', code => finish(code ?? 1));
+    child.on('close', code => finish(code ?? (timedOut ? 124 : 1)));
     if (stdin !== undefined) child.stdin.end(stdin);
   });
 }

@@ -27,6 +27,7 @@ test('classifies manual errors without misleading actions', () => {
     ['Could not resolve host: github.com', 'network'],
     ['pre-push hook declined', 'hookFailed'],
     ['Unable to create .git/index.lock', 'repositoryLocked'],
+    ['Git operation timed out after 25000ms', 'timeout'],
     ['fatal: not a git repository', 'unknown']
   ] as const) {
     const recovery = classifyGitError(message);

@@ -66,7 +66,7 @@ export class LocalRepositoryRefreshScheduler {
 
   constructor(
     private readonly callback: (root: string, kind: LocalRefreshKind) => void,
-    private readonly delayMs = 180
+    private readonly delayMs = 500
   ) {}
 
   schedule(root: string, kind: LocalRefreshKind): void {

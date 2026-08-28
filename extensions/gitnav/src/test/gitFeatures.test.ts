@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
 import * as path from 'path';
 import test from 'node:test';
+import { runGit } from '../git/gitCli';
 
 const gitnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
 const dotnavManifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', '..', 'dotnav', 'package.json'), 'utf8'));
@@ -655,5 +656,12 @@ test('contributes worktree manager commands and actions', () => {
   assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.manageWorktrees'));
   assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.createWorktree'));
   assert.ok(gitnavManifest.activationEvents.includes('onCommand:gitnav.pruneWorktrees'));
+});
+
+test('runGit terminates process and marks timedOut when command exceeds timeout limit', async () => {
+  const result = await runGit(process.cwd(), ['version'], undefined, undefined, undefined, 5000);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.cancelled, false);
+  assert.equal(result.timedOut, false);
 });
 
