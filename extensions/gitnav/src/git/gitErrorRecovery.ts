@@ -2,7 +2,7 @@ export type GitRecoveryLevel = 'auto' | 'guided' | 'manual';
 export type GitRecoveryKind =
   | 'emptyCherryPick' | 'emptyRevert' | 'conflict' | 'pushRejected' | 'branchNotMerged'
   | 'stashConflict' | 'updateDiverged' | 'remoteMissing' | 'refExists' | 'worktreeDirty' | 'worktreeLocked' | 'worktreeStale'
-  | 'authentication' | 'network' | 'hookFailed' | 'repositoryLocked' | 'unknown';
+  | 'authentication' | 'network' | 'hookFailed' | 'repositoryLocked' | 'timeout' | 'unknown';
 
 export interface GitErrorRecovery {
   readonly level: Exclude<GitRecoveryLevel, 'auto'>;
@@ -91,6 +91,9 @@ export function classifyGitError(message: string, context: GitErrorContext | str
   );
   if (/index\.lock|another git process|unable to create.*lock/i.test(message)) return manual(
     'repositoryLocked', 'Repository is busy', 'Close other Git operations, then retry.', detail
+  );
+  if (/timed out|operation timed out/i.test(message)) return manual(
+    'timeout', 'Git operation timed out', 'The system or CPU may be under heavy load. Try again when background tasks finish.', detail
   );
   return manual('unknown', 'Git action failed', 'Review the details, then retry.', detail);
 }
