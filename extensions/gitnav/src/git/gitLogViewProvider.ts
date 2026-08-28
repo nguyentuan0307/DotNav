@@ -144,6 +144,20 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       } else {
         this.logDiagnostic(`Refresh ${read.identity.requestId} completed stale; state was not posted.`);
       }
+    } catch (error) {
+      if (!(error instanceof vscode.CancellationError)) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logDiagnostic(`Refresh ${read.identity.requestId} failed: ${message}`);
+        if (this.requests.isCurrent('refresh', read.identity, this.root)) {
+          this.post({
+            type: 'error',
+            message: /timed out/i.test(message)
+              ? 'Git operation timed out. The system may be under heavy CPU load.'
+              : message,
+            scope: 'refresh'
+          });
+        }
+      }
     } finally {
       this.finishRead('refresh', read.source);
     }
