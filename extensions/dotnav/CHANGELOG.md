@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.28.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.27.1...dotnav-v0.28.0) (2026-08-28)
+
+
+### Features
+
+* **dotnav:** add C# source navigation, interactive focus mode, quick finder, and edge auto-panning to ERD canvas ([ab6e1a9](https://github.com/nguyentuan0307/DotNav/commit/ab6e1a92827905f924ce785d360c18e78251c389))
+
+
 ## [0.27.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.27.0...dotnav-v0.27.1) (2026-08-26)
 
 
