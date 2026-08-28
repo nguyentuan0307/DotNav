@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.19.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.19.0...gitnav-v0.19.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **gitnav:** add execution timeout watchdog and handle CPU overload hangs gracefully ([6b6cb1d](https://github.com/nguyentuan0307/DotNav/commit/6b6cb1d34c5a8a8a9e11155960e258ac35cae882))
+
+
 ## [0.19.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.18.0...gitnav-v0.19.0) (2026-08-18)
 
 
