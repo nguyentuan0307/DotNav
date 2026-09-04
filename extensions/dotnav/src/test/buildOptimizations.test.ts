@@ -54,6 +54,24 @@ test('hasProjectAssets detects obj/project.assets.json correctly', async () => {
     // Clean and rebuild always bypass --no-restore
     assert.equal(shouldUseNoRestore(projPath, 'rebuild'), false);
     assert.equal(shouldUseNoRestore(projPath, 'clean'), false);
+
+    // Git checkout scenario: project file updated after assets generated
+    const newerDate = new Date(Date.now() + 5000);
+    await fs.utimes(projPath, newerDate, newerDate);
+    assert.equal(hasProjectAssets(projPath), false, 'stale assets must be rejected when csproj is newer');
+    assert.equal(shouldUseNoRestore(projPath, 'build'), false);
+
+    // Reset project timestamp so it is older again
+    const olderDate = new Date(Date.now() - 5000);
+    await fs.utimes(projPath, olderDate, olderDate);
+    assert.equal(hasProjectAssets(projPath), true);
+
+    // Ancestor Directory.Packages.props modified after assets generated
+    const propsPath = path.join(tempDir, 'Directory.Packages.props');
+    await fs.writeFile(propsPath, '<Project></Project>', 'utf8');
+    await fs.utimes(propsPath, newerDate, newerDate);
+    assert.equal(hasProjectAssets(projPath), false, 'stale assets must be rejected when Directory.Packages.props is newer');
+    assert.equal(shouldUseNoRestore(projPath, 'build'), false);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

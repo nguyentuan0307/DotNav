@@ -1,7 +1,25 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { test } from 'node:test';
 import { UniversalSymbolIndex } from '../solutionSearch/searchScanner';
 import { searchUniversalSymbols } from '../solutionSearch/searchEngine';
+
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function(request: string, parent: any, isMain: boolean) {
+  if (request === 'vscode') {
+    return {
+      workspace: { getConfiguration: () => ({ get: () => undefined }), workspaceFolders: [] },
+      window: {},
+      extensions: { getExtension: () => undefined }
+    };
+  }
+  return originalLoad(request, parent, isMain);
+};
+
+const { getCurrentGitBranch, getCacheFilePath } = require('../solutionSearch/searchCommands');
 
 test('UniversalSymbolIndex finds exact, prefix, and substring symbols simultaneously', () => {
   const index = new UniversalSymbolIndex();
@@ -155,6 +173,40 @@ public class ProjectService
 
   const inlineUnaccentedQuery = searchUniversalSymbols(index, 'nguoi dung da duoc moi');
   assert.ok(inlineUnaccentedQuery.length > 0, 'Should find inline throw message by unaccented query');
+});
+
+test('UniversalSymbolIndex getFilePaths tracks active cached files accurately', () => {
+  const index = new UniversalSymbolIndex();
+  index.scanFileContent('/repo/A.cs', 'public class A {}', 'App', 'A.cs');
+  index.scanFileContent('/repo/B.cs', 'public class B {}', 'App', 'B.cs');
+  assert.deepEqual(index.getFilePaths().sort(), ['/repo/A.cs', '/repo/B.cs'].sort());
+
+  index.invalidateFile('/repo/A.cs');
+  assert.deepEqual(index.getFilePaths(), ['/repo/B.cs']);
+
+  index.clear();
+  assert.deepEqual(index.getFilePaths(), []);
+});
+
+test('getCurrentGitBranch extracts branch name from git repo and isolates cache file', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotnav-git-branch-test-'));
+  try {
+    const gitDir = path.join(tempDir, '.git');
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/feature/auth-v2\n', 'utf8');
+
+    const branch = getCurrentGitBranch(tempDir);
+    assert.equal(branch, 'feature/auth-v2');
+
+    const fakeContext = {
+      storageUri: { fsPath: tempDir }
+    } as any;
+    const cachePath = getCacheFilePath(fakeContext, tempDir);
+    assert.ok(cachePath);
+    assert.match(cachePath, /dotnav_search_cache_feature_auth-v2\.json\.gz/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 
