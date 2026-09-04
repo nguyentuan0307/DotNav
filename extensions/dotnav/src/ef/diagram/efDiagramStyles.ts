@@ -812,6 +812,31 @@ body, html {
   text-align: right;
 }
 
+/* Property Type Syntax Color-Coding */
+.prop-type.type-num { color: #60a5fa !important; }
+.prop-type.type-str { color: #34d399 !important; }
+.prop-type.type-date { color: #fb923c !important; }
+.prop-type.type-guid { color: #c084fc !important; }
+.prop-type.type-bool { color: #fde047 !important; }
+
+/* Interactive Two-Way Relationship Hover */
+.link-path.hovered-rel {
+  stroke: #38bdf8 !important;
+  stroke-width: 3.5px !important;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.9)) drop-shadow(0 0 16px rgba(56, 189, 248, 0.5));
+  z-index: 25;
+}
+
+.table-card.hovered-rel-card {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5), 0 8px 24px rgba(56, 189, 248, 0.25) !important;
+}
+
+.prop-row.hovered-rel-prop {
+  background: rgba(56, 189, 248, 0.18) !important;
+  color: #38bdf8 !important;
+}
+
 .prop-badge {
   font-size: 9px;
   font-weight: 700;

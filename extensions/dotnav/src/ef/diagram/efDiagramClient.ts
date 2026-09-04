@@ -51,6 +51,7 @@ export function getEfDiagramClientScript(): string {
   let dragStartWorldY = 0;
   let lastPointerClientX = 0;
   let lastPointerClientY = 0;
+  let lastPointerAltKey = false;
   let batchDragInitialPositions = {};
   let autoPanRAF = null;
 
@@ -165,6 +166,11 @@ export function getEfDiagramClientScript(): string {
   const chipAll = document.getElementById('chipAll');
   const chipKeys = document.getElementById('chipKeys');
   const chipNoAudit = document.getElementById('chipNoAudit');
+  const btnToggleSnap = document.getElementById('btnToggleSnap');
+  const btnToggleLineStyle = document.getElementById('btnToggleLineStyle');
+
+  let snapToGrid = true;
+  let lineStyle = 'curved'; // 'curved' | 'orthogonal'
 
   const AUDIT_FIELD_NAMES = new Set([
     'createdby', 'createdon', 'createdat', 'createddate',
@@ -181,6 +187,27 @@ export function getEfDiagramClientScript(): string {
     { name: 'Rose', hex: '#e11d48' },
     { name: 'Cyan', hex: '#0891b2' }
   ];
+
+  function getTypeColorClass(type) {
+    if (!type) return '';
+    const clean = type.replace(/\\?$/, '').replace(/^Nullable<([^>]+)>$/, '$1').trim().toLowerCase();
+    if (['int', 'long', 'short', 'byte', 'decimal', 'double', 'float', 'number', 'bigint', 'smallint', 'tinyint', 'numeric', 'money', 'real'].includes(clean)) {
+      return 'type-num';
+    }
+    if (['string', 'char', 'nvarchar', 'varchar', 'text', 'nchar', 'ntext'].includes(clean)) {
+      return 'type-str';
+    }
+    if (['datetime', 'datetime2', 'datetimeoffset', 'dateonly', 'timeonly', 'timespan', 'date', 'time', 'timestamp'].includes(clean)) {
+      return 'type-date';
+    }
+    if (['guid', 'uuid', 'uniqueidentifier'].includes(clean)) {
+      return 'type-guid';
+    }
+    if (['bool', 'boolean', 'bit'].includes(clean)) {
+      return 'type-bool';
+    }
+    return '';
+  }
 
   function columnVisibilityIcon(visible) {
     return '<span class="column-toggle-icon"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/>' + (visible ? '' : '<path d="M2 2l12 12"/>') + '</svg></span>';
@@ -436,6 +463,25 @@ export function getEfDiagramClientScript(): string {
   if (chipAll) chipAll.addEventListener('click', () => setFilterMode('all'));
   if (chipKeys) chipKeys.addEventListener('click', () => setFilterMode('keys'));
   if (chipNoAudit) chipNoAudit.addEventListener('click', () => setFilterMode('no-audit'));
+
+  if (btnToggleSnap) {
+    btnToggleSnap.addEventListener('click', () => {
+      snapToGrid = !snapToGrid;
+      btnToggleSnap.classList.toggle('active', snapToGrid);
+      showToast(snapToGrid ? '🧲 Snap to Grid (20px) Enabled' : '🔓 Free Pixel Movement');
+    });
+  }
+
+  if (btnToggleLineStyle) {
+    btnToggleLineStyle.addEventListener('click', () => {
+      lineStyle = lineStyle === 'curved' ? 'orthogonal' : 'curved';
+      btnToggleLineStyle.dataset.style = lineStyle;
+      btnToggleLineStyle.textContent = lineStyle === 'curved' ? '🌊 Curved' : '📐 Straight';
+      btnToggleLineStyle.classList.toggle('active', lineStyle === 'orthogonal');
+      showToast(lineStyle === 'curved' ? '🌊 Curved Bézier Lines' : '📐 Orthogonal Right-Angle Lines');
+      buildAllSvgElements();
+    });
+  }
 
   // Update DbContext Dropdown
   function updateDbContextSelect() {
@@ -1032,6 +1078,42 @@ export function getEfDiagramClientScript(): string {
       });
     });
 
+    // Two-Way Relationship Hover from Property Rows
+    cardsLayer.querySelectorAll('.prop-row.fk, .prop-row.pk').forEach(row => {
+      const propName = row.dataset.propName;
+      const card = row.closest('.table-card');
+      const entityName = card?.querySelector('.card-header')?.dataset?.entityName;
+      if (!entityName || !propName) return;
+
+      row.addEventListener('pointerenter', () => {
+        allRelationships.forEach(rel => {
+          if ((rel.fromEntity === entityName && (rel.fromProperty === propName || (!rel.fromProperty && propName === 'Id'))) ||
+              (rel.toEntity === entityName && rel.toProperty === propName)) {
+            const group = document.getElementById('rel-g-' + rel.id);
+            if (group) {
+              group.querySelectorAll('.link-path').forEach(p => p.classList.add('hovered-rel'));
+              const targetEntity = rel.fromEntity === entityName ? rel.toEntity : rel.fromEntity;
+              const targetCard = document.getElementById('card-' + targetEntity);
+              if (targetCard) targetCard.classList.add('hovered-rel-card');
+              if (targetEntity === rel.toEntity && rel.toProperty) {
+                const targetRow = targetCard?.querySelector('.prop-row[data-prop-name="' + rel.toProperty + '"]');
+                if (targetRow) targetRow.classList.add('hovered-rel-prop');
+              } else if (targetEntity === rel.fromEntity && (rel.fromProperty || 'Id')) {
+                const targetRow = targetCard?.querySelector('.prop-row[data-prop-name="' + (rel.fromProperty || 'Id') + '"]');
+                if (targetRow) targetRow.classList.add('hovered-rel-prop');
+              }
+            }
+          }
+        });
+      });
+
+      row.addEventListener('pointerleave', () => {
+        linksSvg.querySelectorAll('.link-path.hovered-rel').forEach(p => p.classList.remove('hovered-rel'));
+        cardsLayer.querySelectorAll('.table-card.hovered-rel-card').forEach(c => c.classList.remove('hovered-rel-card'));
+        cardsLayer.querySelectorAll('.prop-row.hovered-rel-prop').forEach(r => r.classList.remove('hovered-rel-prop'));
+      });
+    });
+
     // Attach row eye button & expand [+] buttons
     cardsLayer.querySelectorAll('.prop-eye-btn').forEach(btn => {
       btn.addEventListener('click', e => {
@@ -1241,7 +1323,7 @@ export function getEfDiagramClientScript(): string {
           <span class="prop-name-text">\${escapeHtml(prop.name)}</span>
         </div>
         <div class="prop-type-col">
-          <span class="prop-type">\${escapeHtml(prop.type)}</span>
+          <span class="prop-type \${getTypeColorClass(prop.type)}">\${escapeHtml(prop.type)}</span>
         </div>
         <div class="prop-hover-actions">
           <button class="prop-eye-btn" data-prop-name="\${escapeHtml(prop.name)}" title="Hide column">
@@ -1792,8 +1874,31 @@ export function getEfDiagramClientScript(): string {
       }
     }
 
+    let pathData;
+    if (lineStyle === 'orthogonal') {
+      if (fromRight <= toLeft) {
+        const midX = Math.round((x1 + x2) / 2);
+        pathData = \`M \${x1} \${y1} L \${midX} \${y1} L \${midX} \${y2} L \${x2} \${y2}\`;
+      } else if (toRight <= fromLeft) {
+        const midX = Math.round((x1 + x2) / 2);
+        pathData = \`M \${x1} \${y1} L \${midX} \${y1} L \${midX} \${y2} L \${x2} \${y2}\`;
+      } else {
+        const fromMidX = (fromLeft + fromRight) / 2;
+        const toMidX = (toLeft + toRight) / 2;
+        if (fromMidX <= toMidX) {
+          const loopX = Math.round(Math.max(fromRight, toRight) + 30);
+          pathData = \`M \${x1} \${y1} L \${loopX} \${y1} L \${loopX} \${y2} L \${x2} \${y2}\`;
+        } else {
+          const loopX = Math.round(Math.min(fromLeft, toLeft) - 30);
+          pathData = \`M \${x1} \${y1} L \${loopX} \${y1} L \${loopX} \${y2} L \${x2} \${y2}\`;
+        }
+      }
+    } else {
+      pathData = \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`;
+    }
+
     return {
-      pathData: \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`,
+      pathData,
       x1, y1, x2, y2, cx1, cy1, cx2, cy2
     };
   }
@@ -1810,6 +1915,26 @@ export function getEfDiagramClientScript(): string {
 
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         group.id = 'rel-g-' + rel.id;
+
+        // Two-Way Relationship Hover Highlight
+        const setRelHover = (hovered) => {
+          group.querySelectorAll('.link-path').forEach(p => p.classList.toggle('hovered-rel', hovered));
+          const fromCard = document.getElementById('card-' + rel.fromEntity);
+          const toCard = document.getElementById('card-' + rel.toEntity);
+          if (fromCard) fromCard.classList.toggle('hovered-rel-card', hovered);
+          if (toCard) toCard.classList.toggle('hovered-rel-card', hovered);
+          if (fromCard && rel.fromProperty) {
+            const propRow = fromCard.querySelector('.prop-row[data-prop-name="' + rel.fromProperty + '"]');
+            if (propRow) propRow.classList.toggle('hovered-rel-prop', hovered);
+          }
+          if (toCard && rel.toProperty) {
+            const propRow = toCard.querySelector('.prop-row[data-prop-name="' + rel.toProperty + '"]');
+            if (propRow) propRow.classList.toggle('hovered-rel-prop', hovered);
+          }
+        };
+
+        group.addEventListener('pointerenter', () => setRelHover(true));
+        group.addEventListener('pointerleave', () => setRelHover(false));
 
         // Hitbox for easy clicking
         const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -2269,11 +2394,13 @@ export function getEfDiagramClientScript(): string {
     } else if (draggedCard) {
       lastPointerClientX = e.clientX;
       lastPointerClientY = e.clientY;
+      lastPointerAltKey = e.altKey;
       updateDraggingCardsPositions();
       checkEdgeAutoPan();
     } else if (draggedNote) {
       lastPointerClientX = e.clientX;
       lastPointerClientY = e.clientY;
+      lastPointerAltKey = e.altKey;
       updateDraggingNotePosition();
       checkEdgeAutoPan();
     } else if (draggedInspector) {
@@ -2300,8 +2427,17 @@ export function getEfDiagramClientScript(): string {
       const init = batchDragInitialPositions[selName];
       if (init) {
         const cardEl = document.getElementById('card-' + selName);
-        const posX = Math.round(init.x + deltaWorldX);
-        const posY = Math.round(init.y + deltaWorldY);
+        let posX = init.x + deltaWorldX;
+        let posY = init.y + deltaWorldY;
+
+        if (snapToGrid && !lastPointerAltKey) {
+          posX = Math.round(posX / 20) * 20;
+          posY = Math.round(posY / 20) * 20;
+        } else {
+          posX = Math.round(posX);
+          posY = Math.round(posY);
+        }
+
         activePositions[selName] = { x: posX, y: posY };
         if (cardEl) {
           cardEl.style.left = posX + 'px';
@@ -2321,8 +2457,17 @@ export function getEfDiagramClientScript(): string {
     const deltaWorldX = currentWorldX - dragStartWorldX;
     const deltaWorldY = currentWorldY - dragStartWorldY;
 
-    const newX = Math.round(noteInitialX + deltaWorldX);
-    const newY = Math.round(noteInitialY + deltaWorldY);
+    let newX = noteInitialX + deltaWorldX;
+    let newY = noteInitialY + deltaWorldY;
+
+    if (snapToGrid && !lastPointerAltKey) {
+      newX = Math.round(newX / 20) * 20;
+      newY = Math.round(newY / 20) * 20;
+    } else {
+      newX = Math.round(newX);
+      newY = Math.round(newY);
+    }
+
     draggedNote.style.left = newX + 'px';
     draggedNote.style.top = newY + 'px';
 
@@ -3190,6 +3335,7 @@ export function getEfDiagramClientScript(): string {
         mermaid += \`  \${entity.name} {\\n\`;
         for (const p of entity.properties) {
           if (hiddenSet.has(p.name)) continue;
+          if (p.isNavigation || p.isCollectionNavigation) continue;
           const cleanType = p.type.replace(/[^A-Za-z0-9_]/g, '_');
           const keyType = p.isPrimaryKey ? 'PK' : (p.isForeignKey ? 'FK' : '');
           mermaid += \`    \${cleanType} \${p.name} \${keyType}\\n\`;
@@ -3211,78 +3357,95 @@ export function getEfDiagramClientScript(): string {
       return;
     }
 
-    if (type === 'sql') {
-      let sql = \`-- ========================================================\\n-- DotNav EF Core Schema Export: \${escapeHtml(getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Database')}\\n-- Exported: \${new Date().toISOString()}\\n-- ========================================================\\n\\n\`;
+    if (type === 'drawio') {
+      const escapeXml = (str) => {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+      };
 
+      const diagramName = getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Overview';
+      let xml = '<mxfile host="DotNav EF Core Visualizer" modified="' + new Date().toISOString() + '" agent="DotNav" version="21.0.0" type="device">\\n';
+      xml += '  <diagram id="DotNav_ERD" name="' + escapeXml(diagramName) + '">\\n';
+      xml += '    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" background="#1e293b">\\n';
+      xml += '      <root>\\n';
+      xml += '        <mxCell id="0" />\\n';
+      xml += '        <mxCell id="1" parent="0" />\\n';
+
+      // 1. Table Entities (Swimlanes & Child Row Cells)
       for (const name of activeNames) {
         const entity = allEntities.find(e => e.name === name);
         if (!entity) continue;
+        const pos = activePositions[name] || { x: 100, y: 100 };
         const hiddenSet = hiddenColumnsByEntity[entity.name] || new Set();
+        const validProps = entity.properties.filter(p => !hiddenSet.has(p.name) && !p.isNavigation && !p.isCollectionNavigation && !p.navigationTargetEntity && !/^(?:ICollection|IList|List|IEnumerable|HashSet|ISet|IReadOnlyCollection|IReadOnlyList|Collection)<.+>$/i.test(p.type) && !allEntities.some(e => e.name === p.type.replace(/\\?$/, '')));
 
-        const schema = entity.schemaName ? \`[\${entity.schemaName}].\` : '';
-        const table = \`[\${entity.tableName || entity.name}]\`;
+        const cardWidth = Math.max(280, (cardSizeCache[name]?.width || 310));
+        const cardHeight = 28 + Math.max(1, validProps.length) * 24;
+        const customColor = colorByEntity[name] || '#1e293b';
+        const cardTitle = entity.tableName ? (name + ' (' + entity.tableName + ')') : name;
 
-        sql += \`CREATE TABLE \${schema}\${table} (\\n\`;
+        // Container Swimlane
+        xml += '        <mxCell id="card_' + escapeXml(name) + '" value="' + escapeXml(cardTitle) + '" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=28;fillColor=' + customColor + ';strokeColor=#475569;fontColor=#ffffff;rounded=1;arcSize=10;collapsible=1;" vertex="1" parent="1">\\n';
+        xml += '          <mxGeometry x="' + Math.round(pos.x) + '" y="' + Math.round(pos.y) + '" width="' + cardWidth + '" height="' + cardHeight + '" as="geometry" />\\n';
+        xml += '        </mxCell>\\n';
 
-        const colDefs = [];
-        const pkCols = [];
+        // Column Rows
+        validProps.forEach((p, idx) => {
+          const keyPrefix = p.isPrimaryKey ? '🔑 ' : (p.isForeignKey ? '🔗 ' : '');
+          const rowVal = keyPrefix + p.name + ' : ' + p.type;
+          let fontColor = '#e2e8f0';
+          if (p.isPrimaryKey) fontColor = '#f59e0b';
+          else if (p.isForeignKey) fontColor = '#60a5fa';
+          else if (['int', 'long', 'decimal', 'double', 'float'].includes(p.type.replace(/\\?$/, '').toLowerCase())) fontColor = '#93c5fd';
+          else if (['datetime', 'datetime2', 'dateonly'].includes(p.type.replace(/\\?$/, '').toLowerCase())) fontColor = '#fdba74';
+          else if (['guid'].includes(p.type.replace(/\\?$/, '').toLowerCase())) fontColor = '#d8b4fe';
 
-        for (const p of entity.properties) {
-          if (hiddenSet.has(p.name)) continue;
-          const colName = \`[\${p.columnName || p.name}]\`;
-          const colType = p.columnType || 'nvarchar(max)';
-          const nullability = p.isPrimaryKey || !p.isNullable ? 'NOT NULL' : 'NULL';
-          colDefs.push(\`    \${colName} \${colType} \${nullability}\`);
-
-          if (p.isPrimaryKey) {
-            pkCols.push(colName);
-          }
-        }
-
-        if (pkCols.length > 0) {
-          const pkConstraintName = \`[PK_\${(entity.tableName || entity.name).replace(/[^a-zA-Z0-9_]/g, '_')}]\`;
-          colDefs.push(\`    CONSTRAINT \${pkConstraintName} PRIMARY KEY (\${pkCols.join(', ')})\`);
-        }
-
-        sql += colDefs.join(',\\n') + '\\n);\\n\\n';
+          const rowY = 28 + idx * 24;
+          xml += '        <mxCell id="prop_' + escapeXml(name) + '_' + escapeXml(p.name) + '" value="' + escapeXml(rowVal) + '" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;fontColor=' + fontColor + ';fontFamily=JetBrains Mono,monospace;fontSize=11;overflow=hidden;" vertex="1" parent="card_' + escapeXml(name) + '">\\n';
+          xml += '          <mxGeometry y="' + rowY + '" width="' + cardWidth + '" height="24" as="geometry" />\\n';
+          xml += '        </mxCell>\\n';
+        });
       }
 
-      // Foreign Keys
+      // 2. Foreign Key Relationships (Edges)
       for (const rel of allRelationships) {
         if (activePositions[rel.fromEntity] && activePositions[rel.toEntity]) {
-          const fromEntity = allEntities.find(e => e.name === rel.fromEntity);
-          const toEntity = allEntities.find(e => e.name === rel.toEntity);
-          if (!fromEntity || !toEntity) continue;
-
-          const fromSchema = fromEntity.schemaName ? \`[\${fromEntity.schemaName}].\` : '';
-          const fromTable = \`[\${fromEntity.tableName || fromEntity.name}]\`;
-          const toSchema = toEntity.schemaName ? \`[\${toEntity.schemaName}].\` : '';
-          const toTable = \`[\${toEntity.tableName || toEntity.name}]\`;
-
-          const fromProp = fromEntity.properties.find(p => p.name === rel.fromProperty || p.isPrimaryKey);
-          const toProp = toEntity.properties.find(p => p.name === rel.toProperty);
-
-          const fromCol = \`[\${fromProp?.columnName || fromProp?.name || 'Id'}]\`;
-          const toCol = \`[\${toProp?.columnName || toProp?.name || rel.toProperty}]\`;
-
-          const fkName = \`[\${rel.foreignKeyName || \`FK_\${toEntity.tableName || toEntity.name}_\${fromEntity.tableName || fromEntity.name}_\${rel.toProperty || 'Id'}\`}]\`;
-          const deleteClause = rel.deleteBehavior ? \` ON DELETE \${rel.deleteBehavior.toUpperCase()}\` : '';
-
-          sql += \`ALTER TABLE \${toSchema}\${toTable}\\n\`;
-          sql += \`    ADD CONSTRAINT \${fkName}\\n\`;
-          sql += \`    FOREIGN KEY (\${toCol}) REFERENCES \${fromSchema}\${fromTable} (\${fromCol})\${deleteClause};\\n\\n\`;
+          const cardLabel = rel.cardinality === 'one-to-one' ? '1 : 1' : '1 : N';
+          const endArrow = rel.cardinality === 'one-to-one' ? 'ERone' : 'ERmany';
+          const isDashed = rel.isRequired === false ? 'dashed=1;' : '';
+          xml += '        <mxCell id="rel_' + escapeXml(rel.id) + '" value="' + escapeXml(cardLabel) + '" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#38bdf8;strokeWidth=2;endArrow=' + endArrow + ';startArrow=ERone;' + isDashed + 'fontColor=#94a3b8;fontSize=10;" edge="1" parent="1" source="card_' + escapeXml(rel.fromEntity) + '" target="card_' + escapeXml(rel.toEntity) + '">\\n';
+          xml += '          <mxGeometry relative="1" as="geometry" />\\n';
+          xml += '        </mxCell>\\n';
         }
       }
 
-      const filename = \`\${(getDisplayDiagramName(currentDiagramName) || activeDbContext || 'Schema').replace(/[^a-zA-Z0-9_-]/g, '_')}.sql\`;
+      // 3. Sticky Notes
+      notes.forEach((note, idx) => {
+        const noteTheme = NOTE_COLOR_MAP[note.color || 'yellow'] || NOTE_COLOR_MAP.yellow;
+        xml += '        <mxCell id="note_' + escapeXml(note.id || 'note_' + idx) + '" value="' + escapeXml(note.text) + '" style="shape=note;whiteSpace=wrap;html=1;size=14;verticalAlign=top;fillColor=' + noteTheme.bg + ';strokeColor=' + noteTheme.border + ';fontColor=' + noteTheme.text + ';fontSize=12;" vertex="1" parent="1">\\n';
+        xml += '          <mxGeometry x="' + Math.round(note.x) + '" y="' + Math.round(note.y) + '" width="' + (note.width || 220) + '" height="' + (note.height || 120) + '" as="geometry" />\\n';
+        xml += '        </mxCell>\\n';
+      });
+
+      xml += '      </root>\\n';
+      xml += '    </mxGraphModel>\\n';
+      xml += '  </diagram>\\n';
+      xml += '</mxfile>';
+
+      const filename = (diagramName).replace(/[^a-zA-Z0-9_-]/g, '_') + '.drawio';
       vscode.postMessage({
         type: 'exportFile',
         filename,
-        content: sql,
-        fileType: 'sql',
-        filters: { 'SQL Script (*.sql)': ['sql'] }
+        content: xml,
+        fileType: 'drawio',
+        filters: { 'Draw.io Diagram (*.drawio)': ['drawio'], 'XML Diagram (*.xml)': ['xml'] }
       });
-      showToast('🗄️ Opening save dialog for SQL DDL schema...');
+      showToast('📊 Opening save dialog for Draw.io diagram...');
       return;
     }
 

@@ -142,6 +142,14 @@ export function renderEfDiagramHtml(): string {
             <button class="filter-chip" id="chipKeys" data-mode="keys">🔑 Keys</button>
             <button class="filter-chip" id="chipNoAudit" data-mode="no-audit">🛡️ No Audit</button>
           </div>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- Snap to Grid & Line Style Controls -->
+          <div class="filter-chips-group">
+            <button class="filter-chip active" id="btnToggleSnap" title="Snap to Grid (20px) — Hold Alt to bypass">🧲 Snap</button>
+            <button class="filter-chip" id="btnToggleLineStyle" title="Switch Line Style: Curved / Right-Angle" data-style="curved">🌊 Curved</button>
+          </div>
         </div>
 
         <div class="toolbar-right">
@@ -173,11 +181,11 @@ export function renderEfDiagramHtml(): string {
                   <div class="dropdown-desc">Infinitely scalable vector format</div>
                 </div>
               </div>
-              <div class="dropdown-item" data-export="sql">
-                <span class="dropdown-icon">🗄️</span>
+              <div class="dropdown-item" data-export="drawio">
+                <span class="dropdown-icon">📊</span>
                 <div class="dropdown-text">
-                  <div class="dropdown-title">SQL DDL Schema (.sql)</div>
-                  <div class="dropdown-desc">CREATE TABLE & FOREIGN KEY scripts</div>
+                  <div class="dropdown-title">Draw.io Diagram (.drawio)</div>
+                  <div class="dropdown-desc">Editable diagram for diagrams.net & VS Code</div>
                 </div>
               </div>
               <div class="dropdown-item" data-export="markdown">
