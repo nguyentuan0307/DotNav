@@ -1,13 +1,15 @@
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
+import * as path from 'path';
 import { StoredFileFingerprint } from './buildStateStore';
 
 export class FingerprintSession {
   private readonly cache = new Map<string, Promise<StoredFileFingerprint | undefined>>();
 
   private key(filePath: string): string {
-    return process.platform === 'win32' ? filePath.toLowerCase() : filePath;
+    const resolved = path.resolve(filePath);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   }
 
   fingerprint(filePath: string): Promise<StoredFileFingerprint | undefined> {

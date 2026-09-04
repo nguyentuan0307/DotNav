@@ -700,8 +700,13 @@ function registerWorkspaceFileWatcher(
     if (gitDebounceTimer) {
       clearTimeout(gitDebounceTimer);
     }
-    gitDebounceTimer = setTimeout(() => {
+    gitDebounceTimer = setTimeout(async () => {
       gitDebounceTimer = undefined;
+      try {
+        await provider.refresh();
+      } catch (err) {
+        console.warn(`[DotNav] Tree refresh on git event failed: ${err}`);
+      }
       void warmUpUniversalSearchIndex(provider, symbolIndex, context, true).catch(err =>
         console.warn(`[DotNav] Auto re-scan on git event failed: ${err}`)
       );

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { BuildChangeTracker } from './buildChangeTracker';
-import { StoredBuildState, StoredProjectState } from './buildStateStore';
+import { StoredBuildState, StoredFileFingerprint, StoredProjectState } from './buildStateStore';
 import { FingerprintSession, mapConcurrent, sameFingerprint, stableFingerprint } from './fingerprints';
 import { BuildReason, EvaluatedBuildGraph, EvaluatedProjectVariant, ProjectBuildPlan, SmartBuildPlan } from './types';
 
@@ -37,8 +37,9 @@ export class SmartBuildPlanner {
       }
 
       // Fast mtime/size sanity check on all project inputs
+      if (project.inputs.length !== Object.keys(stored.inputs).length) return undefined;
       const inputChecks = await mapConcurrent(project.inputs, 32, async input => {
-        const prev = stored.inputs[input];
+        const prev = stored.inputs[input] ?? stored.inputs[normalize(input)];
         if (!prev) return false;
         const current = await fingerprints.fingerprintAgainst(input, prev, false);
         return Boolean(current && sameFingerprint(current, prev));
@@ -152,24 +153,34 @@ export class SmartBuildPlanner {
       reasons.push({ code: 'project-graph-changed' });
     }
 
-    const currentInputPaths = new Set(project.inputs);
-    const storedInputPaths = new Set(Object.keys(stored.inputs));
-    for (const input of currentInputPaths) {
-      if (!storedInputPaths.has(input)) reasons.push({ code: 'input-added', detail: input });
-      const previous = stored.inputs[input];
+    const currentInputPaths = new Set(project.inputs.map(normalize));
+    const storedInputByNormalized = new Map<string, { rawKey: string; fp: StoredFileFingerprint }>();
+    for (const [key, val] of Object.entries(stored.inputs)) {
+      storedInputByNormalized.set(normalize(key), { rawKey: key, fp: val });
+    }
+    for (const input of project.inputs) {
+      const norm = normalize(input);
+      const entry = storedInputByNormalized.get(norm);
+      if (!entry) reasons.push({ code: 'input-added', detail: input });
+      const previous = entry?.fp ?? stored.inputs[input];
       const current = await fingerprints.fingerprintAgainst(input, previous, this.changes?.hasChanged(input));
       if (!current) reasons.push({ code: 'input-missing', detail: input });
       else if (previous && !sameFingerprint(current, previous)) {
-        reasons.push({ code: this.changes?.hasChanged(input) ? 'source-changed' : 'source-changed', detail: input });
+        reasons.push({ code: 'source-changed', detail: input });
       }
     }
-    for (const input of storedInputPaths) {
-      if (!currentInputPaths.has(input)) reasons.push({ code: 'input-removed', detail: input });
+    for (const [storedKey, entry] of storedInputByNormalized.entries()) {
+      if (!currentInputPaths.has(storedKey)) reasons.push({ code: 'input-removed', detail: entry.rawKey });
     }
     const copyDestinations = new Set(project.copies.map(copy => normalize(copy.destination)));
+    const storedOutputsByNormalized = new Map<string, StoredFileFingerprint>();
+    for (const [key, val] of Object.entries(stored.outputs)) {
+      storedOutputsByNormalized.set(normalize(key), val);
+    }
     for (const output of project.outputs) {
-      if (copyDestinations.has(normalize(output))) continue;
-      const previous = stored.outputs[output];
+      const norm = normalize(output);
+      if (copyDestinations.has(norm)) continue;
+      const previous = storedOutputsByNormalized.get(norm) ?? stored.outputs[output];
       const current = await fingerprints.fingerprintAgainst(output, previous);
       if (!current) reasons.push({ code: 'output-missing', detail: output });
       else if (previous && !sameFingerprint(current, previous)) reasons.push({ code: 'output-changed', detail: output });
@@ -180,10 +191,13 @@ export class SmartBuildPlanner {
     for (const copy of project.copies) {
       const source = await fingerprints.fingerprintAgainst(
         copy.source,
-        stored.inputs[copy.source],
+        stored.inputs[copy.source] ?? storedInputByNormalized.get(normalize(copy.source))?.fp,
         this.changes?.hasChanged(copy.source)
       );
-      const destination = await fingerprints.fingerprintAgainst(copy.destination, stored.outputs[copy.destination]);
+      const destination = await fingerprints.fingerprintAgainst(
+        copy.destination,
+        stored.outputs[copy.destination] ?? storedOutputsByNormalized.get(normalize(copy.destination))
+      );
       const preserveNewest = copy.mode.toLowerCase() === 'preservenewest';
       if (!source || !destination || !sameFingerprint(source, destination)
         || (preserveNewest && source.mtimeMs > destination.mtimeMs)) staleCopies.push(copy);
@@ -281,7 +295,7 @@ function normalize(value: string): string {
 function isRestoreInput(value: string): boolean {
   const name = path.basename(value).toLowerCase();
   return /\.(csproj|fsproj|vbproj)$/.test(name)
-    || name === 'directory.packages.props'
+    || /^directory\.(build|packages)\.(props|targets)$/.test(name)
     || name === 'nuget.config'
     || name === 'packages.lock.json'
     || name === 'global.json';

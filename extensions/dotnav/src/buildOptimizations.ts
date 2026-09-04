@@ -31,10 +31,59 @@ export function hasProjectAssets(projectPathOrDir: string): boolean {
     const stat = fs.statSync(projectPathOrDir);
     const directory = stat.isDirectory() ? projectPathOrDir : path.dirname(projectPathOrDir);
     const assetsPath = path.join(directory, 'obj', 'project.assets.json');
-    return fs.existsSync(assetsPath);
+    if (!fs.existsSync(assetsPath)) return false;
+
+    const assetsStat = fs.statSync(assetsPath);
+    // If the project file itself was modified after assets were generated (e.g. git checkout), restore is required
+    if (!stat.isDirectory() && assetsStat.mtimeMs < stat.mtimeMs) {
+      return false;
+    }
+
+    // Check if shared build/package config files are newer than project.assets.json
+    const sharedConfigs = findAncestorConfigFiles(directory);
+    for (const configPath of sharedConfigs) {
+      try {
+        const configStat = fs.statSync(configPath);
+        if (configStat.mtimeMs > assetsStat.mtimeMs) {
+          return false;
+        }
+      } catch {
+        // ignore unreadable config
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }
+}
+
+function findAncestorConfigFiles(startDir: string): string[] {
+  const configs: string[] = [];
+  const candidateNames = [
+    'Directory.Build.props',
+    'Directory.Build.targets',
+    'Directory.Packages.props',
+    'packages.lock.json',
+    'nuget.config',
+    'NuGet.Config',
+    'global.json'
+  ];
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+
+  while (currentDir && currentDir !== root) {
+    for (const name of candidateNames) {
+      const fullPath = path.join(currentDir, name);
+      if (fs.existsSync(fullPath)) {
+        configs.push(fullPath);
+      }
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  return configs;
 }
 
 /**

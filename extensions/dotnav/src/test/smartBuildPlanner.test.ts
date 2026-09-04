@@ -80,6 +80,43 @@ test('dependent refinement covers the full transitive closure and fails safe wit
   assert.deepEqual(conservativePlan.projects.map(item => item.decision), ['up-to-date', 'build', 'build']);
 });
 
+test('detail change captures the exact modified source path and triggers build', async () => {
+  const fixture = await createFixture();
+  const tracker = new BuildChangeTracker();
+  tracker.updateGraph(fixture.graph);
+  const planner = new SmartBuildPlanner(tracker);
+  const state = await planner.captureSuccessfulState(fixture.graph, Date.now() - 10, Date.now());
+
+  await fs.writeFile(fixture.sourceA, 'public class ModelWithErrors { public int InvalidSyntax === 1; }');
+  tracker.recordChange(fixture.sourceA);
+
+  const plan = await planner.createPlan(fixture.graph, state);
+  assert.equal(plan.projects[0].decision, 'build');
+  const sourceChangedReason = plan.projects[0].reasons.find(r => r.code === 'source-changed');
+  assert.ok(sourceChangedReason, 'must have source-changed reason');
+  assert.equal(sourceChangedReason.detail, fixture.sourceA, 'detail must point to the exact modified model path');
+});
+
+test('Directory.Build.props modification triggers requiresRestore in SmartBuildPlan', async () => {
+  const fixture = await createFixture();
+  const planner = new SmartBuildPlanner();
+  const state = await planner.captureSuccessfulState(fixture.graph, Date.now() - 10, Date.now());
+
+  const dirProps = path.join(path.dirname(fixture.graph.projects[0].projectPath), '..', 'Directory.Build.props');
+  await fs.writeFile(dirProps, '<Project></Project>');
+  const projectWithProps = {
+    ...fixture.graph.projects[0],
+    inputs: [...fixture.graph.projects[0].inputs, dirProps]
+  };
+  const graph: EvaluatedBuildGraph = {
+    ...fixture.graph,
+    projects: [projectWithProps, fixture.graph.projects[1]]
+  };
+
+  const plan = await planner.createPlan(graph, state);
+  assert.equal(plan.requiresRestore, true, 'Directory.Build.props change must require restore');
+});
+
 test('missing output forces a build', async () => {
   const fixture = await createFixture();
   const planner = new SmartBuildPlanner();

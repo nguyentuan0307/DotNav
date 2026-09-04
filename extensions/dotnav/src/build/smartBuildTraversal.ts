@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { ProjectModel, SolutionModel } from '../models';
 import { EvaluatedProjectVariant } from './types';
@@ -68,8 +69,8 @@ export function scopeTransitiveUpstream(
     const currentPath = queue.shift()!;
     const project = projectByPath.get(currentPath);
     if (!project) continue;
-    for (const ref of project.projectReferences || []) {
-      const normRef = normalizePath(ref.path);
+    for (const refPath of extractProjectReferences(project)) {
+      const normRef = normalizePath(refPath);
       if (!included.has(normRef)) {
         included.add(normRef);
         queue.push(normRef);
@@ -77,6 +78,26 @@ export function scopeTransitiveUpstream(
     }
   }
   return solution.projects.filter(p => included.has(normalizePath(p.path)));
+}
+
+function extractProjectReferences(project: ProjectModel): string[] {
+  if (project.projectReferences && project.projectReferences.length > 0) {
+    return project.projectReferences.map(ref => ref.path);
+  }
+  try {
+    const xml = fs.readFileSync(project.path, 'utf8');
+    const dir = project.directory || path.dirname(project.path);
+    const regex = /<ProjectReference\b[^>]*?\bInclude=["']([^"']+)["']/gi;
+    const refs: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(xml)) !== null) {
+      const inc = match[1].replace(/\\/g, '/');
+      refs.push(path.resolve(dir, inc));
+    }
+    return refs;
+  } catch {
+    return [];
+  }
 }
 
 function createDependencyLevels(projects: readonly EvaluatedProjectVariant[]): EvaluatedProjectVariant[][] {
