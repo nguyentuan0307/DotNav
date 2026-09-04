@@ -324,7 +324,39 @@ async function showSymbolActions(symbol: UniversalSymbol): Promise<void> {
   }
 }
 
-export function getCacheFilePath(context?: vscode.ExtensionContext): string | undefined {
+export function getCurrentGitBranch(workspaceRoot?: string): string {
+  try {
+    const root = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) return 'default';
+
+    const gitExt = vscode.extensions.getExtension('vscode.git')?.exports;
+    const gitApi = gitExt?.getAPI?.(1);
+    if (gitApi && gitApi.repositories && gitApi.repositories.length > 0) {
+      const repo = gitApi.repositories.find((r: any) => path.resolve(r.rootUri.fsPath) === path.resolve(root)) || gitApi.repositories[0];
+      const headName = repo.state?.HEAD?.name;
+      if (headName) {
+        return headName;
+      }
+    }
+
+    const headPath = path.join(root, '.git', 'HEAD');
+    if (fs.existsSync(headPath)) {
+      const content = fs.readFileSync(headPath, 'utf8').trim();
+      const match = content.match(/^ref:\s*refs\/heads\/(.+)$/);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+      if (/^[0-9a-fA-F]{40}$/.test(content)) {
+        return content.slice(0, 8);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 'default';
+}
+
+export function getCacheFilePath(context?: vscode.ExtensionContext, workspaceRoot?: string): string | undefined {
   const dir = context?.storageUri?.fsPath || context?.globalStorageUri?.fsPath;
   if (dir) {
     if (!fs.existsSync(dir)) {
@@ -334,7 +366,10 @@ export function getCacheFilePath(context?: vscode.ExtensionContext): string | un
         // ignore
       }
     }
-    return path.join(dir, 'dotnav_search_cache.json.gz');
+    const root = workspaceRoot || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const branch = getCurrentGitBranch(root);
+    const safeBranch = branch.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    return path.join(dir, `dotnav_search_cache_${safeBranch}.json.gz`);
   }
   return undefined;
 }
@@ -442,6 +477,7 @@ export async function populateUniversalIndexFromSolution(
   );
 
   let hasChanges = false;
+  const normKey = (p: string) => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
   const existingFilesInDisk = new Set<string>();
   const chunkSize = 48;
 
@@ -450,7 +486,7 @@ export async function populateUniversalIndexFromSolution(
     await Promise.all(
       chunk.map(async file => {
         const fsPath = file.fsPath;
-        existingFilesInDisk.add(fsPath);
+        existingFilesInDisk.add(normKey(fsPath));
         try {
           const stat = await fs.promises.stat(fsPath);
           const cachedMtime = index.getFileTimestamp(fsPath);
@@ -467,9 +503,10 @@ export async function populateUniversalIndexFromSolution(
     );
   }
 
-  // Clean up any deleted files from cache
-  for (const cachedPath of index.getAllSymbols().map(s => s.filePath)) {
-    if (!existingFilesInDisk.has(cachedPath) && !fs.existsSync(cachedPath)) {
+  // Clean up any deleted files from cache efficiently via fileCache keys
+  const cachedFilePaths = index.getFilePaths();
+  for (const cachedPath of cachedFilePaths) {
+    if (!existingFilesInDisk.has(normKey(cachedPath)) && !fs.existsSync(cachedPath)) {
       index.invalidateFile(cachedPath);
       hasChanges = true;
     }
@@ -485,6 +522,8 @@ export function isSolutionSearchEnabled(): boolean {
   return vscode.workspace.getConfiguration('dotnav').get<boolean>('solutionSearch.enabled', true);
 }
 
+let pendingRescanRequested = false;
+
 export async function warmUpUniversalSearchIndex(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
@@ -498,6 +537,9 @@ export async function warmUpUniversalSearchIndex(
     return activeFullScanPromise;
   }
   if (activeFullScanPromise) {
+    if (force) {
+      pendingRescanRequested = true;
+    }
     return activeFullScanPromise;
   }
   activeFullScanPromise = (async () => {
@@ -508,6 +550,10 @@ export async function warmUpUniversalSearchIndex(
       console.error(`DotNav background universal search warmup failed: ${err}`);
     } finally {
       activeFullScanPromise = undefined;
+      if (pendingRescanRequested) {
+        pendingRescanRequested = false;
+        void warmUpUniversalSearchIndex(provider, index, context, true);
+      }
     }
   })();
   return activeFullScanPromise;

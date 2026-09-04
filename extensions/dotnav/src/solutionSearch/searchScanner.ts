@@ -1338,6 +1338,10 @@ export class UniversalSymbolIndex {
     return this.fileCache.has(filePath);
   }
 
+  public getFilePaths(): string[] {
+    return Array.from(this.fileCache.keys());
+  }
+
   public get fileCount(): number {
     return this.fileCache.size;
   }

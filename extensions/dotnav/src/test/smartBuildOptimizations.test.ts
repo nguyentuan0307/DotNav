@@ -1,5 +1,6 @@
 import * as assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { BuildChangeTracker } from '../build/buildChangeTracker';
@@ -126,6 +127,42 @@ test('scopeTransitiveUpstream extracts only transitive dependencies of target pr
   // Scoping App -> should include App, Lib, and Core (excludes Admin and Tests)
   const appScope = scopeTransitiveUpstream(solution, [pA]);
   assert.deepEqual(appScope.map(p => p.name).sort(), ['App', 'Core', 'Lib'].sort());
+});
+
+test('scopeTransitiveUpstream extracts project references from csproj files when stubs are unpopulated', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'dotnav-scope-test-'));
+  try {
+    const appDir = path.join(tmp, 'App');
+    const libDir = path.join(tmp, 'Lib');
+    const coreDir = path.join(tmp, 'Core');
+    mkdirSync(appDir, { recursive: true });
+    mkdirSync(libDir, { recursive: true });
+    mkdirSync(coreDir, { recursive: true });
+    const appCsproj = path.join(appDir, 'App.csproj');
+    const libCsproj = path.join(libDir, 'Lib.csproj');
+    const coreCsproj = path.join(coreDir, 'Core.csproj');
+
+    writeFileSync(coreCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>');
+    writeFileSync(libCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Core/Core.csproj" /></ItemGroup></Project>');
+    writeFileSync(appCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Lib/Lib.csproj" /></ItemGroup></Project>');
+
+    // Create stub project models where projectReferences is empty (matching solutionParser output)
+    const pApp = { ...createProject('App', appCsproj, []), projectReferences: [] };
+    const pLib = { ...createProject('Lib', libCsproj, []), projectReferences: [] };
+    const pCore = { ...createProject('Core', coreCsproj, []), projectReferences: [] };
+
+    const solution: SolutionModel = {
+      name: 'StubSolution',
+      rootPath: tmp,
+      path: path.join(tmp, 'StubSolution.sln'),
+      projects: [pApp, pLib, pCore]
+    };
+
+    const scoped = scopeTransitiveUpstream(solution, [pApp]);
+    assert.deepEqual(scoped.map(p => p.name).sort(), ['App', 'Core', 'Lib'].sort());
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('smartBuildExecutor enables Roslyn shared compiler daemon reuse', () => {

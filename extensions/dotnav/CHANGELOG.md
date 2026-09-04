@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.29.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.28.0...dotnav-v0.29.0) (2026-09-04)
+
+
+### Features
+
+* **erd:** replace SQL export with Draw.io diagram export and update project directives ([fb0f4b6](https://github.com/nguyentuan0307/DotNav/commit/fb0f4b63a86f56c65d1603fadd4b759761529e66))
+
+### Bug Fixes
+
+* **dotnav:** resolve git checkout edge cases for smart build and search everywhere ([9e895bc](https://github.com/nguyentuan0307/DotNav/commit/9e895bccf222d9677e56fb6f14bb0579ac3e51bb))
+
+
 ## [0.28.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.27.1...dotnav-v0.28.0) (2026-08-28)
 
 
