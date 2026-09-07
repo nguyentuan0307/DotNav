@@ -142,6 +142,9 @@ export async function runDotnetForProject(
   processManager?: ProcessManager,
   options: { readonly noBuild?: boolean } = {}
 ): Promise<boolean> {
+  if (verb !== 'clean') {
+    await vscode.workspace.saveAll?.(false);
+  }
   const configuration = vscode.workspace.getConfiguration('dotnav').get<string>('buildConfiguration', 'Debug');
   const optFlags = (verb === 'build' || verb === 'rebuild') ? ` ${buildOptimizationFlags()}` : '';
   const noRestoreFlag = (verb === 'build' && !options.noBuild && shouldUseNoRestore(project.path, verb)) ? ' --no-restore' : '';
@@ -315,6 +318,7 @@ export async function runDotnetForProjects(
     .get<number>('maxParallelBuilds', 6));
   let tempDirectory: string | undefined;
 
+  await vscode.workspace.saveAll?.(false);
   try {
     tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-'));
     const orchestrationPath = path.join(tempDirectory, 'folder-build.proj');
@@ -333,8 +337,8 @@ export async function runDotnetForProjects(
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
           'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
-          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true', '-p:AccelerateBuildsInVisualStudio=true',
-          '-clp:NoSummary;Verbosity=minimal'
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=false',
+          '-clp:NoSummary', '-clp:Verbosity=minimal'
         ], { cwd: folderPath }),
         ['$msCompile']
       );

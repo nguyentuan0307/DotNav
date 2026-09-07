@@ -5,19 +5,20 @@ import * as path from 'path';
  * Standard MSBuild CLI optimization flags compatible with all .NET SDK versions (.NET 6, 7, 8, 9, 10+ and .NET Core).
  * - `-maxcpucount`: Multi-core CPU utilization
  * - `-p:BuildInParallel=true`: Parallel MSBuild project DAG execution
- * - `-p:UseSharedCompilation=true`: Reuse in-memory Roslyn compiler daemon (VBCSCompiler)
- * - `-clp:NoSummary;Verbosity=minimal`: Reduces terminal buffer render bottleneck while preserving warning/error matchers
+ * - `-p:UseSharedCompilation=false`: Clean Roslyn compilation directly from disk (prevents stale in-memory daemon cache hits)
+ * - `-clp:NoSummary -clp:Verbosity=minimal`: Reduces terminal buffer render bottleneck while avoiding unquoted semicolon shell splitting
  */
 export function buildOptimizationFlags(): string {
-  return '-maxcpucount -p:BuildInParallel=true -p:UseSharedCompilation=true -clp:NoSummary;Verbosity=minimal';
+  return '-maxcpucount -p:BuildInParallel=true -p:UseSharedCompilation=false -clp:NoSummary -clp:Verbosity=minimal';
 }
 
 export function buildOptimizationArgs(): string[] {
   return [
     '-maxcpucount',
     '-p:BuildInParallel=true',
-    '-p:UseSharedCompilation=true',
-    '-clp:NoSummary;Verbosity=minimal'
+    '-p:UseSharedCompilation=false',
+    '-clp:NoSummary',
+    '-clp:Verbosity=minimal'
   ];
 }
 

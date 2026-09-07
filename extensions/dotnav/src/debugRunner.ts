@@ -8,7 +8,6 @@ import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models'
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 import { BuildBeforeRunMode, resolveBuildBeforeRunMode } from './buildMode';
-import { buildOptimizationFlags, shouldUseNoRestore } from './buildOptimizations';
 
 interface StartOptions {
   readonly debug: boolean;
@@ -40,6 +39,7 @@ export async function pickProfile(project: ProjectModel): Promise<LaunchProfile 
 }
 
 export async function startTarget(project: ProjectModel, profile: LaunchProfile | undefined, options: StartOptions): Promise<boolean> {
+  await vscode.workspace.saveAll?.(false);
   let runId = options.runId;
   let targetId = options.targetId;
   if (options.processManager && (!runId || !targetId)) {
@@ -177,21 +177,41 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
 export async function resolveProgramPath(project: ProjectModel): Promise<string> {
   const configuration = buildConfiguration();
   const assemblyName = project.assemblyName ?? project.name;
+  const binDir = path.join(project.directory, 'bin', configuration);
+  const candidates: string[] = [];
 
   for (const targetFramework of project.targetFrameworks) {
-    const candidate = path.join(project.directory, 'bin', configuration, targetFramework, `${assemblyName}.dll`);
+    const candidate = path.join(binDir, targetFramework, `${assemblyName}.dll`);
     if (await exists(candidate)) {
-      return candidate;
+      candidates.push(candidate);
     }
   }
 
-  const binDir = path.join(project.directory, 'bin', configuration);
-  const fallback = await findFile(binDir, `${assemblyName}.dll`);
-  if (fallback) {
-    return fallback;
+  if (candidates.length === 0) {
+    const fallbackFiles = await findAllFiles(binDir, `${assemblyName}.dll`);
+    candidates.push(...fallbackFiles);
   }
 
-  throw new Error(`Could not find ${assemblyName}.dll. Build ${project.name} first or check its output path.`);
+  if (candidates.length === 0) {
+    throw new Error(`Could not find ${assemblyName}.dll. Build ${project.name} first or check its output path.`);
+  }
+
+  // Always select the freshest candidate by modification time to prevent running stale outputs
+  let freshestCandidate = candidates[0];
+  let latestMtime = -1;
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.mtimeMs > latestMtime) {
+        latestMtime = stat.mtimeMs;
+        freshestCandidate = candidate;
+      }
+    } catch {
+      // keep previous candidate
+    }
+  }
+
+  return freshestCandidate;
 }
 
 export async function buildProject(
@@ -200,14 +220,14 @@ export async function buildProject(
   runId?: string,
   targetId?: string
 ): Promise<boolean> {
+  await vscode.workspace.saveAll?.(false);
   const configuration = buildConfiguration();
-  const noRestoreFlag = shouldUseNoRestore(project.path, 'build') ? ' --no-restore' : '';
   const task = new vscode.Task(
     { type: 'dotnet', task: 'build', project: project.path },
     vscode.TaskScope.Workspace,
     `build ${project.name}`,
     '.NET Navigator',
-    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration}${noRestoreFlag} ${buildOptimizationFlags()}`, { cwd: project.directory }),
+    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration} -p:UseSharedCompilation=false`, { cwd: project.directory }),
     ['$msCompile']
   );
 
@@ -276,6 +296,7 @@ export async function runConfig(
     buildMode?: BuildBeforeRunMode;
   }
 ): Promise<void> {
+  await vscode.workspace.saveAll?.(false);
   const resolvedTargets = config.targets.map(target => resolveTarget(solution, target.projectPath, target.profileName));
   const missingTarget = resolvedTargets.findIndex(target => !target.project);
   if (missingTarget >= 0) {
@@ -357,6 +378,7 @@ async function buildProjectGroup(
     .get<number>('maxParallelBuilds', 6));
   let tempDirectory: string | undefined;
 
+  await vscode.workspace.saveAll?.(false);
   try {
     tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-compound-build-'));
     const orchestrationPath = path.join(tempDirectory, 'compound-build.proj');
@@ -375,8 +397,8 @@ async function buildProjectGroup(
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
           'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
-          '-p:BuildInParallel=true', '-p:UseSharedCompilation=true', '-p:AccelerateBuildsInVisualStudio=true',
-          '-clp:NoSummary;Verbosity=minimal'
+          '-p:BuildInParallel=true', '-p:UseSharedCompilation=false',
+          '-clp:NoSummary', '-clp:Verbosity=minimal'
         ], { cwd: commonProjectDirectory(unique) }),
         ['$msCompile']
       );
@@ -567,29 +589,26 @@ function buildConfiguration(): string {
     .get<string>('buildConfiguration', 'Debug');
 }
 
-async function findFile(directory: string, fileName: string): Promise<string | undefined> {
+async function findAllFiles(directory: string, fileName: string): Promise<string[]> {
+  const result: string[] = [];
   let entries: Dirent[];
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
   } catch {
-    return undefined;
+    return result;
   }
 
   for (const entry of entries) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isFile() && entry.name.toLowerCase() === fileName.toLowerCase()) {
-      return fullPath;
-    }
-
-    if (entry.isDirectory()) {
-      const found = await findFile(fullPath, fileName);
-      if (found) {
-        return found;
-      }
+      result.push(fullPath);
+    } else if (entry.isDirectory()) {
+      const subFiles = await findAllFiles(fullPath, fileName);
+      result.push(...subFiles);
     }
   }
 
-  return undefined;
+  return result;
 }
 
 async function exists(filePath: string): Promise<boolean> {

@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.29.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.29.0...dotnav-v0.29.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **dotnav:** disable shared compilation cache and ensure freshest binary resolution on run ([b2ecea4](https://github.com/nguyentuan0307/DotNav/commit/b2ecea45c2781a04e68aae5e7f57f62ce5a2a119))
+
+
 ## [0.29.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.28.0...dotnav-v0.29.0) (2026-09-04)
 
 

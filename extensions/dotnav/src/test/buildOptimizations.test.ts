@@ -10,19 +10,21 @@ import {
   shouldUseNoRestore
 } from '../buildOptimizations';
 
-test('build optimization flags include multicore, parallel, and shared compilation', () => {
+test('build optimization flags include multicore, parallel, and clean shared compilation disabled', () => {
   const flags = buildOptimizationFlags();
   assert.match(flags, /-maxcpucount/);
   assert.match(flags, /-p:BuildInParallel=true/);
-  assert.match(flags, /-p:UseSharedCompilation=true/);
-  assert.match(flags, /-clp:NoSummary;Verbosity=minimal/);
+  assert.match(flags, /-p:UseSharedCompilation=false/);
+  assert.match(flags, /-clp:NoSummary -clp:Verbosity=minimal/);
+  assert.doesNotMatch(flags, /;/, 'flags string must not contain semicolons which split shell commands');
 
   const args = buildOptimizationArgs();
   assert.deepEqual(args, [
     '-maxcpucount',
     '-p:BuildInParallel=true',
-    '-p:UseSharedCompilation=true',
-    '-clp:NoSummary;Verbosity=minimal'
+    '-p:UseSharedCompilation=false',
+    '-clp:NoSummary',
+    '-clp:Verbosity=minimal'
   ]);
 });
 
