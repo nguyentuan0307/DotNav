@@ -22,11 +22,12 @@ test('build optimization helper flags are defined', () => {
   const { buildOptimizationFlags, buildOptimizationArgs } = require('../buildOptimizations') as typeof import('../buildOptimizations');
   assert.match(buildOptimizationFlags(), /-maxcpucount/);
   assert.match(buildOptimizationFlags(), /BuildInParallel=true/);
-  assert.match(buildOptimizationFlags(), /UseSharedCompilation=true/);
+  assert.match(buildOptimizationFlags(), /UseSharedCompilation=false/);
   assert.deepEqual(buildOptimizationArgs(), [
     '-maxcpucount',
     '-p:BuildInParallel=true',
-    '-p:UseSharedCompilation=true',
-    '-clp:NoSummary;Verbosity=minimal'
+    '-p:UseSharedCompilation=false',
+    '-clp:NoSummary',
+    '-clp:Verbosity=minimal'
   ]);
 });

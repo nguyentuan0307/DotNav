@@ -36,7 +36,7 @@ moduleWithLoader._load = function (request: string, parent: unknown, isMain: boo
   return request === 'vscode' ? vscodeMock : originalLoad(request, parent, isMain);
 };
 
-const { runConfig } = require('../debugRunner') as typeof import('../debugRunner');
+const { resolveProgramPath, runConfig } = require('../debugRunner') as typeof import('../debugRunner');
 
 test('none mode starts existing outputs without invoking a prebuild', async () => {
   const fixture = await createFixture();
@@ -49,6 +49,46 @@ test('none mode starts existing outputs without invoking a prebuild', async () =
     assert.deepEqual(events, ['start', 'start']);
   } finally {
     await fs.rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('resolveProgramPath selects freshest binary when multiple target frameworks or candidates exist', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-resolve-test-'));
+  try {
+    const directory = path.join(root, 'MyProject');
+    const binDebug = path.join(directory, 'bin', 'Debug');
+    await fs.mkdir(path.join(binDebug, 'net6.0'), { recursive: true });
+    await fs.mkdir(path.join(binDebug, 'net8.0'), { recursive: true });
+
+    const net6Dll = path.join(binDebug, 'net6.0', 'MyProject.dll');
+    const net8Dll = path.join(binDebug, 'net8.0', 'MyProject.dll');
+
+    await fs.writeFile(net6Dll, 'old build');
+    await fs.writeFile(net8Dll, 'new build');
+
+    // Make net6Dll older and net8Dll newer
+    const olderTime = new Date(Date.now() - 60000);
+    const newerTime = new Date(Date.now());
+    await fs.utimes(net6Dll, olderTime, olderTime);
+    await fs.utimes(net8Dll, newerTime, newerTime);
+
+    const project: ProjectModel = {
+      name: 'MyProject',
+      path: path.join(directory, 'MyProject.csproj'),
+      directory,
+      relativePath: 'MyProject/MyProject.csproj',
+      kind: 'console',
+      targetFrameworks: ['net6.0', 'net8.0'],
+      launchProfiles: [],
+      packageReferences: [],
+      projectReferences: [],
+      assemblyName: 'MyProject'
+    };
+
+    const resolved = await resolveProgramPath(project);
+    assert.equal(resolved, net8Dll, 'Should resolve the newest binary by mtimeMs even if net6.0 is listed first');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
   }
 });
 
