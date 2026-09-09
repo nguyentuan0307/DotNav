@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { computeGraphLayout } from '../git/gitGraphLayout';
-import { logPrettyFormat, parseLog } from '../git/gitPanelParsers';
+import { logPrettyFormat, parseLog, parseNameStatusZ } from '../git/gitPanelParsers';
 
 test('parses and lays out a real paged Git merge history', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'git-log-integration-'));
@@ -88,6 +88,41 @@ test('git diff correctly retrieves patches for additions, merge commits, and roo
     // Test branch compare between main and feature-branch
     const branchDiffPatch = git('diff', '-U3', 'feature-branch...main', '--', 'main-update.txt');
     assert.ok(branchDiffPatch.includes('+main line'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('direct two-tip diff reports added, deleted, and renamed paths', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'git-direct-compare-test-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  try {
+    git('init', '-b', 'main');
+    git('config', 'user.name', 'Integration Test');
+    git('config', 'user.email', 'integration@example.com');
+    writeFileSync(path.join(root, 'old.txt'), 'same content\n');
+    writeFileSync(path.join(root, 'removed.txt'), 'removed\n');
+    git('add', '.');
+    git('commit', '-m', 'base');
+    git('switch', '-c', 'feature');
+    git('mv', 'old.txt', 'renamed.txt');
+    writeFileSync(path.join(root, 'added.txt'), 'added\n');
+    git('rm', 'removed.txt');
+    git('add', '.');
+    git('commit', '-m', 'feature changes');
+
+    git('switch', 'main');
+
+    const changes = parseNameStatusZ(git('diff', '--name-status', '-z', '--find-renames', 'main', 'feature'))
+      .map(file => ({ status: file.status, path: file.path, oldPath: file.oldPath }))
+      .sort((left, right) => left.path.localeCompare(right.path));
+    assert.deepEqual(changes, [
+      { status: 'A', path: 'added.txt', oldPath: undefined },
+      { status: 'D', path: 'removed.txt', oldPath: undefined },
+      { status: 'R', path: 'renamed.txt', oldPath: 'old.txt' }
+    ]);
+    const renamePatch = git('diff', '--find-renames', '-U3', 'main', 'feature', '--', 'old.txt', 'renamed.txt');
+    assert.match(renamePatch, /similarity index 100%/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

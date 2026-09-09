@@ -282,28 +282,26 @@ export class GitRepositoryService {
     working?: boolean,
     token?: vscode.CancellationToken,
     from?: string,
-    to?: string
+    to?: string,
+    oldPath?: string
   ): Promise<string> {
+    const pathspec = oldPath && oldPath !== filePath ? [oldPath, filePath] : [filePath];
     try {
       if (from && to) {
         if (to === 'working tree') {
-          const res = await runGit(root, ['diff', '-U3', from, '--', filePath], token);
+          const res = await runGit(root, ['diff', '--find-renames', '-U3', from, '--', ...pathspec], token);
           return res.exitCode === 0 ? res.stdout : '';
         }
-        const res = await runGit(root, ['diff', '-U3', `${from}...${to}`, '--', filePath], token);
-        if (res.exitCode === 0 && res.stdout.trim()) {
-          return res.stdout;
-        }
-        const directRes = await runGit(root, ['diff', '-U3', from, to, '--', filePath], token);
-        return directRes.exitCode === 0 ? directRes.stdout : '';
+        const res = await runGit(root, ['diff', '--find-renames', '-U3', from, to, '--', ...pathspec], token);
+        return res.exitCode === 0 ? res.stdout : '';
       }
 
       if (working) {
-        const res = await runGit(root, ['diff', '-U3', '--', filePath], token);
+        const res = await runGit(root, ['diff', '--find-renames', '-U3', '--', ...pathspec], token);
         if (res.exitCode === 0 && res.stdout.trim()) {
           return res.stdout;
         }
-        const stagedRes = await runGit(root, ['diff', '--cached', '-U3', '--', filePath], token);
+        const stagedRes = await runGit(root, ['diff', '--cached', '--find-renames', '-U3', '--', ...pathspec], token);
         if (stagedRes.exitCode === 0 && stagedRes.stdout.trim()) {
           return stagedRes.stdout;
         }
@@ -313,22 +311,22 @@ export class GitRepositoryService {
 
       if (hash) {
         if (parent === 0) {
-          const combinedRes = await runGit(root, ['show', '--format=', '--cc', '-U3', hash, '--', filePath], token);
+          const combinedRes = await runGit(root, ['show', '--format=', '--cc', '-U3', hash, '--', ...pathspec], token);
           return combinedRes.exitCode === 0 ? combinedRes.stdout : '';
         }
 
         const parentNum = parent && parent >= 1 ? parent : 1;
-        const diffRes = await runGit(root, ['diff', '-U3', `${hash}^${parentNum}`, hash, '--', filePath], token);
+        const diffRes = await runGit(root, ['diff', '--find-renames', '-U3', `${hash}^${parentNum}`, hash, '--', ...pathspec], token);
         if (diffRes.exitCode === 0 && diffRes.stdout.trim()) {
           return diffRes.stdout;
         }
 
-        const rootRes = await runGit(root, ['diff-tree', '-p', '--root', '-U3', hash, '--', filePath], token);
+        const rootRes = await runGit(root, ['diff-tree', '-p', '--root', '--find-renames', '-U3', hash, '--', ...pathspec], token);
         if (rootRes.exitCode === 0 && rootRes.stdout.trim()) {
           return rootRes.stdout;
         }
 
-        const showRes = await runGit(root, ['show', '--format=', '-U3', hash, '--', filePath], token);
+        const showRes = await runGit(root, ['show', '--format=', '--find-renames', '-U3', hash, '--', ...pathspec], token);
         return showRes.exitCode === 0 ? showRes.stdout : '';
       }
     } catch {

@@ -37,6 +37,7 @@ export interface GitWebviewMessage {
   readonly to?: string;
   readonly path?: string;
   readonly oldPath?: string;
+  readonly status?: string;
   readonly working?: boolean;
   readonly ref?: string;
   readonly refs?: string[];

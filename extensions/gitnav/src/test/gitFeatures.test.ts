@@ -412,6 +412,7 @@ test('reuses mutation state and keeps expensive refresh work off the action crit
 
 test('renders advanced Git Log UX and interactive rebase preview', () => {
   const source = gitLogSurface();
+  const revisionProvider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRevisionProvider.ts'), 'utf8');
   const mutations = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
   const styles = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.css'), 'utf8');
   assert.match(source, /\['ready','refresh','loadLog'\]\.includes\(m\.scope\)/);
@@ -444,6 +445,19 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /'<div class="group">Current branch<\/div>'\+refItem\(current,current\.name\)/);
   assert.match(source, /m\.repositories\.length>1\?'block':'none'/);
   assert.match(source, /id="fileSummary"/);
+  assert.match(source, /id="filesFocusToggle"/);
+  assert.match(source, /id="fileSearch"/);
+  assert.match(source, /id="fileStatusTrigger"[^>]*aria-haspopup="true"/);
+  assert.match(source, /id="fileStatusMenu"[^>]*role="group"/);
+  assert.match(source, /type="checkbox" data-file-status="M"/);
+  assert.match(source, /data-file-status="D"/);
+  assert.match(source, /fileStatusFilter=\[\]/);
+  assert.match(source, /checkbox\.onchange/);
+  assert.match(source, /setFilesFocus\(true\)/);
+  assert.match(source, /fileDiff',\{\.\.\.fileChangeMessage\(file\)/);
+  assert.match(styles, /\.layout\.files-focused \.detail/);
+  assert.match(revisionProvider, /query\.get\('empty'\) === 'true'/);
+  assert.match(revisionProvider, /export function emptyRevisionUri/);
   assert.match(source, /function commitAge\(/);
   assert.match(source, /class="filter-root"/);
   assert.match(source, /class="filter-view filter-author-view"/);
@@ -664,4 +678,3 @@ test('runGit terminates process and marks timedOut when command exceeds timeout 
   assert.equal(result.cancelled, false);
   assert.equal(result.timedOut, false);
 });
-

@@ -10,17 +10,20 @@ test('accepts known Git webview messages', () => {
     type: 'detail',
     hash: 'abc123'
   });
-  assert.deepEqual(parseGitWebviewMessage({ type: 'fileDiff', path: 'src/main.ts', hash: 'abc123', parent: 1 }), {
+  assert.deepEqual(parseGitWebviewMessage({ type: 'fileDiff', path: 'src/main.ts', hash: 'abc123', parent: 1, status: 'R', oldPath: 'src/old.ts' }), {
     type: 'fileDiff',
     path: 'src/main.ts',
     hash: 'abc123',
-    parent: 1
+    parent: 1,
+    status: 'R',
+    oldPath: 'src/old.ts'
   });
-  assert.deepEqual(parseGitWebviewMessage({ type: 'compareDiff', path: 'src/main.ts', from: 'HEAD', to: 'QA' }), {
+  assert.deepEqual(parseGitWebviewMessage({ type: 'compareDiff', path: 'src/main.ts', from: 'HEAD', to: 'QA', status: 'D' }), {
     type: 'compareDiff',
     path: 'src/main.ts',
     from: 'HEAD',
-    to: 'QA'
+    to: 'QA',
+    status: 'D'
   });
 });
 
