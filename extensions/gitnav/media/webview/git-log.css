@@ -1141,8 +1141,102 @@ mark.search-match {
   padding: 0 8px 0 10px;
 }
 
-.right #files {
+.file-filter-bar {
   order: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+}
+
+.file-search {
+  min-width: 90px;
+  flex: 1 1 140px;
+  height: 24px;
+  padding: 0 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 2px;
+}
+
+.file-status-filter {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.file-status-trigger {
+  width: 92px;
+  min-width: 92px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0 6px 0 8px;
+  font-size: 11px;
+}
+
+.file-status-trigger .ui-chevron {
+  width: 12px;
+  height: 12px;
+}
+
+.file-status-menu {
+  position: absolute;
+  z-index: 900;
+  top: calc(100% + 4px);
+  right: 0;
+  display: none;
+  min-width: 154px;
+  padding: 4px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .36);
+}
+
+.file-status-menu.open {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-status-option {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  color: var(--vscode-descriptionForeground);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.file-status-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.file-status-option:hover,
+.file-status-option.selected {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.layout .right #files {
+  order: 4;
+}
+
+.right .diff-preview-pane {
+  order: 5;
+}
+
+.layout.files-focused .detail {
+  height: 110px;
+  flex-basis: 110px;
 }
 
 .changed-files-title {
@@ -1777,6 +1871,11 @@ mark.search-match {
 }
 
 .preview-toggle-btn.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+#filesFocusToggle.active {
   color: var(--vscode-list-activeSelectionForeground);
   background: var(--vscode-list-activeSelectionBackground);
 }

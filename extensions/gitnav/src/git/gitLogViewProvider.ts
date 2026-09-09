@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { GitLogFilter, GitRebasePlanItem } from './gitPanelModels';
 import { GitRepositoryService } from './gitRepositoryService';
-import { revisionUri } from './gitRevisionProvider';
+import { emptyRevisionUri, revisionUri } from './gitRevisionProvider';
 import { GitMutationRunner } from './gitMutationRunner';
 import { currentBranchPushPlan } from './gitPush';
 import { GitMutationRequest } from './gitPanelModels';
@@ -15,7 +15,7 @@ import { GitPushRecoveryPreferences, GitPushRecoveryStrategy } from './gitPushRe
 import { mapRevisionLineToWorktree } from './lineMapping';
 import { GitWebviewMessage, GitWebviewMessageRouter } from './gitWebviewProtocol';
 import { renderGitLogWebviewHtml } from './gitLogWebviewHtml';
-import { formatFullCommitInfo } from './gitPanelParsers';
+import { formatFullCommitInfo, revisionPathsForChange } from './gitPanelParsers';
 
 async function mapWithConcurrency<T, TResult>(
   items: readonly T[],
@@ -330,7 +330,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         return;
       }
       if (message.type === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent);
-      if (message.type === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path);
+      if (message.type === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path, message.status, message.oldPath);
       if (message.type === 'workingDiff' && message.path) return await vscode.commands.executeCommand('git.openChange', vscode.Uri.file(path.join(this.root, message.path)));
       if (message.type === 'fileDiff' && message.path) {
         const root = this.root;
@@ -345,7 +345,8 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
             message.working,
             read.source.token,
             message.from,
-            message.to
+            message.to,
+            message.oldPath
           );
           if (this.requests.isCurrent(channel, read.identity, this.root)) {
             this.post({ type: 'fileDiffResult', path: message.path, patch, hash: message.hash, working: message.working, identity: read.identity });
@@ -531,9 +532,16 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     if (action === 'diff' && message.hash && message.path) return await this.openDiff(message.hash, message.path, message.parent, root);
-    if (action === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path, root);
+    if (action === 'compareDiff' && message.from && message.to && message.path) return await this.openCompareDiff(message.from, message.to, message.path, message.status, message.oldPath, root);
     if (action === 'openRevision' && message.hash && message.path) {
-      await vscode.window.showTextDocument(revisionUri(root, message.hash, message.path), { preview: true });
+      const detail = await this.service.commitDetail(root, message.hash, message.parent);
+      const change = detail.files.find(file => file.path === message.path) ?? { status: 'M', path: message.path, additions: 0, deletions: 0 };
+      const revisionPaths = revisionPathsForChange(change);
+      const parentIndex = message.parent && message.parent >= 1 ? message.parent - 1 : 0;
+      const ref = revisionPaths.to ? message.hash : detail.parents[parentIndex];
+      const revisionPath = revisionPaths.to ?? revisionPaths.from;
+      if (!ref || !revisionPath) throw new Error(`File ${message.path} is not available at this revision.`);
+      await vscode.window.showTextDocument(revisionUri(root, ref, revisionPath), { preview: true });
       return;
     }
     if (action === 'openFile' && message.path) {
@@ -967,24 +975,35 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (!expectedRoot) return;
     const detail = await this.service.commitDetail(expectedRoot, hash, parent);
     if (this.root !== expectedRoot) return;
+    const change = detail.files.find(file => file.path === filePath) ?? { status: 'M', path: filePath, additions: 0, deletions: 0 };
+    const revisionPaths = revisionPathsForChange(change);
     const leftRef = detail.parents[parent - 1];
-    const left = leftRef ? revisionUri(expectedRoot, leftRef, filePath) : vscode.Uri.parse('untitled:empty');
-    const right = revisionUri(expectedRoot, hash, filePath);
+    const left = revisionPaths.from && leftRef
+      ? revisionUri(expectedRoot, leftRef, revisionPaths.from)
+      : emptyRevisionUri(expectedRoot, leftRef ?? `${hash}^`, revisionPaths.from ?? filePath);
+    const right = revisionPaths.to
+      ? revisionUri(expectedRoot, hash, revisionPaths.to)
+      : emptyRevisionUri(expectedRoot, hash, filePath);
     await vscode.commands.executeCommand('vscode.diff', left, right, `${filePath} (${hash.slice(0, 8)})`);
   }
 
-  private async openCompareDiff(from: string, to: string, filePath: string, expectedRoot = this.root): Promise<void> {
+  private async openCompareDiff(from: string, to: string, filePath: string, status = 'M', oldPath?: string, expectedRoot = this.root): Promise<void> {
     if (!expectedRoot) return;
+    const revisionPaths = revisionPathsForChange({ status, path: filePath, oldPath });
+    const left = revisionPaths.from
+      ? revisionUri(expectedRoot, from, revisionPaths.from)
+      : emptyRevisionUri(expectedRoot, from, oldPath ?? filePath);
+    const right = revisionPaths.to
+      ? to === 'working tree'
+        ? vscode.Uri.file(path.join(expectedRoot, revisionPaths.to))
+        : revisionUri(expectedRoot, to, revisionPaths.to)
+      : emptyRevisionUri(expectedRoot, to, filePath);
     if (to === 'working tree') {
-      const left = revisionUri(expectedRoot, from, filePath);
-      const right = vscode.Uri.file(path.join(expectedRoot, filePath));
       const title = `${path.basename(filePath)} (${from} ↔ Working Tree)`;
       await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
       return;
     }
 
-    const left = revisionUri(expectedRoot, to, filePath);
-    const right = revisionUri(expectedRoot, from, filePath);
     const title = `${path.basename(filePath)} (${from} ↔ ${to})`;
     await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
   }

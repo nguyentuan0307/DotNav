@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatFullCommitInfo, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2 } from '../git/gitPanelParsers';
+import { formatFullCommitInfo, parseLog, parseNameStatusZ, parseNumstatZ, parseWorkingTreeStatus, parseWorkingTreeStatusV2, revisionPathsForChange } from '../git/gitPanelParsers';
 
 test('parses delimiter-safe decorated log records and merge parents', () => {
   const output = '\x1eabc\x1fabc1234\x1fp1 p2\x1fsubject\x1fJane\x1fjane@example.com\x1f1700000000\x1fHEAD -> refs/heads/main, tag: refs/tags/v1\n';
@@ -16,6 +16,18 @@ test('parses NUL-delimited rename and ordinary name-status records', () => {
     { status: 'R', oldPath: 'old name.cs', path: 'new name.cs', additions: 0, deletions: 0 },
     { status: 'M', path: 'src/a.cs', additions: 0, deletions: 0, conflict: false }
   ]);
+});
+
+test('maps changed-file revisions to the correct from and to paths', () => {
+  const cases = [
+    [{ status: 'A', path: 'new.cs' }, { from: undefined, to: 'new.cs' }],
+    [{ status: 'M', path: 'same.cs' }, { from: 'same.cs', to: 'same.cs' }],
+    [{ status: 'D', path: 'old.cs' }, { from: 'old.cs', to: undefined }],
+    [{ status: 'R', oldPath: 'old.cs', path: 'new.cs' }, { from: 'old.cs', to: 'new.cs' }],
+    [{ status: 'C', oldPath: 'source.cs', path: 'copy.cs' }, { from: 'source.cs', to: 'copy.cs' }]
+  ] as const;
+
+  for (const [file, expected] of cases) assert.deepEqual(revisionPathsForChange(file), expected);
 });
 
 test('parses numstat and treats binary counts as zero', () => {
@@ -66,5 +78,4 @@ test('formats comprehensive full commit info text for clipboard', () => {
     'Commit:  3f243793de59324b7b7f6c35e7f1e247e66939c4 (3f24379)\ntest(gitnav): add regression tests for real git diff on merge commits and additions'
   );
 });
-
 
