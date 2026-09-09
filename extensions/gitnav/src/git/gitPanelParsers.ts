@@ -43,6 +43,19 @@ export function parseNameStatusZ(output: string): GitFileChange[] {
   return changes;
 }
 
+export interface GitFileRevisionPaths {
+  readonly from?: string;
+  readonly to?: string;
+}
+
+export function revisionPathsForChange(file: Pick<GitFileChange, 'status' | 'path' | 'oldPath'>): GitFileRevisionPaths {
+  const code = String(file.status || '').trim().toUpperCase()[0];
+  return {
+    from: code === 'A' || code === '?' ? undefined : (code === 'R' || code === 'C' ? file.oldPath ?? file.path : file.path),
+    to: code === 'D' ? undefined : file.path
+  };
+}
+
 export function parseNumstatZ(output: string): Map<string, { additions: number; deletions: number }> {
   const stats = new Map<string, { additions: number; deletions: number }>();
   for (const entry of output.split('\0')) {
@@ -106,4 +119,3 @@ export function formatFullCommitInfo(detail: {
   const fullMessage = (detail.message || detail.subject || '').trim();
   return `Commit:  ${detail.hash} (${short})\n${fullMessage}`;
 }
-

@@ -74,6 +74,24 @@ test('changed files defaults to list mode and uses one compact folder action', (
   assert.match(styles, /\.file-view-toggle button\s*\{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*justify-content: center;/s);
 });
 
+test('changed files expose focus, search, and status filters', () => {
+  const provider = readGitLogSurface();
+  const styles = read('media', 'webview', 'git-log.css');
+
+  assert.match(provider, /id="filesFocusToggle"[^>]*aria-pressed="false"/);
+  assert.match(provider, /id="fileSearch"/);
+  assert.match(provider, /id="fileStatusTrigger"[^>]*aria-haspopup="true"/);
+  assert.match(provider, /id="fileStatusMenu"[^>]*role="group"/);
+  assert.match(provider, /type="checkbox" data-file-status="M"/);
+  assert.match(provider, /data-file-status="A"/);
+  assert.match(provider, /data-file-status="C"/);
+  assert.match(provider, /fileSearch='';fileStatusFilter=\[\]/);
+  assert.match(provider, /fileStatusFilter\.includes\(fileStatusCode\(f\)\)/);
+  assert.match(styles, /\.file-filter-bar/);
+  assert.match(styles, /\.file-status-menu/);
+  assert.match(styles, /\.layout\.files-focused \.detail/);
+});
+
 test('custom date range provides a themed calendar and themed filter chips', () => {
   const provider = readGitLogSurface();
   const styles = read('media', 'webview', 'git-log.css');
