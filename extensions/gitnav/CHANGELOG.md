@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.20.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.19.1...gitnav-v0.20.0) (2026-09-09)
+
+
+### Features
+
+* **gitnav:** improve changed file filtering and revision diffs ([11940be](https://github.com/nguyentuan0307/DotNav/commit/11940be18afbbdae23180bf2f18a34012f0a6cb6))
+
+
 ## [0.19.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.19.0...gitnav-v0.19.1) (2026-08-28)
 
 
