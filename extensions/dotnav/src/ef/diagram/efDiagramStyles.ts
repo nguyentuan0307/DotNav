@@ -204,8 +204,7 @@ body, html {
   width: 100%;
   min-width: 0;
   height: 42px;
-  background: rgba(30, 30, 30, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(30, 30, 30, 0.96);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -460,6 +459,7 @@ body, html {
   height: 100%;
   position: relative;
   overflow: hidden;
+  contain: layout size;
   background-color: #14161a;
   background-image: 
     radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
@@ -484,9 +484,6 @@ body, html {
   height: 10000px;
   pointer-events: none;
   overflow: visible;
-}
-
-.canvas-transform.is-panning {
   will-change: transform;
 }
 
@@ -1059,9 +1056,7 @@ body, html {
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(24, 26, 32, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(24, 26, 32, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   padding: 3px 6px;
@@ -1075,9 +1070,7 @@ body, html {
   position: absolute;
   bottom: 48px;
   right: 16px;
-  background: rgba(24, 26, 32, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(24, 26, 32, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);

@@ -729,12 +729,44 @@ export function getEfDiagramClientScript(): string {
     }
   }
 
-  function focusCard(entityName) {
+  function resetContainerScroll() {
+    if (viewport) {
+      if (viewport.scrollLeft !== 0) viewport.scrollLeft = 0;
+      if (viewport.scrollTop !== 0) viewport.scrollTop = 0;
+    }
+    const mainArea = document.querySelector('.main-area');
+    if (mainArea) {
+      if (mainArea.scrollLeft !== 0) mainArea.scrollLeft = 0;
+      if (mainArea.scrollTop !== 0) mainArea.scrollTop = 0;
+    }
+    const diagramContainer = document.querySelector('.diagram-container');
+    if (diagramContainer) {
+      if (diagramContainer.scrollLeft !== 0) diagramContainer.scrollLeft = 0;
+      if (diagramContainer.scrollTop !== 0) diagramContainer.scrollTop = 0;
+    }
+  }
+
+  function focusCard(entityName, shouldPan = true) {
+    resetContainerScroll();
     const card = document.getElementById('card-' + entityName);
     if (card) {
       card.classList.add('selected');
-      card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       setTimeout(() => card.classList.remove('selected'), 1200);
+    }
+    if (shouldPan && activePositions[entityName]) {
+      const pos = activePositions[entityName];
+      const cardEl = card || document.getElementById('card-' + entityName);
+      const isMinimized = cardEl?.classList.contains('minimized') || minimizedCards.has(entityName);
+      const width = cardEl?.offsetWidth || cardSizeCache[entityName]?.width || 310;
+      const height = cardEl?.offsetHeight || cardSizeCache[entityName]?.height || (isMinimized ? 40 : 220);
+      const cardCenterX = pos.x + width / 2;
+      const cardCenterY = pos.y + height / 2;
+      const vpW = viewport ? viewport.clientWidth : 1200;
+      const vpH = viewport ? viewport.clientHeight : 800;
+      panX = Math.round(vpW / 2 - cardCenterX * zoom);
+      panY = Math.round(vpH / 2 - cardCenterY * zoom);
+      applyTransform();
+      updateMinimap();
     }
   }
 
@@ -809,8 +841,9 @@ export function getEfDiagramClientScript(): string {
     pushHistory();
     let posX = worldX;
     let posY = worldY;
+    const isDrop = posX !== undefined && posY !== undefined && !isNaN(posX) && !isNaN(posY);
 
-    if (posX === undefined || posY === undefined || isNaN(posX) || isNaN(posY)) {
+    if (!isDrop) {
       const slot = findFreeCanvasSlot(80, 80);
       posX = slot.x;
       posY = slot.y;
@@ -819,7 +852,7 @@ export function getEfDiagramClientScript(): string {
     activePositions[entityName] = { x: Math.round(posX), y: Math.round(posY) };
     renderEntityList(searchBox.value);
     renderCanvas();
-    focusCard(entityName);
+    focusCard(entityName, !isDrop);
   }
 
   function removeEntityFromCanvas(entityName) {
@@ -2005,17 +2038,18 @@ export function getEfDiagramClientScript(): string {
         const geom = computeRelGeometry(rel);
         if (!geom) continue;
 
-        const paths = group.querySelectorAll('path');
-        paths.forEach(p => p.setAttribute('d', geom.pathData));
+        const pathEl = group.querySelector('.link-path');
+        if (pathEl) pathEl.setAttribute('d', geom.pathData);
 
-        const circles = group.querySelectorAll('circle');
-        if (circles[0]) {
-          circles[0].setAttribute('cx', geom.x1);
-          circles[0].setAttribute('cy', geom.y1);
+        const c1 = group.querySelector('.link-endpoint');
+        if (c1) {
+          c1.setAttribute('cx', geom.x1);
+          c1.setAttribute('cy', geom.y1);
         }
-        if (circles[1]) {
-          circles[1].setAttribute('cx', geom.x2);
-          circles[1].setAttribute('cy', geom.y2);
+        const c2 = group.querySelector('.link-crowfoot');
+        if (c2) {
+          c2.setAttribute('cx', geom.x2);
+          c2.setAttribute('cy', geom.y2);
         }
       }
     }
@@ -2278,18 +2312,28 @@ export function getEfDiagramClientScript(): string {
 
   // Pan & Zoom
   function applyTransform() {
+    resetContainerScroll();
     canvasTransform.style.transform = \`translate(\${panX}px, \${panY}px) scale(\${zoom})\`;
     zoomDisplay.textContent = Math.round(zoom * 100) + '%';
   }
+
+  let lastZoomTimestamp = 0;
 
   viewport.addEventListener('wheel', e => {
     const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list, .rel-inspector-body, .note-textarea');
 
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = Math.min(Math.max(0.3, zoom * zoomFactor), 2.5);
+      lastZoomTimestamp = performance.now();
 
+      // Proportional smooth zoom factor based on wheel delta
+      const clampedDelta = Math.max(-100, Math.min(100, e.deltaY));
+      const zoomFactor = Math.pow(0.998, clampedDelta);
+      const newZoom = Math.min(Math.max(0.25, zoom * zoomFactor), 2.5);
+
+      if (Math.abs(newZoom - zoom) < 0.0001) return;
+
+      resetContainerScroll();
       const rect = viewport.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
@@ -2303,7 +2347,14 @@ export function getEfDiagramClientScript(): string {
     } else if (scrollableTarget) {
       return;
     } else {
+      // If user recently zoomed within 180ms, ignore trailing inertia events to prevent accidental canvas pan
+      if (performance.now() - lastZoomTimestamp < 180) {
+        e.preventDefault();
+        return;
+      }
+
       e.preventDefault();
+      resetContainerScroll();
       if (e.shiftKey) {
         panX -= (e.deltaY || e.deltaX);
       } else {
@@ -2348,6 +2399,8 @@ export function getEfDiagramClientScript(): string {
     }
   });
 
+  let panRafPending = false;
+
   window.addEventListener('pointermove', e => {
     if (isPanning) {
       if (!hasPanMoved && Math.hypot(e.clientX - panPointerStartX, e.clientY - panPointerStartY) > 4) {
@@ -2355,8 +2408,14 @@ export function getEfDiagramClientScript(): string {
       }
       panX = e.clientX - startPanX;
       panY = e.clientY - startPanY;
-      applyTransform();
-      updateMinimap();
+      if (!panRafPending) {
+        panRafPending = true;
+        requestAnimationFrame(() => {
+          panRafPending = false;
+          applyTransform();
+          updateMinimap();
+        });
+      }
     } else if (isMarqueeSelecting) {
       const vpRect = viewport.getBoundingClientRect();
       const curX = e.clientX - vpRect.left;
@@ -2547,6 +2606,11 @@ export function getEfDiagramClientScript(): string {
     stopEdgeAutoPan();
     if (isPanning) {
       isPanning = false;
+      if (panRafPending) {
+        panRafPending = false;
+      }
+      applyTransform();
+      updateMinimap();
       canvasTransform.classList.remove('is-panning');
       viewport.style.cursor = 'grab';
     }
@@ -2578,6 +2642,7 @@ export function getEfDiagramClientScript(): string {
     stopEdgeAutoPan();
     if (isPanning) {
       isPanning = false;
+      panRafPending = false;
       canvasTransform.classList.remove('is-panning');
       viewport.style.cursor = 'grab';
     }
@@ -2606,6 +2671,7 @@ export function getEfDiagramClientScript(): string {
 
   viewport.addEventListener('drop', e => {
     e.preventDefault();
+    resetContainerScroll();
     const entityName = e.dataTransfer.getData('text/plain');
     if (entityName) {
       const rect = viewport.getBoundingClientRect();
@@ -3028,17 +3094,21 @@ export function getEfDiagramClientScript(): string {
 
   // Smart Viewport Auto-Centering & Fit-to-Content
   function fitToContent(animate = true) {
+    resetContainerScroll();
     const activeNames = Object.keys(activePositions);
     if (activeNames.length === 0 && notes.length === 0) return;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     activeNames.forEach(name => {
       const p = activePositions[name];
-      const s = cardSizeCache[name] || { width: 310, height: 200 };
+      const card = document.getElementById('card-' + name);
+      const isMinimized = card?.classList.contains('minimized') || minimizedCards.has(name);
+      const width = card?.offsetWidth || cardSizeCache[name]?.width || 310;
+      const height = card?.offsetHeight || cardSizeCache[name]?.height || (isMinimized ? 40 : 340);
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + s.width);
-      maxY = Math.max(maxY, p.y + s.height);
+      maxX = Math.max(maxX, p.x + width);
+      maxY = Math.max(maxY, p.y + height);
     });
 
     notes.forEach(n => {
@@ -3050,19 +3120,29 @@ export function getEfDiagramClientScript(): string {
 
     const contentW = Math.max(300, maxX - minX);
     const contentH = Math.max(200, maxY - minY);
-    const padding = 80;
+    const paddingX = 60;
+    const paddingTop = 60;
+    const paddingBottom = 60;
 
-    const availableW = Math.max(200, viewport.clientWidth - padding * 2);
-    const availableH = Math.max(200, viewport.clientHeight - padding * 2);
+    const vpW = viewport ? viewport.clientWidth : 1200;
+    const vpH = viewport ? viewport.clientHeight : 800;
+
+    const availableW = Math.max(200, vpW - paddingX * 2);
+    const availableH = Math.max(200, vpH - paddingTop - paddingBottom);
 
     const fitZoom = Math.min(1.0, Math.max(0.35, Math.min(availableW / contentW, availableH / contentH)));
     zoom = fitZoom;
 
     const contentCenterX = minX + contentW / 2;
-    const contentCenterY = minY + contentH / 2;
+    panX = Math.round(vpW / 2 - contentCenterX * zoom);
 
-    panX = Math.round(viewport.clientWidth / 2 - contentCenterX * zoom);
-    panY = Math.round(viewport.clientHeight / 2 - contentCenterY * zoom);
+    const scaledContentH = contentH * zoom;
+    if (scaledContentH < availableH) {
+      panY = Math.round(paddingTop - minY * zoom);
+    } else {
+      const contentCenterY = minY + contentH / 2;
+      panY = Math.round(vpH / 2 - contentCenterY * zoom);
+    }
 
     applyTransform();
     updateMinimap();
