@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.30.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.30.0...dotnav-v0.30.1) (2026-09-11)
+
+
+### Performance Improvements
+
+* **erd:** optimize canvas rendering with RAF throttling and selective SVG updates ([d4361e7](https://github.com/nguyentuan0307/DotNav/commit/d4361e7cd466f17f666314669a0213647142cefc))
+
+
 ## [0.30.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.29.1...dotnav-v0.30.0) (2026-09-11)
 
 
