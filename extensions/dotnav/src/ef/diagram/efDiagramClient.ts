@@ -16,6 +16,7 @@ export function getEfDiagramClientScript(): string {
   let minimizedCards = new Set();
   let hiddenColumnsByEntity = {}; // { [entityName]: Set<propName> }
   let colorByEntity = {}; // { [entityName]: hexColor }
+  let cardWidthByEntity = {}; // { [entityName]: number }
   let activeSelectedRelId = null;
 
   // Multi-Selection State
@@ -220,6 +221,7 @@ export function getEfDiagramClientScript(): string {
       notes: JSON.parse(JSON.stringify(notes)),
       hiddenColumns: Object.fromEntries(Object.entries(hiddenColumnsByEntity).map(([k, v]) => [k, Array.from(v)])),
       colors: { ...colorByEntity },
+      widths: { ...cardWidthByEntity },
       minimized: Array.from(minimizedCards)
     };
   }
@@ -242,6 +244,7 @@ export function getEfDiagramClientScript(): string {
       }
     }
     colorByEntity = { ...(snap.colors || {}) };
+    cardWidthByEntity = { ...(snap.widths || {}) };
     minimizedCards = new Set(snap.minimized || []);
     selectedEntityNames.clear();
 
@@ -298,6 +301,7 @@ export function getEfDiagramClientScript(): string {
           notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
           hiddenColumnsByEntity = {};
           colorByEntity = {};
+          cardWidthByEntity = {};
           minimizedCards.clear();
           selectedEntityNames.clear();
           activeSelectedRelId = null;
@@ -325,6 +329,7 @@ export function getEfDiagramClientScript(): string {
           notes = msg.notes ? JSON.parse(JSON.stringify(msg.notes)) : [];
           hiddenColumnsByEntity = {};
           colorByEntity = {};
+          cardWidthByEntity = {};
           minimizedCards.clear();
           selectedEntityNames.clear();
           activeSelectedRelId = null;
@@ -398,6 +403,9 @@ export function getEfDiagramClientScript(): string {
         if (state.color) {
           colorByEntity[name] = state.color;
         }
+        if (state.width && typeof state.width === 'number') {
+          cardWidthByEntity[name] = state.width;
+        }
         if (state.isMinimized) {
           minimizedCards.add(name);
         }
@@ -412,6 +420,7 @@ export function getEfDiagramClientScript(): string {
       out[name] = {
         x: pos.x,
         y: pos.y,
+        width: cardWidthByEntity[name] || cardSizeCache[name]?.width || 310,
         hiddenColumns: hiddenColumnsByEntity[name] ? Array.from(hiddenColumnsByEntity[name]) : [],
         color: colorByEntity[name] || '',
         isMinimized: minimizedCards.has(name)
@@ -673,7 +682,7 @@ export function getEfDiagramClientScript(): string {
       const tableLabel = entity.tableName ? (entity.schemaName ? entity.schemaName + '.' + entity.tableName : entity.tableName) : '';
       const actionBadge = isInDiagram 
         ? '<span class="entity-item-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: 500;">✓ In Diagram</span>'
-        : \`<span class="entity-item-badge">\${entity.properties.length} cols</span>\`;
+        : \`<span class="entity-item-badge">\${entity.properties.filter(p => !p.isNavigation).length} cols</span>\`;
 
       const actionBtn = isInDiagram
         ? '<button class="entity-remove-btn" title="Remove from Diagram" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;">✕</button>'
@@ -865,6 +874,7 @@ export function getEfDiagramClientScript(): string {
     selectedEntityNames.delete(entityName);
     delete hiddenColumnsByEntity[entityName];
     delete colorByEntity[entityName];
+    delete cardWidthByEntity[entityName];
     delete cardSizeCache[entityName];
     delete cardRowOffsetCache[entityName];
     closeAllPopovers();
@@ -936,6 +946,9 @@ export function getEfDiagramClientScript(): string {
       card.id = 'card-' + entity.name;
       card.style.left = pos.x + 'px';
       card.style.top = pos.y + 'px';
+      if (cardWidthByEntity[entity.name]) {
+        card.style.width = cardWidthByEntity[entity.name] + 'px';
+      }
 
       if (customColor) {
         card.style.borderTop = \`3px solid \${customColor}\`;
@@ -943,9 +956,12 @@ export function getEfDiagramClientScript(): string {
 
       const tableDisplay = entity.tableName ? (entity.schemaName ? entity.schemaName + '.' + entity.tableName : entity.tableName) : entity.name;
 
-      const totalProps = entity.properties.length;
+      // Filter out C# navigation properties (ICollection<...>, virtual references)
+      // ERD table cards only display physical database columns (PK, FK, data columns)
+      const dbColumns = entity.properties.filter(p => !p.isNavigation);
+      const totalProps = dbColumns.length;
       let visibleCount = 0;
-      const propRowsHtml = entity.properties.map(p => {
+      const propRowsHtml = dbColumns.map(p => {
         const isHidden = isPropertyHidden(entity, p, hiddenSet);
       if (!isHidden) visibleCount++;
         return renderPropertyRow(entity, p, isHidden);
@@ -979,6 +995,7 @@ export function getEfDiagramClientScript(): string {
           \${propRowsHtml}
         </div>
         \${hiddenCount > 0 ? \`<div class="card-hidden-footer" title="Click to manage hidden columns"><span>\${columnVisibilityIcon(false)} + \${hiddenCount} hidden columns</span><span style="opacity:0.7;">manage ▸</span></div>\` : ''}
+        <div class="card-resizer" title="Drag to resize table width"></div>
       \`;
 
       // Header double-click to jump to C# source code
@@ -1087,6 +1104,43 @@ export function getEfDiagramClientScript(): string {
         closeAllPopovers();
         e.stopPropagation();
       });
+
+      // Draggable Table Card Width Resizer
+      const resizer = card.querySelector('.card-resizer');
+      if (resizer) {
+        resizer.addEventListener('pointerdown', e => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          resizer.setPointerCapture(e.pointerId);
+          card.classList.add('resizing');
+          const startX = e.clientX;
+          const startWidth = card.offsetWidth;
+
+          const onPointerMove = moveEv => {
+            const delta = (moveEv.clientX - startX) / zoom;
+            const newWidth = Math.max(240, Math.min(800, Math.round(startWidth + delta)));
+            card.style.width = newWidth + 'px';
+            cardWidthByEntity[entity.name] = newWidth;
+            if (cardSizeCache[entity.name]) {
+              cardSizeCache[entity.name].width = newWidth;
+            }
+            scheduleSvgUpdate();
+            updateMinimap();
+          };
+
+          const onPointerUp = () => {
+            resizer.removeEventListener('pointermove', onPointerMove);
+            resizer.removeEventListener('pointerup', onPointerUp);
+            resizer.removeEventListener('pointercancel', onPointerUp);
+            card.classList.remove('resizing');
+            pushHistory();
+          };
+
+          resizer.addEventListener('pointermove', onPointerMove);
+          resizer.addEventListener('pointerup', onPointerUp);
+          resizer.addEventListener('pointercancel', onPointerUp);
+        });
+      }
 
       cardsLayer.appendChild(card);
     }
@@ -1282,6 +1336,9 @@ export function getEfDiagramClientScript(): string {
   }
 
   function isPropertyHidden(entity, prop, customHiddenSet) {
+    if (prop.isNavigation) {
+      return true;
+    }
     if (customHiddenSet.has(prop.name)) {
       return true;
     }
@@ -1390,6 +1447,7 @@ export function getEfDiagramClientScript(): string {
       hiddenColumnsByEntity[entity.name] = new Set();
     }
     const hiddenSet = hiddenColumnsByEntity[entity.name];
+    const dbColumns = entity.properties.filter(p => !p.isNavigation);
 
     popover.innerHTML = \`
       <div class="popover-header">
@@ -1398,7 +1456,7 @@ export function getEfDiagramClientScript(): string {
           <span>Manage Columns</span>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size: 10px; color: var(--text-muted);">\${entity.properties.length} total</span>
+          <span style="font-size: 10px; color: var(--text-muted);">\${dbColumns.length} total</span>
           <button class="popover-close-btn" title="Close">✕</button>
         </div>
       </div>
@@ -1406,7 +1464,7 @@ export function getEfDiagramClientScript(): string {
         <input type="text" placeholder="Filter column name..." />
       </div>
       <div class="popover-list">
-        \${entity.properties.map(p => {
+        \${dbColumns.map(p => {
           const isVisible = !hiddenSet.has(p.name);
           const keyLabel = p.isPrimaryKey ? ' (PK)' : (p.isForeignKey ? ' (FK)' : '');
           return \`
@@ -1444,7 +1502,7 @@ export function getEfDiagramClientScript(): string {
 
     function syncCardVisibilityInPlace() {
       let visibleCount = 0;
-      entity.properties.forEach(p => {
+      dbColumns.forEach(p => {
         const isHidden = isPropertyHidden(entity, p, hiddenSet);
         if (!isHidden) visibleCount++;
         const rowEl = card.querySelector(\`.prop-row[data-prop-name="\${p.name}"]\`);
@@ -1453,7 +1511,7 @@ export function getEfDiagramClientScript(): string {
         }
       });
 
-      const totalProps = entity.properties.length;
+      const totalProps = dbColumns.length;
       const hiddenCount = totalProps - visibleCount;
 
       let badgeEl = card.querySelector('.card-visibility-badge');
@@ -1527,7 +1585,7 @@ export function getEfDiagramClientScript(): string {
     popover.querySelector('#popKeysOnly').addEventListener('click', e => {
       e.stopPropagation();
       hiddenSet.clear();
-      entity.properties.forEach(p => {
+      dbColumns.forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey) {
           hiddenSet.add(p.name);
         }
@@ -1544,7 +1602,7 @@ export function getEfDiagramClientScript(): string {
 
     popover.querySelector('#popHideAudit').addEventListener('click', e => {
       e.stopPropagation();
-      entity.properties.forEach(p => {
+      dbColumns.forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey && AUDIT_FIELD_NAMES.has(p.name.toLowerCase())) {
           hiddenSet.add(p.name);
         }
@@ -1725,7 +1783,7 @@ export function getEfDiagramClientScript(): string {
       if (!hiddenColumnsByEntity[entity.name]) hiddenColumnsByEntity[entity.name] = new Set();
       const set = hiddenColumnsByEntity[entity.name];
       set.clear();
-      entity.properties.forEach(p => {
+      entity.properties.filter(p => !p.isNavigation).forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey) set.add(p.name);
       });
       closeAllPopovers();
@@ -1736,7 +1794,7 @@ export function getEfDiagramClientScript(): string {
       pushHistory();
       if (!hiddenColumnsByEntity[entity.name]) hiddenColumnsByEntity[entity.name] = new Set();
       const set = hiddenColumnsByEntity[entity.name];
-      entity.properties.forEach(p => {
+      entity.properties.filter(p => !p.isNavigation).forEach(p => {
         if (!p.isPrimaryKey && !p.isForeignKey && AUDIT_FIELD_NAMES.has(p.name.toLowerCase())) {
           set.add(p.name);
         }
@@ -3548,7 +3606,7 @@ export function getEfDiagramClientScript(): string {
         md += '|---|---|---|---|---|---|---|\\n';
 
         for (const p of entity.properties) {
-          if (hiddenSet.has(p.name)) continue;
+          if (p.isNavigation || hiddenSet.has(p.name)) continue;
           const col = \`\\\`\${p.columnName || p.name}\\\`\`;
           const prop = \`\\\`\${p.name}\\\`\`;
           const sqlType = \`\\\`\${p.columnType || p.type}\\\`\`;
@@ -3683,7 +3741,7 @@ export function getEfDiagramClientScript(): string {
         const p = activePositions[name];
         const hiddenSet = hiddenColumnsByEntity[name] || new Set();
         const visibleProps = entity.properties.filter(prop => !isPropertyHidden(entity, prop, hiddenSet));
-        const w = 310;
+        const w = cardWidthByEntity[name] || cardSizeCache[name]?.width || 310;
         const h = Math.max(70, 48 + visibleProps.length * 26 + 10);
         const x = p.x - minX;
         const y = p.y - minY;
@@ -3889,7 +3947,7 @@ export function getEfDiagramClientScript(): string {
         const p = activePositions[name];
         const hiddenSet = hiddenColumnsByEntity[name] || new Set();
         const visibleProps = entity.properties.filter(prop => !isPropertyHidden(entity, prop, hiddenSet));
-        const w = 310;
+        const w = cardWidthByEntity[name] || cardSizeCache[name]?.width || 310;
         const h = Math.max(70, 48 + visibleProps.length * 26 + 10);
         const x = p.x - minX;
         const y = p.y - minY;
