@@ -590,6 +590,7 @@ body, html {
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
   overflow: visible;
   touch-action: none;
+  contain: layout style;
 }
 
 .table-card.resizing {
@@ -621,6 +622,7 @@ body, html {
 .table-card.dragging {
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--card-selected-border);
   opacity: 0.96;
+  will-change: left, top;
 }
 
 /* Floating Layout Toast Notification */

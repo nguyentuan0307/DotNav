@@ -33,6 +33,12 @@ export function getEfDiagramClientScript(): string {
   // Performance Caches (Eliminates Layout Thrashing / Reflow during Dragging)
   const cardSizeCache = {}; // { [name]: { width: number, height: number } }
   const cardRowOffsetCache = {}; // { [name]: { [propName]: number, pkDefault: number, fkDefault: number } }
+  const relSvgElements = {}; // { [relId]: { group, pathEl, hitbox, c1, c2 } }
+  const relsByEntity = {}; // { [entityName]: Array<Relationship> }
+  let cachedViewportRect = null;
+  let dragRafPending = false;
+  let pendingAffectedEntities = null;
+  let wheelRafPending = false;
 
   let currentDiagramName = '';
   let activeFilterMode = 'all'; // 'all' | 'keys' | 'no-audit'
@@ -93,6 +99,20 @@ export function getEfDiagramClientScript(): string {
   const minimapBody = document.getElementById('minimapBody');
   const btnToggleMinimap = document.getElementById('btnToggleMinimap');
   const floatingZoomControls = document.getElementById('floatingZoomControls');
+  const mainArea = document.querySelector('.main-area');
+  const diagramContainer = document.querySelector('.diagram-container');
+
+  function getViewportRect() {
+    if (!cachedViewportRect && viewport) {
+      cachedViewportRect = viewport.getBoundingClientRect();
+    }
+    return cachedViewportRect || (viewport ? viewport.getBoundingClientRect() : { left: 0, top: 0, right: 1200, bottom: 800, width: 1200, height: 800 });
+  }
+
+  window.addEventListener('resize', () => {
+    cachedViewportRect = viewport ? viewport.getBoundingClientRect() : null;
+    updateMinimap();
+  });
 
   // Focus Mode & Quick Finder Elements
   let focusedEntityName = null;
@@ -451,6 +471,7 @@ export function getEfDiagramClientScript(): string {
     window.addEventListener('pointerup', e => {
       if (isResizingSidebar) {
         isResizingSidebar = false;
+        cachedViewportRect = null;
         sidebarResizer.classList.remove('resizing');
         document.body.style.cursor = '';
       }
@@ -739,19 +760,17 @@ export function getEfDiagramClientScript(): string {
   }
 
   function resetContainerScroll() {
-    if (viewport) {
-      if (viewport.scrollLeft !== 0) viewport.scrollLeft = 0;
-      if (viewport.scrollTop !== 0) viewport.scrollTop = 0;
+    if (viewport && (viewport.scrollLeft !== 0 || viewport.scrollTop !== 0)) {
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
     }
-    const mainArea = document.querySelector('.main-area');
-    if (mainArea) {
-      if (mainArea.scrollLeft !== 0) mainArea.scrollLeft = 0;
-      if (mainArea.scrollTop !== 0) mainArea.scrollTop = 0;
+    if (mainArea && (mainArea.scrollLeft !== 0 || mainArea.scrollTop !== 0)) {
+      mainArea.scrollLeft = 0;
+      mainArea.scrollTop = 0;
     }
-    const diagramContainer = document.querySelector('.diagram-container');
-    if (diagramContainer) {
-      if (diagramContainer.scrollLeft !== 0) diagramContainer.scrollLeft = 0;
-      if (diagramContainer.scrollTop !== 0) diagramContainer.scrollTop = 0;
+    if (diagramContainer && (diagramContainer.scrollLeft !== 0 || diagramContainer.scrollTop !== 0)) {
+      diagramContainer.scrollLeft = 0;
+      diagramContainer.scrollTop = 0;
     }
   }
 
@@ -1082,6 +1101,7 @@ export function getEfDiagramClientScript(): string {
         header.setPointerCapture(e.pointerId);
         card.classList.add('dragging');
         card.style.zIndex = '100';
+        cachedViewportRect = viewport ? viewport.getBoundingClientRect() : null;
 
         if (!e.shiftKey && !selectedEntityNames.has(entity.name)) {
           selectedEntityNames.clear();
@@ -1115,23 +1135,42 @@ export function getEfDiagramClientScript(): string {
           card.classList.add('resizing');
           const startX = e.clientX;
           const startWidth = card.offsetWidth;
+          let resizeRafPending = false;
+          let latestDelta = 0;
 
           const onPointerMove = moveEv => {
-            const delta = (moveEv.clientX - startX) / zoom;
-            const newWidth = Math.max(240, Math.min(800, Math.round(startWidth + delta)));
-            card.style.width = newWidth + 'px';
-            cardWidthByEntity[entity.name] = newWidth;
-            if (cardSizeCache[entity.name]) {
-              cardSizeCache[entity.name].width = newWidth;
+            latestDelta = (moveEv.clientX - startX) / zoom;
+            if (!resizeRafPending) {
+              resizeRafPending = true;
+              requestAnimationFrame(() => {
+                resizeRafPending = false;
+                const newWidth = Math.max(240, Math.min(800, Math.round(startWidth + latestDelta)));
+                card.style.width = newWidth + 'px';
+                cardWidthByEntity[entity.name] = newWidth;
+                if (cardSizeCache[entity.name]) {
+                  cardSizeCache[entity.name].width = newWidth;
+                }
+                scheduleSvgUpdate(new Set([entity.name]));
+                updateMinimap();
+              });
             }
-            scheduleSvgUpdate();
-            updateMinimap();
           };
 
           const onPointerUp = () => {
             resizer.removeEventListener('pointermove', onPointerMove);
             resizer.removeEventListener('pointerup', onPointerUp);
             resizer.removeEventListener('pointercancel', onPointerUp);
+            if (resizeRafPending) {
+              resizeRafPending = false;
+              const newWidth = Math.max(240, Math.min(800, Math.round(startWidth + latestDelta)));
+              card.style.width = newWidth + 'px';
+              cardWidthByEntity[entity.name] = newWidth;
+              if (cardSizeCache[entity.name]) {
+                cardSizeCache[entity.name].width = newWidth;
+              }
+              scheduleSvgUpdate(new Set([entity.name]));
+              updateMinimap();
+            }
             card.classList.remove('resizing');
             pushHistory();
           };
@@ -1270,6 +1309,7 @@ export function getEfDiagramClientScript(): string {
         if (e.target.closest('.note-dot') || e.target.closest('.note-close-btn')) return;
         draggedNote = noteEl;
         header.setPointerCapture(e.pointerId);
+        cachedViewportRect = viewport ? viewport.getBoundingClientRect() : null;
         dragStartWorldX = (e.clientX - panX) / zoom;
         dragStartWorldY = (e.clientY - panY) / zoom;
         lastPointerClientX = e.clientX;
@@ -1724,6 +1764,7 @@ export function getEfDiagramClientScript(): string {
       if (e.target.closest('.popover-close-btn')) return;
       draggedInspector = popover;
       inspHeader.setPointerCapture(e.pointerId);
+      cachedViewportRect = viewport ? viewport.getBoundingClientRect() : null;
       const rect = popover.getBoundingClientRect();
       inspectorDragOffsetX = e.clientX - rect.left;
       inspectorDragOffsetY = e.clientY - rect.top;
@@ -1997,10 +2038,18 @@ export function getEfDiagramClientScript(): string {
   // Build SVG Elements once with Smart Color-Coded & Patterned Relationship Lines
   function buildAllSvgElements() {
     linksSvg.innerHTML = '';
+    for (const key in relSvgElements) delete relSvgElements[key];
+    for (const key in relsByEntity) delete relsByEntity[key];
     const activeNames = new Set(Object.keys(activePositions));
 
     for (const rel of allRelationships) {
       if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
+        // Build adjacency index for selective 60FPS updates
+        if (!relsByEntity[rel.fromEntity]) relsByEntity[rel.fromEntity] = [];
+        relsByEntity[rel.fromEntity].push(rel);
+        if (!relsByEntity[rel.toEntity]) relsByEntity[rel.toEntity] = [];
+        relsByEntity[rel.toEntity].push(rel);
+
         const geom = computeRelGeometry(rel);
         if (!geom) continue;
 
@@ -2079,42 +2128,82 @@ export function getEfDiagramClientScript(): string {
         group.appendChild(c2);
 
         linksSvg.appendChild(group);
+
+        relSvgElements[rel.id] = { group, pathEl, hitbox, c1, c2 };
       }
     }
   }
 
-  // 60FPS High-Performance In-Place SVG Coordinate Update (Zero DOM Allocation / Zero Reflow)
+  // 60FPS High-Performance In-Place Selective SVG Coordinate Update (Zero DOM Allocation / Zero Reflow)
   function updateSvgLinksInPlace() {
     rafScheduled = false;
-    const activeNames = new Set(Object.keys(activePositions));
+    const affected = pendingAffectedEntities;
+    pendingAffectedEntities = null;
 
-    for (const rel of allRelationships) {
+    const activeNames = new Set(Object.keys(activePositions));
+    let relsToUpdate;
+
+    if (affected && affected.size > 0) {
+      const relSet = new Set();
+      affected.forEach(name => {
+        const list = relsByEntity[name];
+        if (list) {
+          for (let i = 0; i < list.length; i++) {
+            relSet.add(list[i]);
+          }
+        }
+      });
+      relsToUpdate = Array.from(relSet);
+    } else {
+      relsToUpdate = allRelationships;
+    }
+
+    for (let i = 0; i < relsToUpdate.length; i++) {
+      const rel = relsToUpdate[i];
       if (activeNames.has(rel.fromEntity) && activeNames.has(rel.toEntity)) {
-        const group = document.getElementById('rel-g-' + rel.id);
-        if (!group) continue;
+        let el = relSvgElements[rel.id];
+        if (!el) {
+          const group = document.getElementById('rel-g-' + rel.id);
+          if (!group) continue;
+          el = {
+            group,
+            pathEl: group.querySelector('.link-path'),
+            hitbox: group.querySelector('.rel-hitbox'),
+            c1: group.querySelector('.link-endpoint'),
+            c2: group.querySelector('.link-crowfoot')
+          };
+          relSvgElements[rel.id] = el;
+        }
 
         const geom = computeRelGeometry(rel);
         if (!geom) continue;
 
-        const pathEl = group.querySelector('.link-path');
-        if (pathEl) pathEl.setAttribute('d', geom.pathData);
+        if (el.pathEl) el.pathEl.setAttribute('d', geom.pathData);
+        if (el.hitbox) el.hitbox.setAttribute('d', geom.pathData);
 
-        const c1 = group.querySelector('.link-endpoint');
-        if (c1) {
-          c1.setAttribute('cx', geom.x1);
-          c1.setAttribute('cy', geom.y1);
+        if (el.c1) {
+          el.c1.setAttribute('cx', geom.x1);
+          el.c1.setAttribute('cy', geom.y1);
         }
-        const c2 = group.querySelector('.link-crowfoot');
-        if (c2) {
-          c2.setAttribute('cx', geom.x2);
-          c2.setAttribute('cy', geom.y2);
+        if (el.c2) {
+          el.c2.setAttribute('cx', geom.x2);
+          el.c2.setAttribute('cy', geom.y2);
         }
       }
     }
-    updateMinimap();
   }
 
-  function scheduleSvgUpdate() {
+  function scheduleSvgUpdate(affectedEntities) {
+    if (affectedEntities) {
+      if (!pendingAffectedEntities) {
+        pendingAffectedEntities = new Set(affectedEntities);
+      } else {
+        affectedEntities.forEach(e => pendingAffectedEntities.add(e));
+      }
+    } else {
+      pendingAffectedEntities = null;
+    }
+
     if (!rafScheduled) {
       rafScheduled = true;
       requestAnimationFrame(updateSvgLinksInPlace);
@@ -2377,6 +2466,17 @@ export function getEfDiagramClientScript(): string {
 
   let lastZoomTimestamp = 0;
 
+  function scheduleWheelTransform() {
+    if (!wheelRafPending) {
+      wheelRafPending = true;
+      requestAnimationFrame(() => {
+        wheelRafPending = false;
+        applyTransform();
+        updateMinimap();
+      });
+    }
+  }
+
   viewport.addEventListener('wheel', e => {
     const scrollableTarget = e.target.closest('.card-body, .popover-list, .entity-list, .rel-inspector-body, .note-textarea');
 
@@ -2392,7 +2492,7 @@ export function getEfDiagramClientScript(): string {
       if (Math.abs(newZoom - zoom) < 0.0001) return;
 
       resetContainerScroll();
-      const rect = viewport.getBoundingClientRect();
+      const rect = getViewportRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
@@ -2400,8 +2500,7 @@ export function getEfDiagramClientScript(): string {
       panY = mouseY - (mouseY - panY) * (newZoom / zoom);
       zoom = newZoom;
 
-      applyTransform();
-      updateMinimap();
+      scheduleWheelTransform();
     } else if (scrollableTarget) {
       return;
     } else {
@@ -2419,8 +2518,7 @@ export function getEfDiagramClientScript(): string {
         panY -= e.deltaY;
         panX -= e.deltaX;
       }
-      applyTransform();
-      updateMinimap();
+      scheduleWheelTransform();
     }
   }, { passive: false });
 
@@ -2432,7 +2530,7 @@ export function getEfDiagramClientScript(): string {
           // Marquee Multi-Selection Box
           isMarqueeSelecting = true;
           viewport.setPointerCapture(e.pointerId);
-          const vpRect = viewport.getBoundingClientRect();
+          const vpRect = getViewportRect();
           marqueeStartX = e.clientX - vpRect.left;
           marqueeStartY = e.clientY - vpRect.top;
           marqueeBox.style.left = marqueeStartX + 'px';
@@ -2475,7 +2573,7 @@ export function getEfDiagramClientScript(): string {
         });
       }
     } else if (isMarqueeSelecting) {
-      const vpRect = viewport.getBoundingClientRect();
+      const vpRect = getViewportRect();
       const curX = e.clientX - vpRect.left;
       const curY = e.clientY - vpRect.top;
 
@@ -2512,16 +2610,32 @@ export function getEfDiagramClientScript(): string {
       lastPointerClientX = e.clientX;
       lastPointerClientY = e.clientY;
       lastPointerAltKey = e.altKey;
-      updateDraggingCardsPositions();
-      checkEdgeAutoPan();
+      if (!dragRafPending) {
+        dragRafPending = true;
+        requestAnimationFrame(() => {
+          dragRafPending = false;
+          if (draggedCard) {
+            updateDraggingCardsPositions();
+            checkEdgeAutoPan();
+          }
+        });
+      }
     } else if (draggedNote) {
       lastPointerClientX = e.clientX;
       lastPointerClientY = e.clientY;
       lastPointerAltKey = e.altKey;
-      updateDraggingNotePosition();
-      checkEdgeAutoPan();
+      if (!dragRafPending) {
+        dragRafPending = true;
+        requestAnimationFrame(() => {
+          dragRafPending = false;
+          if (draggedNote) {
+            updateDraggingNotePosition();
+            checkEdgeAutoPan();
+          }
+        });
+      }
     } else if (draggedInspector) {
-      const vpRect = viewport.getBoundingClientRect();
+      const vpRect = getViewportRect();
       let newLeft = e.clientX - inspectorDragOffsetX;
       let newTop = e.clientY - inspectorDragOffsetY;
 
@@ -2563,7 +2677,7 @@ export function getEfDiagramClientScript(): string {
       }
     });
 
-    scheduleSvgUpdate();
+    scheduleSvgUpdate(selectedEntityNames);
     updateMinimap();
   }
 
@@ -2603,7 +2717,7 @@ export function getEfDiagramClientScript(): string {
       return;
     }
 
-    const vpRect = viewport.getBoundingClientRect();
+    const vpRect = getViewportRect();
     const margin = 50;
     const maxSpeed = 16;
 
@@ -2662,6 +2776,12 @@ export function getEfDiagramClientScript(): string {
 
   window.addEventListener('pointerup', () => {
     stopEdgeAutoPan();
+    if (dragRafPending) {
+      dragRafPending = false;
+      if (draggedCard) updateDraggingCardsPositions();
+      else if (draggedNote) updateDraggingNotePosition();
+    }
+    cachedViewportRect = null;
     if (isPanning) {
       isPanning = false;
       if (panRafPending) {
@@ -2698,6 +2818,8 @@ export function getEfDiagramClientScript(): string {
 
   window.addEventListener('pointercancel', () => {
     stopEdgeAutoPan();
+    dragRafPending = false;
+    cachedViewportRect = null;
     if (isPanning) {
       isPanning = false;
       panRafPending = false;
