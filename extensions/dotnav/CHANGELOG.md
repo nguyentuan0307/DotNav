@@ -4,6 +4,18 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.30.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.29.1...dotnav-v0.30.0) (2026-09-11)
+
+
+### Features
+
+* **erd:** hide navigation properties and add table card resizing ([bde550f](https://github.com/nguyentuan0307/DotNav/commit/bde550ff319eb081e4e6c2c186464be19804d815))
+
+### Bug Fixes
+
+* **erd:** fix minimap loss on drag, auto-arrange viewport drift, zoom inertia scroll, and canvas lag ([012ef9d](https://github.com/nguyentuan0307/DotNav/commit/012ef9d0e3272e16117b7b5a5260e09a9d1a2c6d))
+
+
 ## [0.29.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.29.0...dotnav-v0.29.1) (2026-09-07)
 
 
