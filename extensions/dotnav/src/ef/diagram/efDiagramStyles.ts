@@ -204,8 +204,7 @@ body, html {
   width: 100%;
   min-width: 0;
   height: 42px;
-  background: rgba(30, 30, 30, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(30, 30, 30, 0.96);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -460,6 +459,7 @@ body, html {
   height: 100%;
   position: relative;
   overflow: hidden;
+  contain: layout size;
   background-color: #14161a;
   background-image: 
     radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
@@ -484,9 +484,6 @@ body, html {
   height: 10000px;
   pointer-events: none;
   overflow: visible;
-}
-
-.canvas-transform.is-panning {
   will-change: transform;
 }
 
@@ -583,7 +580,7 @@ body, html {
   position: absolute;
   width: 310px;
   min-width: 240px;
-  max-width: 600px;
+  max-width: 800px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 8px;
@@ -593,6 +590,28 @@ body, html {
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
   overflow: visible;
   touch-action: none;
+}
+
+.table-card.resizing {
+  user-select: none;
+}
+
+.card-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  user-select: none;
+  touch-action: none;
+  border-radius: 0 8px 8px 0;
+  transition: background 0.15s ease;
+}
+
+.card-resizer:hover, .table-card.resizing .card-resizer {
+  background: rgba(56, 189, 248, 0.45);
 }
 
 .table-card.layout-transitioning {
@@ -748,9 +767,28 @@ body, html {
 
 /* Card Body & 2-Column Property Rows */
 .card-body {
-  max-height: 380px;
+  max-height: 400px;
   overflow-y: auto;
   padding: 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.card-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.card-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.card-body::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+
+.card-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
 .table-card.minimized .card-body, .table-card.minimized .card-hidden-footer {
@@ -1059,9 +1097,7 @@ body, html {
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(24, 26, 32, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(24, 26, 32, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   padding: 3px 6px;
@@ -1075,9 +1111,7 @@ body, html {
   position: absolute;
   bottom: 48px;
   right: 16px;
-  background: rgba(24, 26, 32, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(24, 26, 32, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
