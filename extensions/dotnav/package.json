@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.30.1",
+  "version": "0.31.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -1218,7 +1218,7 @@
         "dotnav.solutionSearch.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable universal solution search indexing and the Search Everywhere command. When disabled, DotNav does not perform background symbol indexing and immediately frees all associated memory and disk caches."
+          "description": "Enable full-solution background indexing for Search Everywhere."
         },
         "dotnav.localHistory.enabled": {
           "type": "boolean",
@@ -1508,11 +1508,6 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically reveal the active editor file in the .NET solution tree."
-        },
-        "dotnav.solutionSearch.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable full-solution background indexing for Search Everywhere."
         },
         "dotnav.solutionSearch.explainRanking": {
           "type": "boolean",

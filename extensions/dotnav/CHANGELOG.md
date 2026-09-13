@@ -4,6 +4,25 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.31.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.30.1...dotnav-v0.31.0) (2026-09-13)
+
+
+### Features
+
+* **dotnav:** add solution scoping and multi-focus mode with slnf support ([40a1f0b](https://github.com/nguyentuan0307/DotNav/commit/40a1f0b394cf71c129f8dbac2bd01a220405ac5a))
+* **dotnav:** support bi-directional reference scoping and refine title bar icons ([c450800](https://github.com/nguyentuan0307/DotNav/commit/c450800d1f893cb36ede529fcede8e83883e7cfa))
+* **dotnav:** support dual-stack c# dev kit and resharper engines ([62643ea](https://github.com/nguyentuan0307/DotNav/commit/62643ea07d78ebf58df1b82069fba67463671b67))
+* **dotnav:** enhance search everywhere with frecency, adaptive ranking, flat best match, and diagnostics ([5840e3a](https://github.com/nguyentuan0307/DotNav/commit/5840e3acbb4b16b3b29e77da442cbbd9179b4f6b))
+
+### Bug Fixes
+
+* **dotnav:** extract project references from disk for unpopulated stubs in scope resolver ([41202d5](https://github.com/nguyentuan0307/DotNav/commit/41202d5ea37365aff8806018eef1e289b9cd41d6))
+
+### Changes
+
+* revert: remove solution scoping and multi-focus mode ([a06ecb9](https://github.com/nguyentuan0307/DotNav/commit/a06ecb98c788b9ba7e2bfcd19e63cca16e8e579a))
+
+
 ## [0.30.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.30.0...dotnav-v0.30.1) (2026-09-11)
 
 
