@@ -20,7 +20,13 @@ export async function showScopeQuickPick(
   }
 
   const activeScope = scopeManager.getActiveScope();
-  let includeDependencies = activeScope ? activeScope.includeDependencies : true;
+  const scopeConfig = vscode.workspace.getConfiguration('dotnav.scope');
+  let includeDependencies = activeScope
+    ? activeScope.includeDependencies
+    : scopeConfig.get<boolean>('autoIncludeDependencies', true);
+  let includeDependents = activeScope
+    ? (activeScope.includeDependents ?? false)
+    : scopeConfig.get<boolean>('autoIncludeDependents', false);
 
   // 1. Group Projects by Solution Folders
   const folderCounts = new Map<string, number>();
@@ -108,8 +114,12 @@ export async function showScopeQuickPick(
   const updateTitleButtons = () => {
     quickPick.buttons = [
       {
-        iconPath: new vscode.ThemeIcon(includeDependencies ? 'references' : 'dash'),
-        tooltip: `Auto-include Project References: ${includeDependencies ? 'ON' : 'OFF'} (Click to toggle)`
+        iconPath: new vscode.ThemeIcon(includeDependencies ? 'arrow-down' : 'dash'),
+        tooltip: `Dependencies (Downstream): ${includeDependencies ? 'ON' : 'OFF'} (Click to toggle)`
+      },
+      {
+        iconPath: new vscode.ThemeIcon(includeDependents ? 'arrow-up' : 'dash'),
+        tooltip: `Dependents / Callers (Upstream): ${includeDependents ? 'ON' : 'OFF'} (Click to toggle)`
       },
       {
         iconPath: new vscode.ThemeIcon('clear-all'),
@@ -121,11 +131,17 @@ export async function showScopeQuickPick(
   updateTitleButtons();
 
   quickPick.onDidTriggerButton(async button => {
-    if (button.tooltip?.startsWith('Auto-include')) {
+    if (button.tooltip?.includes('Downstream')) {
       includeDependencies = !includeDependencies;
       updateTitleButtons();
       vscode.window.showInformationMessage(
-        `Auto-include Project References is now ${includeDependencies ? 'ENABLED' : 'DISABLED'}.`
+        `Dependencies (Downstream) is now ${includeDependencies ? 'ENABLED' : 'DISABLED'}.`
+      );
+    } else if (button.tooltip?.includes('Upstream')) {
+      includeDependents = !includeDependents;
+      updateTitleButtons();
+      vscode.window.showInformationMessage(
+        `Dependents (Upstream references) is now ${includeDependents ? 'ENABLED' : 'DISABLED'}.`
       );
     } else if (button.tooltip?.startsWith('Clear Scope')) {
       quickPick.hide();
@@ -164,7 +180,7 @@ export async function showScopeQuickPick(
     const scope = await scopeManager.createAndApplyScope(
       scopeName,
       targets,
-      includeDependencies,
+      { includeDependencies, includeDependents },
       allProjects
     );
 
@@ -183,7 +199,7 @@ export async function showScopeQuickPick(
         value: scope.name
       });
       if (presetName && presetName.trim()) {
-        await scopeManager.savePreset(presetName.trim(), targets, includeDependencies);
+        await scopeManager.savePreset(presetName.trim(), targets, { includeDependencies, includeDependents });
         vscode.window.showInformationMessage(`Saved preset: "${presetName.trim()}".`);
       }
     } else if (action === 'Export to .slnf') {

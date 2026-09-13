@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import { ProjectModel } from '../models';
-import { ScopePreset, ScopeTarget, SolutionScope } from './scopeModel';
+import { ScopePreset, ScopeResolutionOptions, ScopeTarget, SolutionScope } from './scopeModel';
 import { filterProjectsByScope, resolveScopeProjectPaths } from './scopeResolver';
 import { parseSlnfFile } from './slnfService';
 
@@ -53,6 +53,7 @@ export class ScopeManager {
         name: scope.name,
         targets: scope.targets,
         includeDependencies: scope.includeDependencies,
+        includeDependents: scope.includeDependents,
         sourceSlnfPath: scope.sourceSlnfPath
       });
     } else {
@@ -68,15 +69,24 @@ export class ScopeManager {
   async createAndApplyScope(
     name: string,
     targets: readonly ScopeTarget[],
-    includeDependencies: boolean,
+    optionsOrIncludeDependencies: boolean | ScopeResolutionOptions,
     allProjects: readonly ProjectModel[]
   ): Promise<SolutionScope> {
-    const activeProjectPaths = resolveScopeProjectPaths(allProjects, targets, includeDependencies);
+    const options: ScopeResolutionOptions =
+      typeof optionsOrIncludeDependencies === 'boolean'
+        ? { includeDependencies: optionsOrIncludeDependencies, includeDependents: false }
+        : {
+            includeDependencies: optionsOrIncludeDependencies?.includeDependencies ?? true,
+            includeDependents: optionsOrIncludeDependencies?.includeDependents ?? false
+          };
+
+    const activeProjectPaths = resolveScopeProjectPaths(allProjects, targets, options);
     const scope: SolutionScope = {
       id: `scope_${Date.now()}`,
       name,
       targets,
-      includeDependencies,
+      includeDependencies: Boolean(options.includeDependencies),
+      includeDependents: Boolean(options.includeDependents),
       activeProjectPaths
     };
 
@@ -96,6 +106,7 @@ export class ScopeManager {
       name: slnfFilePath.split(/[\\/]+/).pop()?.replace(/\.slnf$/i, '') ?? 'Solution Filter',
       targets,
       includeDependencies: false, // slnf explicitly defines its projects
+      includeDependents: false,
       activeProjectPaths: parsed.projectAbsolutePaths,
       sourceSlnfPath: slnfFilePath
     };
@@ -118,14 +129,23 @@ export class ScopeManager {
   async savePreset(
     name: string,
     targets: readonly ScopeTarget[],
-    includeDependencies: boolean
+    optionsOrIncludeDependencies: boolean | ScopeResolutionOptions
   ): Promise<ScopePreset> {
+    const options: ScopeResolutionOptions =
+      typeof optionsOrIncludeDependencies === 'boolean'
+        ? { includeDependencies: optionsOrIncludeDependencies, includeDependents: false }
+        : {
+            includeDependencies: optionsOrIncludeDependencies?.includeDependencies ?? true,
+            includeDependents: optionsOrIncludeDependencies?.includeDependents ?? false
+          };
+
     const presets = this.getPresets().filter(p => p.name.toLowerCase() !== name.toLowerCase());
     const newPreset: ScopePreset = {
       id: `preset_${Date.now()}`,
       name,
       targets,
-      includeDependencies
+      includeDependencies: Boolean(options.includeDependencies),
+      includeDependents: Boolean(options.includeDependents)
     };
 
     presets.push(newPreset);
@@ -147,7 +167,10 @@ export class ScopeManager {
     return this.createAndApplyScope(
       preset.name,
       preset.targets,
-      preset.includeDependencies,
+      {
+        includeDependencies: preset.includeDependencies,
+        includeDependents: preset.includeDependents ?? false
+      },
       allProjects
     );
   }
@@ -161,6 +184,7 @@ export class ScopeManager {
       name: string;
       targets: ScopeTarget[];
       includeDependencies: boolean;
+      includeDependents?: boolean;
       sourceSlnfPath?: string;
     }>(ACTIVE_SCOPE_TARGETS_KEY);
 
@@ -172,7 +196,10 @@ export class ScopeManager {
           await this.createAndApplyScope(
             saved.name,
             saved.targets,
-            saved.includeDependencies,
+            {
+              includeDependencies: saved.includeDependencies,
+              includeDependents: saved.includeDependents ?? false
+            },
             allProjects
           );
         }

@@ -165,19 +165,19 @@
       {
         "command": "dotnav.scope.configure",
         "title": "Configure Solution Scope...",
-        "icon": "$(target)",
+        "icon": "$(layers)",
         "category": "DotNav"
       },
       {
         "command": "dotnav.scope.clear",
         "title": "Clear Solution Scope",
-        "icon": "$(clear-all)",
+        "icon": "$(close)",
         "category": "DotNav"
       },
       {
         "command": "dotnav.scope.openMenu",
         "title": "Solution Scope & Focus Manager",
-        "icon": "$(target)",
+        "icon": "$(layers)",
         "category": "DotNav"
       },
       {
@@ -769,12 +769,12 @@
         {
           "command": "dotnav.scope.clear",
           "when": "view == dotnav && dotnav.scopeActive",
-          "group": "navigation@0.65"
+          "group": "2_view@2.5"
         },
         {
           "command": "dotnav.searchEverywhere",
           "when": "view == dotnav",
-          "group": "navigation@0.8"
+          "group": "1_search@1"
         },
         {
           "command": "dotnav.runActiveConfig",
@@ -1629,7 +1629,12 @@
         "dotnav.scope.autoIncludeDependencies": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically include transitive Project References when focusing on a project or folder."
+          "description": "Automatically include transitive Project References (downstream dependencies) when focusing on a project or folder."
+        },
+        "dotnav.scope.autoIncludeDependents": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically include upstream projects that reference the focused project or folder."
         },
         "dotnav.scope.showStatusBarItem": {
           "type": "boolean",

@@ -83,7 +83,7 @@ export function registerScopeCommands(
       });
     } else {
       items.push({
-        label: '$(target) Configure Focus Scope (Multi-Select)...',
+        label: '$(layers) Configure Focus Scope (Multi-Select)...',
         description: 'Choose specific services, folders or projects to focus on',
         action: 'configure'
       });
@@ -144,7 +144,10 @@ export function registerScopeCommands(
             value: activeScope.name
           });
           if (name && name.trim()) {
-            await scopeManager.savePreset(name.trim(), activeScope.targets, activeScope.includeDependencies);
+            await scopeManager.savePreset(name.trim(), activeScope.targets, {
+              includeDependencies: activeScope.includeDependencies,
+              includeDependents: activeScope.includeDependents ?? false
+            });
             vscode.window.showInformationMessage(`Saved preset "${name.trim()}".`);
           }
         }
@@ -170,7 +173,9 @@ export function registerScopeCommands(
     const solution = getSolutionOrWarn();
     if (!solution || !node?.project) return;
 
-    const includeDeps = vscode.workspace.getConfiguration('dotnav.scope').get<boolean>('autoIncludeDependencies', true);
+    const scopeConfig = vscode.workspace.getConfiguration('dotnav.scope');
+    const includeDeps = scopeConfig.get<boolean>('autoIncludeDependencies', true);
+    const includeDependents = scopeConfig.get<boolean>('autoIncludeDependents', false);
     const target: ScopeTarget = {
       kind: 'project',
       value: node.project.path,
@@ -180,7 +185,7 @@ export function registerScopeCommands(
     const scope = await scopeManager.createAndApplyScope(
       node.project.name,
       [target],
-      includeDeps,
+      { includeDependencies: includeDeps, includeDependents },
       solution.projects
     );
 
@@ -198,7 +203,9 @@ export function registerScopeCommands(
     // Determine folder path key e.g. "Services/CustomApp"
     const relFolder = path.relative(solution.rootPath, node.resourcePath).replace(/\\/g, '/');
     const folderName = node.label || path.basename(relFolder);
-    const includeDeps = vscode.workspace.getConfiguration('dotnav.scope').get<boolean>('autoIncludeDependencies', true);
+    const scopeConfig = vscode.workspace.getConfiguration('dotnav.scope');
+    const includeDeps = scopeConfig.get<boolean>('autoIncludeDependencies', true);
+    const includeDependents = scopeConfig.get<boolean>('autoIncludeDependents', false);
 
     const target: ScopeTarget = {
       kind: 'solutionFolder',
@@ -209,7 +216,7 @@ export function registerScopeCommands(
     const scope = await scopeManager.createAndApplyScope(
       folderName,
       [target],
-      includeDeps,
+      { includeDependencies: includeDeps, includeDependents },
       solution.projects
     );
 
@@ -255,7 +262,10 @@ export function registerScopeCommands(
     const scope = await scopeManager.createAndApplyScope(
       scopeName,
       existingTargets,
-      includeDeps,
+      {
+        includeDependencies: includeDeps,
+        includeDependents: active?.includeDependents ?? false
+      },
       solution.projects
     );
 
@@ -298,7 +308,10 @@ export function registerScopeCommands(
     const scope = await scopeManager.createAndApplyScope(
       scopeName,
       remainingTargets,
-      active.includeDependencies,
+      {
+        includeDependencies: active.includeDependencies,
+        includeDependents: active.includeDependents ?? false
+      },
       solution.projects
     );
 

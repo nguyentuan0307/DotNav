@@ -152,6 +152,46 @@ describe('ScopeResolver', () => {
       assert.strictEqual(resolved.length, 6);
     });
 
+    it('resolves upstream dependents (reverse references) when includeDependents is enabled', () => {
+      // Target: sharedDomain (which has 0 downstream references)
+      const targets: ScopeTarget[] = [{ kind: 'project', value: sharedDomain.path }];
+      
+      // With includeDependencies only: should be 1 (only sharedDomain)
+      const downOnly = resolveScopeProjectPaths(allProjects, targets, { includeDependencies: true, includeDependents: false });
+      assert.strictEqual(downOnly.length, 1);
+      assert.strictEqual(downOnly[0], normalizeFsPath(sharedDomain.path));
+
+      // With includeDependents: should discover all projects that link to sharedDomain directly and transitively
+      // Direct: sharedInfra, customAppDomain, workDomain
+      // Transitive: customAppApi (via customAppDomain and sharedInfra), workApi (via workDomain)
+      const upOnly = resolveScopeProjectPaths(allProjects, targets, { includeDependencies: false, includeDependents: true });
+      const upSet = new Set(upOnly);
+
+      assert.ok(upSet.has(normalizeFsPath(sharedDomain.path)));
+      assert.ok(upSet.has(normalizeFsPath(sharedInfra.path)));
+      assert.ok(upSet.has(normalizeFsPath(customAppDomain.path)));
+      assert.ok(upSet.has(normalizeFsPath(customAppApi.path)));
+      assert.ok(upSet.has(normalizeFsPath(workDomain.path)));
+      assert.ok(upSet.has(normalizeFsPath(workApi.path)));
+      assert.strictEqual(upSet.has(normalizeFsPath(accountingApi.path)), false);
+      assert.strictEqual(upOnly.length, 6);
+    });
+
+    it('resolves bi-directional closure (both upstream callers and downstream dependencies)', () => {
+      // Target: customAppDomain
+      // Downstream: sharedDomain
+      // Upstream: customAppApi
+      const targets: ScopeTarget[] = [{ kind: 'project', value: customAppDomain.path }];
+      const both = resolveScopeProjectPaths(allProjects, targets, { includeDependencies: true, includeDependents: true });
+      const bothSet = new Set(both);
+
+      assert.ok(bothSet.has(normalizeFsPath(customAppDomain.path)));
+      assert.ok(bothSet.has(normalizeFsPath(sharedDomain.path)));
+      assert.ok(bothSet.has(normalizeFsPath(customAppApi.path)));
+      assert.strictEqual(bothSet.has(normalizeFsPath(workDomain.path)), false);
+      assert.strictEqual(bothSet.has(normalizeFsPath(accountingApi.path)), false);
+    });
+
     it('filters projects by active project paths', () => {
       const activePaths = [customAppApi.path, workApi.path];
       const filtered = filterProjectsByScope(allProjects, activePaths);
