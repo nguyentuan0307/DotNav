@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'node:test';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { ProjectModel } from '../models';
 import {
@@ -199,6 +201,48 @@ describe('ScopeResolver', () => {
       assert.strictEqual(filtered.length, 2);
       assert.strictEqual(filtered[0].name, 'CustomApp.Api');
       assert.strictEqual(filtered[1].name, 'Work.Api');
+    });
+
+    it('extracts project references from disk when projects are unpopulated stubs', () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dotnav-stub-scope-'));
+      try {
+        const appDir = path.join(tmp, 'App');
+        const libDir = path.join(tmp, 'Lib');
+        const coreDir = path.join(tmp, 'Core');
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.mkdirSync(libDir, { recursive: true });
+        fs.mkdirSync(coreDir, { recursive: true });
+
+        const appCsproj = path.join(appDir, 'App.csproj');
+        const libCsproj = path.join(libDir, 'Lib.csproj');
+        const coreCsproj = path.join(coreDir, 'Core.csproj');
+
+        fs.writeFileSync(coreCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>');
+        fs.writeFileSync(libCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Core/Core.csproj" /></ItemGroup></Project>');
+        fs.writeFileSync(appCsproj, '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Lib/Lib.csproj" /></ItemGroup></Project>');
+
+        const stubApp = { ...createMockProject('App', 'App/App.csproj', undefined, []), path: appCsproj, directory: appDir, projectReferences: [] };
+        const stubLib = { ...createMockProject('Lib', 'Lib/Lib.csproj', undefined, []), path: libCsproj, directory: libDir, projectReferences: [] };
+        const stubCore = { ...createMockProject('Core', 'Core/Core.csproj', undefined, []), path: coreCsproj, directory: coreDir, projectReferences: [] };
+
+        const stubProjects = [stubApp, stubLib, stubCore];
+
+        // 1. Downstream resolution on stubApp should find App, Lib, Core
+        const resolvedDown = resolveScopeProjectPaths(stubProjects, [{ kind: 'project', value: appCsproj }], { includeDependencies: true });
+        assert.strictEqual(resolvedDown.length, 3);
+        assert.ok(resolvedDown.includes(normalizeFsPath(appCsproj)));
+        assert.ok(resolvedDown.includes(normalizeFsPath(libCsproj)));
+        assert.ok(resolvedDown.includes(normalizeFsPath(coreCsproj)));
+
+        // 2. Upstream resolution on stubCore should find Core, Lib, App
+        const resolvedUp = resolveScopeProjectPaths(stubProjects, [{ kind: 'project', value: coreCsproj }], { includeDependencies: false, includeDependents: true });
+        assert.strictEqual(resolvedUp.length, 3);
+        assert.ok(resolvedUp.includes(normalizeFsPath(coreCsproj)));
+        assert.ok(resolvedUp.includes(normalizeFsPath(libCsproj)));
+        assert.ok(resolvedUp.includes(normalizeFsPath(appCsproj)));
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     });
   });
 });

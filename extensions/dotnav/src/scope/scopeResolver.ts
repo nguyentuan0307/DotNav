@@ -1,9 +1,39 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { ProjectModel } from '../models';
 import { ScopeResolutionOptions, ScopeTarget } from './scopeModel';
 
 export function normalizeFsPath(filePath: string): string {
   return path.resolve(filePath).toLowerCase().replace(/\\/g, '/');
+}
+
+export function extractProjectReferences(project: ProjectModel): string[] {
+  if (project.projectReferences && project.projectReferences.length > 0) {
+    return project.projectReferences.map(ref => ref.path);
+  }
+
+  try {
+    const xml = fs.readFileSync(project.path, 'utf8');
+    const dir = project.directory || path.dirname(project.path);
+    const regex = /<ProjectReference\b[^>]*?\bInclude=["']([^"']+)["']/gi;
+    const refs: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(xml)) !== null) {
+      const inc = match[1].replace(/\\/g, '/');
+      refs.push(path.resolve(dir, inc));
+    }
+
+    if (refs.length > 0 && (!project.projectReferences || project.projectReferences.length === 0)) {
+      (project as any).projectReferences = refs.map(r => ({
+        name: path.basename(r, path.extname(r)),
+        path: r
+      }));
+    }
+
+    return refs;
+  } catch {
+    return (project.projectReferences || []).map(ref => ref.path);
+  }
 }
 
 export function matchesSolutionFolder(
@@ -98,8 +128,8 @@ export function resolveScopeProjectPaths(
 
     while (queue.length > 0) {
       const current = queue.shift()!;
-      for (const ref of current.projectReferences) {
-        const normRefPath = normalizeFsPath(ref.path);
+      for (const refPath of extractProjectReferences(current)) {
+        const normRefPath = normalizeFsPath(refPath);
         if (!resolvedPaths.has(normRefPath)) {
           resolvedPaths.add(normRefPath);
           const referencedProject = projectMap.get(normRefPath);
@@ -115,8 +145,8 @@ export function resolveScopeProjectPaths(
   if (options.includeDependents) {
     const reverseMap = new Map<string, ProjectModel[]>();
     for (const p of allProjects) {
-      for (const ref of p.projectReferences) {
-        const normRef = normalizeFsPath(ref.path);
+      for (const refPath of extractProjectReferences(p)) {
+        const normRef = normalizeFsPath(refPath);
         let list = reverseMap.get(normRef);
         if (!list) {
           list = [];
