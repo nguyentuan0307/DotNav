@@ -10,6 +10,7 @@ import * as runConfigStore from './runConfigStore';
 import { RunPhase } from './runSessionState';
 import { loadSolution, pickSolution } from './solutionParser';
 import { isNewerNugetVersion, OutdatedPackages } from './nugetService';
+import { ScopeManager } from './scope/scopeManager';
 
 const activeSolutionPathKey = 'activeSolutionPath';
 
@@ -21,6 +22,8 @@ interface ConfigRunSummary {
 export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<TreeNode | undefined | null | void>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
+
+  private scopeManager?: ScopeManager;
 
   private solution?: SolutionModel;
   private solutionTree?: TreeNode[];
@@ -69,6 +72,18 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     this.fireChanged();
   }
 
+  setScopeManager(scopeManager: ScopeManager): void {
+    this.scopeManager = scopeManager;
+    scopeManager.onDidChangeScope(() => {
+      this.solutionTree = undefined;
+      this.fireChanged();
+    });
+  }
+
+  getScopeManager(): ScopeManager | undefined {
+    return this.scopeManager;
+  }
+
   constructor(private readonly context: vscode.ExtensionContext) {
     this.startupProjectPath = context.workspaceState.get<string>('startupProjectPath');
   }
@@ -108,6 +123,10 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     // Hybrid background warm-up: Asynchronously pre-load all project metadata into RAM
     // without delaying the initial instant tree view render.
     if (this.solution && this.solution.projects.length > 0) {
+      if (this.scopeManager) {
+        await this.scopeManager.restoreActiveScopeIfAny(this.solution.projects);
+      }
+
       this.warmUpMetadataTimer = setTimeout(() => {
         this.warmUpMetadataTimer = undefined;
         void this.ensureAllProjectMetadata().catch(error => {
@@ -458,21 +477,16 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   private solutionNode(solution: SolutionModel): TreeNode {
     const solutionName = solution.path ? path.basename(solution.path, path.extname(solution.path)) : solution.name;
-
-    if (this.treeFilterText) {
-      return {
-        id: 'solution:root',
-        kind: 'solution',
-        label: `${solutionName} (Filter: "${this.treeFilterText}")`,
-        resourcePath: solution.path,
-        collapsibleState: vscode.TreeItemCollapsibleState.Expanded
-      };
-    }
+    const activeScope = this.scopeManager?.getActiveScope();
+    const scopeTag = activeScope
+      ? ` [Focus: ${activeScope.name} - ${activeScope.activeProjectPaths.length}/${solution.projects.length}]`
+      : '';
+    const filterTag = this.treeFilterText ? ` (Filter: "${this.treeFilterText}")` : '';
 
     return {
       id: 'solution:root',
       kind: 'solution',
-      label: solutionName,
+      label: `${solutionName}${scopeTag}${filterTag}`,
       resourcePath: solution.path,
       collapsibleState: vscode.TreeItemCollapsibleState.Expanded
     };
@@ -568,7 +582,10 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   private getSolutionTree(): TreeNode[] {
     if (!this.solutionTree && this.solution) {
-      this.solutionTree = this.groupProjectNodes(this.solution);
+      const effectiveProjects = this.scopeManager?.isScopeActive()
+        ? this.scopeManager.filterProjects(this.solution.projects)
+        : this.solution.projects;
+      this.solutionTree = this.groupProjectNodes({ ...this.solution, projects: effectiveProjects });
     }
 
     const rawTree = this.solutionTree ?? [];

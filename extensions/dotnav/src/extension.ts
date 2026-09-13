@@ -36,6 +36,9 @@ import {
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex
 } from './solutionSearch';
+import { ScopeManager } from './scope/scopeManager';
+import { ScopeStatusBarController } from './scope/scopeStatusBar';
+import { registerScopeCommands } from './scope/scopeCommands';
 
 let activeProcessManager: ProcessManager | undefined;
 
@@ -89,9 +92,28 @@ export function activate(context: vscode.ExtensionContext): void {
     showCollapseAll: false
   });
 
+  const scopeManager = new ScopeManager(context.workspaceState);
+  provider.setScopeManager(scopeManager);
+  const scopeStatusBar = new ScopeStatusBarController();
+  context.subscriptions.push(scopeStatusBar);
+
+  const updateScopeContextAndStatusBar = () => {
+    const solution = provider.getSolution();
+    const activeScope = scopeManager.getActiveScope();
+    vscode.commands.executeCommand('setContext', 'dotnav.scopeActive', Boolean(activeScope));
+    scopeStatusBar.update(activeScope, solution?.projects.length ?? 0);
+  };
+
+  scopeManager.onDidChangeScope(() => {
+    updateScopeContextAndStatusBar();
+  });
+
+  registerScopeCommands(context, provider, scopeManager);
+
   const statusItems = createStatusBar();
   const refreshStatusBar = () => {
     updateStatusBar(provider, context, processManager);
+    updateScopeContextAndStatusBar();
     const solution = provider.getSolution();
     const activeConfig = solution ? runConfigStore.getActive(solution, context) : undefined;
     vscode.commands.executeCommand(
