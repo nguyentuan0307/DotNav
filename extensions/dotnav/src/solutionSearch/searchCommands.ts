@@ -7,8 +7,23 @@ import { DotnetTreeProvider } from '../treeProvider';
 import { ApiEndpoint, HttpMethod } from '../endpoints/endpointModel';
 import { parseRouteSegments } from '../endpoints/endpointScanner';
 import { formatEndpointAsCurl, formatEndpointAsHttp, formatResolvedUrl } from '../endpoints/endpointSearch';
-import { parseUniversalSearchQuery, searchUniversalSymbols } from './searchEngine';
-import { SearchFilterMode, SearchIndexSnapshot, UniversalSearchResult, UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import {
+  calculateAdaptiveBoost,
+  calculateFrecencyBonus,
+  parseUniversalSearchQuery,
+  searchUniversalSymbols
+} from './searchEngine';
+import {
+  AdaptiveQueryMap,
+  AdaptiveQueryRecord,
+  FrecencyRecord,
+  SearchFilterMode,
+  SearchIndexSnapshot,
+  SearchRankingContext,
+  UniversalSearchResult,
+  UniversalSymbol,
+  UniversalSymbolKind
+} from './searchModel';
 import { UniversalSymbolIndex, buildCqrsFlow, detectActiveCqrsContext } from './searchScanner';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
@@ -185,7 +200,199 @@ export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
   }
 }
 
+const STORAGE_KEY_FRECENCY = 'dotnav.search.frecencyRecords';
+const STORAGE_KEY_ADAPTIVE = 'dotnav.search.adaptiveClicks';
+
 let mruSymbolIds: string[] = [];
+
+export function getStoredFrecency(
+  context?: vscode.ExtensionContext,
+  knownSymbolIds?: Set<string>
+): FrecencyRecord[] {
+  if (!context) return [];
+  const raw = context.workspaceState.get<FrecencyRecord[]>(STORAGE_KEY_FRECENCY, []);
+  if (!Array.isArray(raw)) return [];
+  const now = Date.now();
+  const valid = knownSymbolIds && knownSymbolIds.size > 0
+    ? raw.filter(r => r && typeof r.symbolId === 'string' && knownSymbolIds.has(r.symbolId))
+    : raw.filter(r => r && typeof r.symbolId === 'string');
+  return valid.sort((a, b) => {
+    const bonusA = calculateFrecencyBonus(a.count, a.lastAccessedAt, now);
+    const bonusB = calculateFrecencyBonus(b.count, b.lastAccessedAt, now);
+    return bonusB - bonusA;
+  });
+}
+
+export async function recordSymbolAccess(
+  symbolId: string,
+  context?: vscode.ExtensionContext,
+  knownSymbolIds?: Set<string>
+): Promise<void> {
+  if (!context || !symbolId) return;
+  const current = getStoredFrecency(context, knownSymbolIds);
+  const existingIndex = current.findIndex(r => r.symbolId === symbolId);
+  const now = Date.now();
+  if (existingIndex !== -1) {
+    const existing = current[existingIndex];
+    current[existingIndex] = {
+      symbolId,
+      count: existing.count + 1,
+      lastAccessedAt: now
+    };
+  } else {
+    current.push({
+      symbolId,
+      count: 1,
+      lastAccessedAt: now
+    });
+  }
+
+  current.sort((a, b) => {
+    const bonusA = calculateFrecencyBonus(a.count, a.lastAccessedAt, now);
+    const bonusB = calculateFrecencyBonus(b.count, b.lastAccessedAt, now);
+    return bonusB - bonusA;
+  });
+
+  await context.workspaceState.update(STORAGE_KEY_FRECENCY, current.slice(0, 100));
+}
+
+export function getStoredAdaptiveClicks(context?: vscode.ExtensionContext): AdaptiveQueryMap {
+  if (!context) return {};
+  return context.workspaceState.get<AdaptiveQueryMap>(STORAGE_KEY_ADAPTIVE, {}) || {};
+}
+
+export async function recordAdaptiveClick(
+  rawQuery: string,
+  symbolId: string,
+  context?: vscode.ExtensionContext
+): Promise<void> {
+  if (!context || !symbolId) return;
+  const parsed = parseUniversalSearchQuery(rawQuery);
+  const cleanQ = parsed.cleanQuery.trim().toLowerCase();
+  if (cleanQ.length < 2) return;
+
+  const currentMap: Record<string, Record<string, { count: number; lastUsed: number }>> = {
+    ...getStoredAdaptiveClicks(context)
+  };
+
+  const queryRecord = currentMap[cleanQ] ? { ...currentMap[cleanQ] } : {};
+  const prev = queryRecord[symbolId];
+  const now = Date.now();
+  queryRecord[symbolId] = {
+    count: (prev?.count || 0) + 1,
+    lastUsed: now
+  };
+
+  const sortedEntries = Object.entries(queryRecord).sort(
+    (a, b) => calculateAdaptiveBoost(b[1].count, b[1].lastUsed, now) - calculateAdaptiveBoost(a[1].count, a[1].lastUsed, now)
+  );
+  currentMap[cleanQ] = Object.fromEntries(sortedEntries.slice(0, 10));
+
+  const allQueries = Object.keys(currentMap);
+  if (allQueries.length > 100) {
+    const queriesSorted = allQueries.sort((a, b) => {
+      const maxA = Math.max(...Object.values(currentMap[a]).map(v => v.lastUsed));
+      const maxB = Math.max(...Object.values(currentMap[b]).map(v => v.lastUsed));
+      return maxB - maxA;
+    });
+    for (const q of queriesSorted.slice(100)) {
+      delete currentMap[q];
+    }
+  }
+
+  await context.workspaceState.update(STORAGE_KEY_ADAPTIVE, currentMap);
+}
+
+export async function resetSearchLearningCommand(context?: vscode.ExtensionContext): Promise<void> {
+  if (context) {
+    await context.workspaceState.update(STORAGE_KEY_ADAPTIVE, undefined);
+  }
+  if (vscode.window?.showInformationMessage) {
+    vscode.window.showInformationMessage('DotNav: Search adaptive learning data has been reset.');
+  }
+}
+
+export async function showSearchDiagnosticsCommand(
+  index: UniversalSymbolIndex,
+  context?: vscode.ExtensionContext
+): Promise<void> {
+  const allHotSymbols = index.getAllSymbols();
+  const kindCounts: Record<string, number> = {};
+  for (const s of allHotSymbols) {
+    kindCounts[s.kind] = (kindCounts[s.kind] || 0) + 1;
+  }
+
+  const diskStore = index.getDiskStore();
+  let coldCount = 0;
+  let coldSizeKb = 0;
+  let coldFilePath = '';
+  if (diskStore) {
+    coldCount = diskStore.coldSymbolCount || 0;
+    coldFilePath = diskStore.cacheFilePath || '';
+    if (coldFilePath && fs.existsSync(coldFilePath)) {
+      try {
+        const stat = fs.statSync(coldFilePath);
+        coldSizeKb = Math.round(stat.size / 1024);
+      } catch {}
+    }
+  }
+
+  const frecency = getStoredFrecency(context);
+  const adaptive = getStoredAdaptiveClicks(context);
+  const adaptiveQueryCount = Object.keys(adaptive).length;
+
+  const cqrsTotal = (kindCounts['cqrs_command'] || 0) + (kindCounts['cqrs_query'] || 0) + (kindCounts['cqrs_handler'] || 0) + (kindCounts['cqrs_event'] || 0);
+  const efDbTotal = (kindCounts['ef_dbset'] || 0) + (kindCounts['ef_entity'] || 0) + (kindCounts['db_table'] || 0) + (kindCounts['ef_migration'] || 0);
+  const typesTotal = (kindCounts['class'] || 0) + (kindCounts['interface'] || 0) + (kindCounts['record'] || 0) + (kindCounts['enum'] || 0);
+
+  const items: (vscode.QuickPickItem & { action?: () => Promise<void> })[] = [
+    {
+      label: `$(zap) Hot Symbols in Memory (RAM)`,
+      description: `${allHotSymbols.length.toLocaleString()} symbols indexed across ${index.fileCount} files`,
+      detail: `Endpoints: ${kindCounts['endpoint'] || 0} • CQRS: ${cqrsTotal} • EF/DB: ${efDbTotal} • Types: ${typesTotal} • DI: ${kindCounts['di_registration'] || 0} • Jobs: ${kindCounts['background_job'] || 0}`
+    },
+    {
+      label: `$(database) Secondary Symbols on Disk (.cache/cold_symbols.gz)`,
+      description: diskStore ? `${coldCount.toLocaleString()} symbols (${coldSizeKb} KB compressed)` : 'Disabled',
+      detail: coldFilePath || 'No disk store active'
+    },
+    {
+      label: `$(history) Persistent Frecency Cache`,
+      description: `${frecency.length} tracked items`,
+      detail: 'Stored in workspaceState (survives reload, decays over time, auto-pruned)'
+    },
+    {
+      label: `$(lightbulb) Local Adaptive Ranking Data`,
+      description: `${adaptiveQueryCount} search query habits learned`,
+      detail: 'Learns user symbol choices per query to promote favorites'
+    },
+    {
+      label: `$(refresh) Rescan Solution Symbols`,
+      description: 'Rebuild hot RAM index and disk cache immediately',
+      action: async () => {
+        if (globalActiveTreeProvider && globalActiveSymbolIndex) {
+          await rescanUniversalSearchIndex(globalActiveTreeProvider, globalActiveSymbolIndex, context, true);
+        }
+      }
+    },
+    {
+      label: `$(trash) Reset Adaptive Learning Data`,
+      description: 'Clear all query-to-symbol click associations',
+      action: async () => {
+        await resetSearchLearningCommand(context);
+      }
+    }
+  ];
+
+  const pick = await vscode.window.showQuickPick(items, {
+    title: 'DotNav: Search Everywhere Diagnostics',
+    placeHolder: 'Search index statistics and performance'
+  });
+
+  if (pick?.action) {
+    await pick.action();
+  }
+}
 
 export async function openSymbolInEditor(symbol: UniversalSymbol, targetLine?: number, targetColumn?: number): Promise<void> {
   try {
@@ -703,7 +910,8 @@ function buildEmptySearchItems(
   gitModifiedPaths: string[],
   activeFilePath?: string,
   activeNoun?: string,
-  mruSymbolIds?: readonly string[]
+  mruSymbolIds?: readonly string[],
+  frecencyRecords?: readonly FrecencyRecord[]
 ): UniversalQuickPickItem[] {
   const items: UniversalQuickPickItem[] = [];
   const addedIds = new Set<string>();
@@ -784,8 +992,31 @@ function buildEmptySearchItems(
     }
   }
 
-  // 3. Section 3: ⏱️ Frequently & Recently Visited (MRU)
-  if (mruSymbolIds && mruSymbolIds.length > 0) {
+  // 3. Section 3: ⏱️ Frequently & Recently Visited (Persistent Frecency / MRU)
+  if (frecencyRecords && frecencyRecords.length > 0) {
+    const frecencyPairs = frecencyRecords
+      .map(rec => ({ rec, sym: allSymbols.find(s => s.id === rec.symbolId) }))
+      .filter((p): p is { rec: FrecencyRecord; sym: UniversalSymbol } => p.sym !== undefined && !addedIds.has(p.sym.id));
+
+    if (frecencyPairs.length > 0) {
+      items.push({
+        label: `⏱️ Frequently & Recently Visited`,
+        kind: vscode.QuickPickItemKind.Separator
+      });
+
+      for (const { rec, sym } of frecencyPairs.slice(0, 10)) {
+        addedIds.add(sym.id);
+        items.push({
+          label: formatSymbolLabel(sym),
+          description: rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`,
+          detail: formatSymbolDetail(sym),
+          alwaysShow: true,
+          symbol: sym,
+          buttons: getButtonsForSymbol(sym)
+        });
+      }
+    }
+  } else if (mruSymbolIds && mruSymbolIds.length > 0) {
     const mruSyms = mruSymbolIds
       .map(id => allSymbols.find(s => s.id === id))
       .filter((s): s is UniversalSymbol => s !== undefined && !addedIds.has(s.id));
@@ -866,6 +1097,10 @@ export async function searchEverywhereInteractive(
       tooltip: 'Filter Methods (@)'
     },
     {
+      iconPath: new vscode.ThemeIcon('pulse'),
+      tooltip: 'Search Diagnostics & Index Stats'
+    },
+    {
       iconPath: new vscode.ThemeIcon('sync'),
       tooltip: 'Re-scan / Refresh Solution Symbols'
     }
@@ -882,6 +1117,8 @@ export async function searchEverywhereInteractive(
       quickPick.value = '#' + quickPick.value.replace(/^[/%$#@!]/, '');
     } else if (button.tooltip?.includes('Methods')) {
       quickPick.value = '@' + quickPick.value.replace(/^[/%$#@!]/, '');
+    } else if (button.tooltip?.includes('Diagnostics')) {
+      await showSearchDiagnosticsCommand(index, context);
     } else if (button.tooltip?.includes('Re-scan') || button.tooltip?.includes('Refresh')) {
       quickPick.busy = true;
       try {
@@ -912,6 +1149,16 @@ export async function searchEverywhereInteractive(
     mruSymbolIds
   };
 
+  const explainRanking = vscode.workspace.getConfiguration('dotnav').get<boolean>('solutionSearch.explainRanking', false);
+  const allSymbolIds = new Set(allSymbols.map(s => s.id));
+  const frecencyRecords = getStoredFrecency(context, allSymbolIds);
+  const now = Date.now();
+  const frecencyBonusMap: Record<string, number> = {};
+  for (const rec of frecencyRecords) {
+    frecencyBonusMap[rec.symbolId] = calculateFrecencyBonus(rec.count, rec.lastAccessedAt, now);
+  }
+  const adaptiveClicks = getStoredAdaptiveClicks(context);
+
   const updateItems = (query: string) => {
     if (query.trim().length === 0) {
       const emptyItems = buildEmptySearchItems(
@@ -919,7 +1166,8 @@ export async function searchEverywhereInteractive(
         gitModifiedPaths,
         activeFilePath,
         activeNoun,
-        mruSymbolIds
+        mruSymbolIds,
+        frecencyRecords
       );
       quickPick.items = emptyItems.length > 0 ? emptyItems : [
         {
@@ -932,7 +1180,23 @@ export async function searchEverywhereInteractive(
       return;
     }
 
-    const results = searchUniversalSymbols(index, query, 120, rankingContext);
+    const cleanQ = query.trim().toLowerCase();
+    const adaptiveBoostMap: Record<string, number> = {};
+    const queryAdaptive = adaptiveClicks[cleanQ];
+    if (queryAdaptive) {
+      const curNow = Date.now();
+      for (const [sId, rec] of Object.entries(queryAdaptive)) {
+        adaptiveBoostMap[sId] = calculateAdaptiveBoost(rec.count, rec.lastUsed, curNow);
+      }
+    }
+
+    const dynamicRankingContext: SearchRankingContext = {
+      ...rankingContext,
+      frecencyBonusMap,
+      adaptiveBoostMap
+    };
+
+    const results = searchUniversalSymbols(index, query, 120, dynamicRankingContext);
 
     if (results.length === 0) {
       quickPick.items = [
@@ -947,22 +1211,12 @@ export async function searchEverywhereInteractive(
     }
 
     const items: UniversalQuickPickItem[] = [];
-    let currentGroup = '';
 
     for (const res of results) {
       const sym = res.symbol;
-      const group = getGroupTitleForKind(sym.kind);
-
-      if (group !== currentGroup && !query.startsWith('/') && !query.startsWith('$') && !query.startsWith('%') && !query.startsWith('#') && !query.startsWith('@')) {
-        currentGroup = group;
-        items.push({
-          label: group,
-          kind: vscode.QuickPickItemKind.Separator
-        });
-      }
-
       items.push({
         label: formatSymbolLabel(sym),
+        description: explainRanking ? `[Score: ${res.score} | ${res.matchReason}]` : undefined,
         detail: formatSymbolDetail(sym),
         alwaysShow: true,
         symbol: sym,
@@ -1000,6 +1254,7 @@ export async function searchEverywhereInteractive(
       if (targetHandler) {
         isAccepted = true;
         quickPick.hide();
+        void recordSymbolAccess(targetHandler.id, context, allSymbolIds);
         await openSymbolInEditor(targetHandler);
         return;
       }
@@ -1014,8 +1269,12 @@ export async function searchEverywhereInteractive(
     const sym = selected.symbol;
     isAccepted = true;
 
-    // Track MRU
+    // Track MRU and Persistent Frecency
     mruSymbolIds = [sym.id, ...mruSymbolIds.filter(id => id !== sym.id)].slice(0, 50);
+    void recordSymbolAccess(sym.id, context, allSymbolIds);
+
+    // Track Local Adaptive Click
+    void recordAdaptiveClick(quickPick.value, sym.id, context);
 
     // Line Jump support (e.g. Symbol:762 or Symbol@762)
     const parsed = parseUniversalSearchQuery(quickPick.value);

@@ -578,6 +578,30 @@
         "title": "Reset PSI Caches (ReSharper)",
         "category": "DotNav",
         "icon": "$(trash)"
+      },
+      {
+        "command": "dotnav.searchEverywhere",
+        "title": "Search Everywhere (All Symbols & Endpoints)",
+        "category": "DotNav",
+        "icon": "$(search)"
+      },
+      {
+        "command": "dotnav.searchApiEndpoints",
+        "title": "Search API Endpoints",
+        "category": "DotNav",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "dotnav.showSearchDiagnostics",
+        "title": "Show Search Everywhere Diagnostics",
+        "category": "DotNav",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "dotnav.resetSearchLearning",
+        "title": "Reset Search Adaptive Learning Data",
+        "category": "DotNav",
+        "icon": "$(trash)"
       }
     ],
     "submenus": [
@@ -1484,6 +1508,16 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically reveal the active editor file in the .NET solution tree."
+        },
+        "dotnav.solutionSearch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable full-solution background indexing for Search Everywhere."
+        },
+        "dotnav.solutionSearch.explainRanking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show relevance scores and ranking factors in Search Everywhere item descriptions."
         },
         "dotnav.format.normalizeIndentWhitespace": {
           "type": "boolean",

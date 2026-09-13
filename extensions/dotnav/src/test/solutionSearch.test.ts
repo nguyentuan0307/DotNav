@@ -12,14 +12,22 @@ Module._load = function(request: string, parent: any, isMain: boolean) {
   if (request === 'vscode') {
     return {
       workspace: { getConfiguration: () => ({ get: () => undefined }), workspaceFolders: [] },
-      window: {},
+      window: { showInformationMessage: () => Promise.resolve() },
       extensions: { getExtension: () => undefined }
     };
   }
   return originalLoad(request, parent, isMain);
 };
 
-const { getCurrentGitBranch, getCacheFilePath } = require('../solutionSearch/searchCommands');
+const {
+  getCurrentGitBranch,
+  getCacheFilePath,
+  getStoredFrecency,
+  recordSymbolAccess,
+  getStoredAdaptiveClicks,
+  recordAdaptiveClick,
+  resetSearchLearningCommand
+} = require('../solutionSearch/searchCommands');
 
 test('UniversalSymbolIndex finds exact, prefix, and substring symbols simultaneously', () => {
   const index = new UniversalSymbolIndex();
@@ -208,5 +216,67 @@ test('getCurrentGitBranch extracts branch name from git repo and isolates cache 
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('Persistent frecency records access, sorts by frecency score, and prunes ghost symbols', async () => {
+  const store = new Map<string, any>();
+  const fakeContext: any = {
+    workspaceState: {
+      get: (key: string, defaultVal: any) => store.has(key) ? store.get(key) : defaultVal,
+      update: async (key: string, value: any) => { store.set(key, value); }
+    }
+  };
+
+  const knownIds = new Set(['sym-1', 'sym-2']);
+
+  // Initial read is empty
+  assert.deepEqual(getStoredFrecency(fakeContext, knownIds), []);
+
+  // Record access to sym-1 twice, sym-2 once, and a ghost sym-3
+  await recordSymbolAccess('sym-1', fakeContext, knownIds);
+  await recordSymbolAccess('sym-1', fakeContext, knownIds);
+  await recordSymbolAccess('sym-2', fakeContext, knownIds);
+
+  // Directly insert a ghost symbol into store
+  const rawList = store.get('dotnav.search.frecencyRecords');
+  rawList.push({ symbolId: 'ghost-symbol-deleted', count: 10, lastAccessedAt: Date.now() });
+  store.set('dotnav.search.frecencyRecords', rawList);
+
+  // Read with knownIds -> ghost symbol is pruned!
+  const loaded = getStoredFrecency(fakeContext, knownIds);
+  assert.equal(loaded.length, 2);
+  assert.equal(loaded[0].symbolId, 'sym-1');
+  assert.equal(loaded[0].count, 2);
+  assert.equal(loaded[1].symbolId, 'sym-2');
+  assert.equal(loaded[1].count, 1);
+});
+
+test('Local Adaptive Ranking records query associations and supports reset', async () => {
+  const store = new Map<string, any>();
+  const fakeContext: any = {
+    workspaceState: {
+      get: (key: string, defaultVal: any) => store.has(key) ? store.get(key) : defaultVal,
+      update: async (key: string, value: any) => { store.set(key, value); }
+    }
+  };
+
+  // Initially empty
+  assert.deepEqual(getStoredAdaptiveClicks(fakeContext), {});
+
+  // Record click for query "order" -> "OrderController"
+  await recordAdaptiveClick('order', 'OrderController', fakeContext);
+  await recordAdaptiveClick('order', 'OrderController', fakeContext);
+  await recordAdaptiveClick('order', 'OrderService', fakeContext);
+
+  const clicks = getStoredAdaptiveClicks(fakeContext);
+  assert.ok(clicks['order']);
+  assert.equal(clicks['order']['OrderController'].count, 2);
+  assert.equal(clicks['order']['OrderService'].count, 1);
+
+  // Reset clears all data
+  await resetSearchLearningCommand(fakeContext);
+  const clicksAfterReset = getStoredAdaptiveClicks(fakeContext);
+  assert.deepEqual(clicksAfterReset, {});
+});
+
 
 
