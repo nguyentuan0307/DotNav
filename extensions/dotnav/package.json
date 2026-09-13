@@ -163,50 +163,6 @@
         "icon": "$(clear-all)"
       },
       {
-        "command": "dotnav.scope.configure",
-        "title": "Configure Solution Scope...",
-        "icon": "$(layers)",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.clear",
-        "title": "Clear Solution Scope",
-        "icon": "$(close)",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.openMenu",
-        "title": "Solution Scope & Focus Manager",
-        "icon": "$(layers)",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.exportSlnf",
-        "title": "Export Scope as Solution Filter (.slnf)...",
-        "icon": "$(save)",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.focusProject",
-        "title": "Focus on this Project",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.focusFolder",
-        "title": "Focus on this Service / Folder",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.addToScope",
-        "title": "Add to Current Focus Scope",
-        "category": "DotNav"
-      },
-      {
-        "command": "dotnav.scope.removeFromScope",
-        "title": "Remove from Focus Scope",
-        "category": "DotNav"
-      },
-      {
         "command": "dotnav.formatSelection",
         "title": "Reformat Code",
         "icon": "$(wand)"
@@ -762,19 +718,9 @@
           "group": "navigation@0.55"
         },
         {
-          "command": "dotnav.scope.configure",
-          "when": "view == dotnav",
-          "group": "navigation@0.6"
-        },
-        {
-          "command": "dotnav.scope.clear",
-          "when": "view == dotnav && dotnav.scopeActive",
-          "group": "2_view@2.5"
-        },
-        {
           "command": "dotnav.searchEverywhere",
           "when": "view == dotnav",
-          "group": "1_search@1"
+          "group": "navigation@0.8"
         },
         {
           "command": "dotnav.runActiveConfig",
@@ -872,36 +818,6 @@
           "command": "dotnav.removeProjectReference",
           "when": "view == dotnav && viewItem == projectReference",
           "group": "inline@1"
-        },
-        {
-          "command": "dotnav.scope.focusProject",
-          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/",
-          "group": "7_scope@1"
-        },
-        {
-          "command": "dotnav.scope.addToScope",
-          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/ && dotnav.scopeActive",
-          "group": "7_scope@2"
-        },
-        {
-          "command": "dotnav.scope.removeFromScope",
-          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/ && dotnav.scopeActive",
-          "group": "7_scope@3"
-        },
-        {
-          "command": "dotnav.scope.focusFolder",
-          "when": "view == dotnav && viewItem == folder",
-          "group": "7_scope@1"
-        },
-        {
-          "command": "dotnav.scope.addToScope",
-          "when": "view == dotnav && viewItem == folder && dotnav.scopeActive",
-          "group": "7_scope@2"
-        },
-        {
-          "command": "dotnav.scope.removeFromScope",
-          "when": "view == dotnav && viewItem == folder && dotnav.scopeActive",
-          "group": "7_scope@3"
         },
         {
           "command": "dotnav.addPackage",
@@ -1625,21 +1541,6 @@
             ]
           },
           "description": "Additional file nesting rules. Use ${base} in parentPattern and childPattern."
-        },
-        "dotnav.scope.autoIncludeDependencies": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically include transitive Project References (downstream dependencies) when focusing on a project or folder."
-        },
-        "dotnav.scope.autoIncludeDependents": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically include upstream projects that reference the focused project or folder."
-        },
-        "dotnav.scope.showStatusBarItem": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the active Solution Scope in the VS Code status bar."
         }
       }
     }

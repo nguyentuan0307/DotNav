@@ -5,8 +5,6 @@ import { SolutionModel } from './models';
 import { createProjectStub } from './projectParser';
 import { resolveMsbuildPath, uniqueByPath } from './pathUtils';
 
-import { parseSlnfFile } from './scope/slnfService';
-
 const supportedProjectExtensions = 'csproj|fsproj|vbproj|dcproj';
 const solutionFolderTypeGuid = '2150E333-8FDC-42A3-9474-1A3956D46DE8';
 const solutionProjectRegex = new RegExp(
@@ -34,7 +32,7 @@ export interface SolutionSelection {
 
 export async function findSolutions(workspaceFolder: vscode.WorkspaceFolder): Promise<vscode.Uri[]> {
   return vscode.workspace.findFiles(
-    new vscode.RelativePattern(workspaceFolder, '**/*.{sln,slnx,slnf}'),
+    new vscode.RelativePattern(workspaceFolder, '**/*.{sln,slnx}'),
     '**/{bin,obj,node_modules,.vs}/**',
     20
   );
@@ -132,19 +130,6 @@ function samePath(a: string | undefined, b: string | undefined): boolean {
 }
 
 async function parseSolutionFile(solutionPath: string, rootPath: string): Promise<SolutionModel> {
-  if (solutionPath.toLowerCase().endsWith('.slnf')) {
-    const parsed = await parseSlnfFile(solutionPath);
-    const baseSolution = await parseSolutionFile(parsed.solutionAbsolutePath, rootPath);
-    const activeSet = new Set(parsed.projectAbsolutePaths.map(p => path.resolve(p).toLowerCase()));
-    const filteredProjects = baseSolution.projects.filter(p => activeSet.has(path.resolve(p.path).toLowerCase()));
-    return {
-      name: path.basename(solutionPath),
-      path: solutionPath,
-      rootPath,
-      projects: filteredProjects
-    };
-  }
-
   const content = await fs.readFile(solutionPath, 'utf8');
   const projectEntries = solutionPath.toLowerCase().endsWith('.slnx')
     ? readSlnxProjectEntries(content, path.dirname(solutionPath))
