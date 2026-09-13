@@ -2,11 +2,13 @@ import * as vscode from 'vscode';
 import { getActive } from './runConfigStore';
 import { DotnetTreeProvider } from './treeProvider';
 import { ProcessManager } from './processManager';
+import { CSharpEngineInfo } from './engineDetector';
 
 let configItem: vscode.StatusBarItem | undefined;
 let stopItem: vscode.StatusBarItem | undefined;
 let runItem: vscode.StatusBarItem | undefined;
 let debugItem: vscode.StatusBarItem | undefined;
+let engineItem: vscode.StatusBarItem | undefined;
 
 export function createStatusBar(): vscode.StatusBarItem[] {
   configItem = makeItem('$(rocket) No config', 'dotnav.selectRunConfig', 'Select run configuration', 103);
@@ -14,8 +16,18 @@ export function createStatusBar(): vscode.StatusBarItem[] {
   debugItem = makeItem('$(bug)', 'dotnav.debugActiveConfig', 'Debug active configuration', 101);
   stopItem = makeItem('$(stop-circle)', 'dotnav.stopActiveConfig', 'Stop active run configuration', 100);
   stopItem.hide();
+  engineItem = makeItem('$(symbol-namespace) C#', 'dotnav.showCSharpEngineInfo', 'DotNav: C# Engine', 99);
 
-  return [configItem, runItem, debugItem, stopItem];
+  return [configItem, runItem, debugItem, stopItem, engineItem];
+}
+
+export function updateEngineStatusBar(info: CSharpEngineInfo): void {
+  if (!engineItem) {
+    return;
+  }
+  engineItem.text = info.statusText;
+  engineItem.tooltip = info.tooltip;
+  engineItem.show();
 }
 
 export function updateStatusBar(

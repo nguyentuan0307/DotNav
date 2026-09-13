@@ -134,7 +134,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
           message: `Could not start ${project.name}.`
         });
       }
-      vscode.window.showErrorMessage('Could not start .NET debugging. Install or enable C# Dev Kit / C# extension, then try again.');
+      void promptForMissingEngineOrRunFallback(project, profile, options.debug);
     }
   } catch (error) {
     if (error instanceof OperationTimeoutError && options.processManager && runId && targetId) {
@@ -653,3 +653,47 @@ function withTimeout<T>(promise: Thenable<T>, timeoutMs: number, message: string
     );
   });
 }
+
+export function runProjectInTerminal(project: ProjectModel, profile?: LaunchProfile): void {
+  const terminal = vscode.window.createTerminal({
+    name: `DotNav: ${project.name}`,
+    cwd: project.directory
+  });
+  const launchProfileArg = profile?.name ? ` --launch-profile "${profile.name}"` : '';
+  const customArgs = profile?.commandLineArgs ? ` -- ${profile.commandLineArgs}` : '';
+  terminal.sendText(`dotnet run --project "${project.path}"${launchProfileArg}${customArgs}`);
+  terminal.show();
+}
+
+async function promptForMissingEngineOrRunFallback(
+  project: ProjectModel,
+  profile: LaunchProfile | undefined,
+  debug: boolean
+): Promise<void> {
+  const hasMs = Boolean(
+    vscode.extensions.getExtension('ms-dotnettools.csharp') ||
+    vscode.extensions.getExtension('ms-dotnettools.csdevkit')
+  );
+  const hasReSharper = Boolean(vscode.extensions.getExtension('jetbrains.resharper-code'));
+
+  if (!hasMs && !hasReSharper) {
+    const action = await vscode.window.showErrorMessage(
+      `Could not start ${debug ? 'debugging' : 'run'}. No C# engine detected. .NET debugging requires Microsoft C# Dev Kit or JetBrains ReSharper.`,
+      'Install C# Dev Kit',
+      'Install ReSharper',
+      'Run in Terminal (dotnet run)'
+    );
+    if (action === 'Install C# Dev Kit') {
+      await vscode.commands.executeCommand('workbench.extensions.installExtension', 'ms-dotnettools.csdevkit');
+    } else if (action === 'Install ReSharper') {
+      await vscode.commands.executeCommand('workbench.extensions.installExtension', 'jetbrains.resharper-code');
+    } else if (action === 'Run in Terminal (dotnet run)') {
+      runProjectInTerminal(project, profile);
+    }
+  } else {
+    vscode.window.showErrorMessage(
+      `Could not start .NET debugging. Please ensure your active C# extension (Microsoft C# Dev Kit or JetBrains ReSharper) is loaded and ready.`
+    );
+  }
+}
+

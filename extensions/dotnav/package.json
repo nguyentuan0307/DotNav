@@ -40,7 +40,6 @@
     "Other"
   ],
   "extensionDependencies": [
-    "ms-dotnettools.csharp",
     "tuna-ex.gitnav-workflows"
   ],
   "activationEvents": [
@@ -561,6 +560,24 @@
         "title": "Visual Entity Relationship Diagram (ERD)",
         "category": "EF Core",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "dotnav.showCSharpEngineInfo",
+        "title": "C# Engine Info & Settings",
+        "category": "DotNav",
+        "icon": "$(symbol-namespace)"
+      },
+      {
+        "command": "dotnav.resharper.showValueTracking",
+        "title": "Show Value Tracking (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(symbol-variable)"
+      },
+      {
+        "command": "dotnav.resharper.resetPsiCaches",
+        "title": "Reset PSI Caches (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(trash)"
       }
     ],
     "submenus": [
@@ -678,6 +695,11 @@
           "command": "dotnav.formatDocument",
           "when": "editorLangId == csharp",
           "group": "6_dotnav@2"
+        },
+        {
+          "command": "dotnav.resharper.showValueTracking",
+          "when": "editorLangId == csharp && dotnav.hasReSharper",
+          "group": "6_dotnav@3"
         },
         {
           "submenu": "dotnav.localChanges",
@@ -898,6 +920,16 @@
           "command": "dotnav.selectSolution",
           "when": "view == dotnav && viewItem == solution",
           "group": "navigation@2"
+        },
+        {
+          "command": "dotnav.showCSharpEngineInfo",
+          "when": "view == dotnav && viewItem == solution",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dotnav.resharper.resetPsiCaches",
+          "when": "view == dotnav && viewItem == solution && dotnav.hasReSharper",
+          "group": "solution@4"
         },
         {
           "submenu": "dotnav.add",
@@ -1363,6 +1395,21 @@
           "type": "boolean",
           "default": true,
           "description": "Show project files such as .csproj, .fsproj, .vbproj, and .dcproj inside each project node."
+        },
+        "dotnav.csharpEngine.preferred": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "microsoft",
+            "resharper"
+          ],
+          "enumDescriptions": [
+            "Automatically detect active C# engine (Microsoft C# Dev Kit or JetBrains ReSharper).",
+            "Prefer Microsoft C# / C# Dev Kit when available.",
+            "Prefer JetBrains C# by ReSharper when available."
+          ],
+          "default": "auto",
+          "description": "Preferred C# engine when multiple extensions are installed."
         },
         "dotnav.buildBeforeRun": {
           "type": "boolean",
