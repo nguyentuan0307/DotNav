@@ -12,7 +12,8 @@ import { isRunnableProject } from './projectCapabilities';
 import { ProcessManager } from './processManager';
 import { RunConfigTreeProvider } from './runConfigTreeProvider';
 import * as runConfigStore from './runConfigStore';
-import { createStatusBar, updateStatusBar } from './statusBar';
+import { createStatusBar, updateStatusBar, updateEngineStatusBar } from './statusBar';
+import { EngineDetector } from './engineDetector';
 import { DotnetTreeProvider } from './treeProvider';
 import { activateEfCore } from './ef/efMain';
 import { addPackage, checkOutdated, removePackage, restorePackages, updatePackage } from './nugetCommands';
@@ -30,8 +31,10 @@ import {
   isSolutionSearchEnabled,
   openActiveSymbolActions,
   rescanUniversalSearchIndex,
+  resetSearchLearningCommand,
   resolveProjectForFile,
   searchEverywhereInteractive,
+  showSearchDiagnosticsCommand,
   traceCqrsFlowInteractive,
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex
@@ -90,6 +93,9 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   const statusItems = createStatusBar();
+  const engineDetector = new EngineDetector();
+  updateEngineStatusBar(engineDetector.currentInfo);
+
   const refreshStatusBar = () => {
     updateStatusBar(provider, context, processManager);
     const solution = provider.getSolution();
@@ -109,9 +115,18 @@ export function activate(context: vscode.ExtensionContext): void {
     treeView,
     runConfigTreeView,
     processManager,
+    engineDetector,
+    engineDetector.onDidChangeEngine(info => updateEngineStatusBar(info)),
     ...statusItems,
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
+    vscode.commands.registerCommand('dotnav.showCSharpEngineInfo', () => engineDetector.showQuickPick()),
+    vscode.commands.registerCommand('dotnav.resharper.showValueTracking', () =>
+      executeReSharperCommand('resharper.showValueTracking', 'Show Value Tracking')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.resetPsiCaches', () =>
+      executeReSharperCommand('resharper.psi.caches.reset', 'Reset PSI Caches')
+    ),
     vscode.commands.registerCommand('dotnav.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('dotnav.addPackage', (node: TreeNode) => addPackage(provider, node)),
     vscode.commands.registerCommand('dotnav.updatePackage', (node: TreeNode) => updatePackage(provider, node)),
@@ -131,6 +146,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
     vscode.commands.registerCommand('dotnav.traceCqrsFlow', (symbolOrQuery?: any) => traceCqrsFlowInteractive(provider, symbolIndex, symbolOrQuery, context)),
     vscode.commands.registerCommand('dotnav.rescanSolutionSymbols', () => rescanUniversalSearchIndex(provider, symbolIndex, context, true)),
+    vscode.commands.registerCommand('dotnav.showSearchDiagnostics', () => showSearchDiagnosticsCommand(symbolIndex, context)),
+    vscode.commands.registerCommand('dotnav.resetSearchLearning', () => resetSearchLearningCommand(context)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openSymbolActions', openActiveSymbolActions),
     vscode.commands.registerCommand('dotnav.openItem', (node: TreeNode) => openItem(provider, treeView, node)),
@@ -1184,3 +1201,21 @@ function relativeProjectPath(solution: SolutionModel, projectPath: string | unde
 
   return path.relative(solution.rootPath, projectPath).replace(/\\/g, '/');
 }
+
+async function executeReSharperCommand(commandId: string, label: string): Promise<void> {
+  const commands = await vscode.commands.getCommands(true);
+  if (!commands.includes(commandId)) {
+    vscode.window.showWarningMessage(
+      `Command "${label}" is not available. Ensure the JetBrains ReSharper extension is installed and activated.`
+    );
+    return;
+  }
+  try {
+    await vscode.commands.executeCommand(commandId);
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      `Failed to execute ReSharper command "${label}": ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+

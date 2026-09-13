@@ -101,6 +101,23 @@ export interface SearchRankingContext {
   readonly activeNoun?: string;
   readonly gitModifiedPaths?: readonly string[];
   readonly mruSymbolIds?: readonly string[];
+  readonly frecencyBonusMap?: Readonly<Record<string, number>>;
+  readonly adaptiveBoostMap?: Readonly<Record<string, number>>;
+}
+
+export interface FrecencyRecord {
+  readonly symbolId: string;
+  readonly count: number;
+  readonly lastAccessedAt: number;
+}
+
+export interface AdaptiveQueryRecord {
+  readonly count: number;
+  readonly lastUsed: number;
+}
+
+export interface AdaptiveQueryMap {
+  readonly [queryKey: string]: Record<string, AdaptiveQueryRecord>;
 }
 
 export interface SearchIndexSnapshot {
@@ -109,4 +126,5 @@ export interface SearchIndexSnapshot {
   readonly fileTimestamps: Record<string, number>;
   readonly symbolsByFile: Record<string, UniversalSymbol[]>;
 }
+
 

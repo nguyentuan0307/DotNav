@@ -391,7 +391,11 @@ export function scoreSymbol(
       }
       return { score: 0, matchReason: '' };
     }
-    // If MRU symbol, score based on recency
+    // If persistent frecency or MRU symbol, score based on frecency and recency
+    if (rankingContext?.frecencyBonusMap && rankingContext.frecencyBonusMap[symbol.id] !== undefined) {
+      const fBonus = rankingContext.frecencyBonusMap[symbol.id];
+      return { score: Math.min(100, 60 + fBonus), matchReason: 'Frequently & recently visited' };
+    }
     if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.length > 0) {
       const mruIdx = rankingContext.mruSymbolIds.indexOf(symbol.id);
       if (mruIdx !== -1) {
@@ -621,10 +625,25 @@ export function scoreSymbol(
     baseScore = Math.min(100, baseScore + 5);
   }
 
-  // 12. MRU Recency Bonus
-  if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.includes(symbol.id)) {
+  // 12. Persistent Frecency & MRU Recency Bonus
+  if (rankingContext?.frecencyBonusMap && rankingContext.frecencyBonusMap[symbol.id] !== undefined) {
+    const fBonus = rankingContext.frecencyBonusMap[symbol.id];
+    if (fBonus > 0) {
+      baseScore = Math.min(100, baseScore + fBonus);
+      matchReason = `${matchReason} (⏱️ Frequent & Recent)`;
+    }
+  } else if (rankingContext?.mruSymbolIds && rankingContext.mruSymbolIds.includes(symbol.id)) {
     baseScore = Math.min(100, baseScore + 10);
     matchReason = `${matchReason} (Recent)`;
+  }
+
+  // 13. Local Adaptive Ranking Boost (Learned user click habits)
+  if (rankingContext?.adaptiveBoostMap && rankingContext.adaptiveBoostMap[symbol.id] !== undefined) {
+    const aBoost = rankingContext.adaptiveBoostMap[symbol.id];
+    if (aBoost > 0) {
+      baseScore = Math.min(100, baseScore + aBoost);
+      matchReason = `${matchReason} (💡 Frequently Chosen)`;
+    }
   }
 
   return { score: baseScore, matchReason };
@@ -685,3 +704,27 @@ export function searchUniversalSymbols(
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, limit);
 }
+
+export function calculateFrecencyBonus(count: number, lastAccessedAt: number, now = Date.now()): number {
+  if (count <= 0) return 0;
+  const ageHours = Math.max(0, (now - lastAccessedAt) / (1000 * 60 * 60));
+  let recencyWeight = 0.1;
+  if (ageHours < 4) recencyWeight = 1.0;
+  else if (ageHours < 24) recencyWeight = 0.8;
+  else if (ageHours < 72) recencyWeight = 0.5;
+  else if (ageHours < 168) recencyWeight = 0.3;
+
+  return Math.min(25, Math.round(count * 4 * recencyWeight));
+}
+
+export function calculateAdaptiveBoost(count: number, lastUsed: number, now = Date.now()): number {
+  if (count <= 0) return 0;
+  const ageHours = Math.max(0, (now - lastUsed) / (1000 * 60 * 60));
+  let recencyWeight = 0.2;
+  if (ageHours < 12) recencyWeight = 1.0;
+  else if (ageHours < 48) recencyWeight = 0.7;
+  else if (ageHours < 120) recencyWeight = 0.4;
+
+  return Math.min(20, Math.round(count * 5 * recencyWeight));
+}
+
