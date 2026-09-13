@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  calculateAdaptiveBoost,
+  calculateFrecencyBonus,
   isCamelCaseAcronymMatch,
   isNearMatch,
   parseUniversalSearchQuery,
+  scoreSymbol,
   searchUniversalSymbols
 } from '../solutionSearch/searchEngine';
 import { UniversalSymbol } from '../solutionSearch/searchModel';
@@ -263,4 +266,122 @@ test('searchUniversalSymbols ranks gap route queries like project-views//record-
   assert.equal(resultIds.includes('ep-unrelated-view'), false);
   assert.equal(resultIds.includes('ep-column-size'), false);
 });
+
+test('calculateFrecencyBonus calculates time-decayed bounded scores', () => {
+  const now = 1000000000000;
+  const oneHourAgo = now - 1 * 3600 * 1000;
+  const twelveHoursAgo = now - 12 * 3600 * 1000;
+  const twoDaysAgo = now - 48 * 3600 * 1000;
+  const eightDaysAgo = now - 8 * 24 * 3600 * 1000;
+
+  // Zero count -> 0
+  assert.equal(calculateFrecencyBonus(0, oneHourAgo, now), 0);
+
+  // < 4h: weight 1.0
+  assert.equal(calculateFrecencyBonus(3, oneHourAgo, now), 12);
+  // Capped at 25
+  assert.equal(calculateFrecencyBonus(10, oneHourAgo, now), 25);
+
+  // 4h - 24h: weight 0.8 -> count 5 * 4 * 0.8 = 16
+  assert.equal(calculateFrecencyBonus(5, twelveHoursAgo, now), 16);
+
+  // 24h - 72h: weight 0.5 -> count 4 * 4 * 0.5 = 8
+  assert.equal(calculateFrecencyBonus(4, twoDaysAgo, now), 8);
+
+  // > 7 days: weight 0.1 -> count 5 * 4 * 0.1 = 2
+  assert.equal(calculateFrecencyBonus(5, eightDaysAgo, now), 2);
+});
+
+test('calculateAdaptiveBoost calculates time-decayed bounded boosts', () => {
+  const now = 1000000000000;
+  const twoHoursAgo = now - 2 * 3600 * 1000;
+  const thirtyHoursAgo = now - 30 * 3600 * 1000;
+  const fourDaysAgo = now - 4 * 24 * 3600 * 1000;
+
+  // Zero count -> 0
+  assert.equal(calculateAdaptiveBoost(0, twoHoursAgo, now), 0);
+
+  // < 12h: weight 1.0
+  assert.equal(calculateAdaptiveBoost(2, twoHoursAgo, now), 10);
+  // Capped at 20
+  assert.equal(calculateAdaptiveBoost(6, twoHoursAgo, now), 20);
+
+  // 12h - 48h: weight 0.7 -> count 4 * 5 * 0.7 = 14
+  assert.equal(calculateAdaptiveBoost(4, thirtyHoursAgo, now), 14);
+
+  // 48h - 120h: weight 0.4 -> count 4 * 5 * 0.4 = 8
+  assert.equal(calculateAdaptiveBoost(4, fourDaysAgo, now), 8);
+});
+
+test('scoreSymbol applies frecency and adaptive boosts properly to matchReason and score', () => {
+  const testSymbol: UniversalSymbol = {
+    id: 'sym-frecency-test',
+    name: 'InvoiceProcessingService',
+    kind: 'class',
+    filePath: '/src/InvoiceProcessingService.cs',
+    relativePath: 'InvoiceProcessingService.cs',
+    projectName: 'Billing',
+    line: 10,
+    column: 1
+  };
+
+  const parsed = parseUniversalSearchQuery('Invoice');
+
+  // Baseline score
+  const baseline = scoreSymbol(testSymbol, parsed);
+  assert.ok(baseline.score >= 50);
+
+  // With frecency bonus
+  const withFrecency = scoreSymbol(testSymbol, parsed, {
+    frecencyBonusMap: { 'sym-frecency-test': 15 }
+  });
+  assert.equal(withFrecency.score, Math.min(100, baseline.score + 15));
+  assert.ok(withFrecency.matchReason.includes('⏱️ Frequent & Recent'));
+
+  // With adaptive boost
+  const withAdaptive = scoreSymbol(testSymbol, parsed, {
+    adaptiveBoostMap: { 'sym-frecency-test': 10 }
+  });
+  assert.equal(withAdaptive.score, Math.min(100, baseline.score + 10));
+  assert.ok(withAdaptive.matchReason.includes('💡 Frequently Chosen'));
+});
+
+test('searchUniversalSymbols promotes frequently chosen symbol to #1 via adaptiveBoostMap', () => {
+  const symbols: UniversalSymbol[] = [
+    {
+      id: 'sym-order-svc',
+      name: 'OrderService',
+      kind: 'class',
+      filePath: '/src/OrderService.cs',
+      relativePath: 'OrderService.cs',
+      projectName: 'Shop',
+      line: 1,
+      column: 1
+    },
+    {
+      id: 'sym-order-ctrl',
+      name: 'OrderController',
+      kind: 'class',
+      filePath: '/src/OrderController.cs',
+      relativePath: 'OrderController.cs',
+      projectName: 'Shop',
+      line: 1,
+      column: 1
+    }
+  ];
+
+  // Without adaptive boost: OrderService and OrderController have identical base relevance
+  const resBefore = searchUniversalSymbols(symbols, 'order');
+  assert.equal(resBefore.length, 2);
+
+  // With adaptive boost on OrderController (e.g. user repeatedly clicked it for "order")
+  const resAfter = searchUniversalSymbols(symbols, 'order', 10, {
+    adaptiveBoostMap: { 'sym-order-ctrl': 15 }
+  });
+
+  assert.equal(resAfter[0].symbol.id, 'sym-order-ctrl');
+  assert.ok(resAfter[0].score > resAfter[1].score);
+  assert.ok(resAfter[0].matchReason.includes('💡 Frequently Chosen'));
+});
+
 

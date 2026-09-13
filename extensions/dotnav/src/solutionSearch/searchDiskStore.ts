@@ -38,6 +38,18 @@ export class DiskSymbolStore {
     return path.join(this.cacheDir, 'cold_symbols.gz');
   }
 
+  public get cacheFilePath(): string {
+    return this.storagePath;
+  }
+
+  public get coldSymbolCount(): number {
+    let count = 0;
+    for (const list of this.fileSymbolsMap.values()) {
+      count += list.length;
+    }
+    return count;
+  }
+
   public async initialize(): Promise<void> {
     if (this.isInitialized) return;
     this.isInitialized = true;
