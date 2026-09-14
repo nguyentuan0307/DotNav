@@ -7,6 +7,8 @@ import { ProjectModel, SolutionModel } from './models';
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 import { createFolderBuildProject, normalizeMaxParallelBuilds } from './folderBuild';
+import { isReSharperBuildEnabled } from './engineDetector';
+import { getReSharperIntegration, ReSharperBuildRequest, ReSharperBuildTarget } from './resharperIntegration';
 
 export type SolutionOperation = 'build' | 'rebuild' | 'clean';
 
@@ -145,26 +147,41 @@ export async function runDotnetForProject(
   if (verb !== 'clean') {
     await vscode.workspace.saveAll?.(false);
   }
-  const configuration = vscode.workspace.getConfiguration('dotnav').get<string>('buildConfiguration', 'Debug');
-  const optFlags = (verb === 'build' || verb === 'rebuild') ? ` ${buildOptimizationFlags()}` : '';
-  const noRestoreFlag = (verb === 'build' && !options.noBuild && shouldUseNoRestore(project.path, verb)) ? ' --no-restore' : '';
-  const command = verb === 'rebuild'
-    ? `dotnet build "${project.path}" --configuration ${configuration} --no-incremental${optFlags}`
-    : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : noRestoreFlag}${optFlags}`;
-  const task = new vscode.Task(
-    { type: 'dotnet', task: verb, project: project.path },
-    vscode.TaskScope.Workspace,
-    `${verb} ${project.name}`,
-    '.NET Navigator',
-    new vscode.ShellExecution(command, { cwd: project.directory }),
-    ['$msCompile']
-  );
+
+  const useReSharperBuild = verb !== 'test' && isReSharperBuildEnabled();
+  const createStandardTask = () => {
+    const configuration = vscode.workspace.getConfiguration('dotnav').get<string>('buildConfiguration', 'Debug');
+    const optFlags = (verb === 'build' || verb === 'rebuild') ? ` ${buildOptimizationFlags()}` : '';
+    const noRestoreFlag = (verb === 'build' && !options.noBuild && shouldUseNoRestore(project.path, verb)) ? ' --no-restore' : '';
+    const command = verb === 'rebuild'
+      ? `dotnet build "${project.path}" --configuration ${configuration} --no-incremental${optFlags}`
+      : `dotnet ${verb} "${project.path}" --configuration ${configuration}${options.noBuild ? ' --no-build' : noRestoreFlag}${optFlags}`;
+    return new vscode.Task(
+      { type: 'dotnet', task: verb, project: project.path },
+      vscode.TaskScope.Workspace,
+      `${verb} ${project.name}`,
+      '.NET Navigator',
+      new vscode.ShellExecution(command, { cwd: project.directory }),
+      ['$msCompile']
+    );
+  };
+
+  const startTask = () => useReSharperBuild
+    ? getReSharperIntegration().executeBuild(new ReSharperBuildRequest(
+        reSharperTarget(verb),
+        [project.path],
+        `${verb} ${project.name}`
+      ))
+    : vscode.tasks.executeTask(createStandardTask());
 
   if (!processManager) {
     try {
-      const execution = await vscode.tasks.executeTask(task);
+      const execution = await startTask();
       return waitForTaskResult(execution);
-    } catch {
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Could not start ${verb} for ${project.name}: ${error instanceof Error ? error.message : String(error)}`
+      );
       return false;
     }
   }
@@ -176,11 +193,13 @@ export async function runDotnetForProject(
   return vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     cancellable: true,
-    title: `${operationLabel(verb)} ${project.name}`
+    title: useReSharperBuild
+      ? `${operationLabel(verb)} ${project.name} · ReSharper Build`
+      : `${operationLabel(verb)} ${project.name}`
   }, async (_progress, token) => {
     let execution: vscode.TaskExecution;
     try {
-      execution = await vscode.tasks.executeTask(task);
+      execution = await startTask();
     } catch (error) {
       vscode.window.showErrorMessage(
         `Could not start ${verb}: ${error instanceof Error ? error.message : String(error)}`
@@ -228,32 +247,47 @@ export async function runDotnetForSolution(
     return false;
   }
 
-  const configuration = vscode.workspace
-    .getConfiguration('dotnav')
-    .get<string>('buildConfiguration', 'Debug');
-  const optArgs = operation !== 'clean' ? buildOptimizationArgs() : [];
-  const args = operation === 'rebuild'
-    ? ['build', solutionPath, '--configuration', configuration, '--no-incremental', ...optArgs]
-    : [operation, solutionPath, '--configuration', configuration, ...optArgs];
+  const useReSharperBuild = isReSharperBuildEnabled();
+  const createStandardSolutionTask = () => {
+    const configuration = vscode.workspace
+      .getConfiguration('dotnav')
+      .get<string>('buildConfiguration', 'Debug');
+    const optArgs = operation !== 'clean' ? buildOptimizationArgs() : [];
+    const args = operation === 'rebuild'
+      ? ['build', solutionPath, '--configuration', configuration, '--no-incremental', ...optArgs]
+      : [operation, solutionPath, '--configuration', configuration, ...optArgs];
+    return new vscode.Task(
+      { type: 'dotnet', task: operation, solution: solutionPath },
+      vscode.TaskScope.Workspace,
+      `${operation} ${path.basename(solutionPath)}`,
+      '.NET Navigator',
+      new vscode.ProcessExecution('dotnet', args, { cwd: path.dirname(solutionPath) }),
+      ['$msCompile']
+    );
+  };
+
   const target = solutionTaskTarget(solution);
-  const task = new vscode.Task(
-    { type: 'dotnet', task: operation, solution: solutionPath },
-    vscode.TaskScope.Workspace,
-    `${operation} ${path.basename(solutionPath)}`,
-    '.NET Navigator',
-    new vscode.ProcessExecution('dotnet', args, { cwd: path.dirname(solutionPath) }),
-    ['$msCompile']
-  );
+  const startTask = () => useReSharperBuild
+    ? getReSharperIntegration().executeSolutionBuild(new ReSharperBuildRequest(
+        reSharperTarget(operation),
+        [],
+        `${operation} ${path.basename(solutionPath)}`
+      ))
+    : vscode.tasks.executeTask(createStandardSolutionTask());
 
   return vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     cancellable: true,
-    title: `${operationLabel(operation)} ${path.basename(solutionPath)}`
+    title: useReSharperBuild
+      ? `${operationLabel(operation)} ${path.basename(solutionPath)} · ReSharper Build`
+      : `${operationLabel(operation)} ${path.basename(solutionPath)}`
   }, async (progress, token) => {
-    progress.report({ message: configuration });
+    progress.report({ message: useReSharperBuild
+      ? 'ReSharper Build owns incremental build and the active solution configuration'
+      : operationLabel(operation) });
     let execution: vscode.TaskExecution;
     try {
-      execution = await vscode.tasks.executeTask(task);
+      execution = await startTask();
     } catch (error) {
       vscode.window.showErrorMessage(
         `Could not start ${operation}: ${error instanceof Error ? error.message : String(error)}`
@@ -299,7 +333,8 @@ export async function runDotnetForProjects(
   projects: ProjectModel[],
   folderPath: string,
   processManager: ProcessManager,
-  folderLabel?: string
+  folderLabel?: string,
+  verb: 'build' | 'rebuild' | 'clean' = 'build'
 ): Promise<boolean> {
   const busy = projects.find(project => processManager.getProjectPhase(project));
   if (busy) {
@@ -316,59 +351,77 @@ export async function runDotnetForProjects(
   const maxParallelBuilds = normalizeMaxParallelBuilds(vscode.workspace
     .getConfiguration('dotnav')
     .get<number>('maxParallelBuilds', 6));
+  const useReSharperBuild = isReSharperBuildEnabled();
   let tempDirectory: string | undefined;
+  let orchestrationPath: string | undefined;
 
   await vscode.workspace.saveAll?.(false);
   try {
-    tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-'));
-    const orchestrationPath = path.join(tempDirectory, 'folder-build.proj');
-    await fs.writeFile(orchestrationPath, createFolderBuildProject(projects), 'utf8');
+    if (!useReSharperBuild) {
+      tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-build-'));
+      orchestrationPath = path.join(tempDirectory, 'folder-build.proj');
+      await fs.writeFile(orchestrationPath, createFolderBuildProject(projects), 'utf8');
+    }
 
     return await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       cancellable: true,
-      title: `Build ${folderName} (${projects.length} projects, ${maxParallelBuilds} workers)`
+      title: useReSharperBuild
+        ? `${operationLabel(verb)} ${folderName} (${projects.length} projects · ReSharper Build)`
+        : `${operationLabel(verb)} ${folderName} (${projects.length} projects, ${maxParallelBuilds} workers)`
     }, async (progress, token) => {
-      progress.report({ message: `${configuration} · up to ${maxParallelBuilds} parallel workers` });
-      const task = new vscode.Task(
-        { type: 'dotnet', task: 'build-folder', projects: projects.map(project => project.path), folder: folderPath },
+      progress.report({ message: useReSharperBuild
+        ? 'ReSharper Build owns incremental build and the active solution configuration'
+        : `${configuration} · up to ${maxParallelBuilds} parallel workers` });
+      const targetArg = verb === 'rebuild' ? ['-t:Rebuild'] : (verb === 'clean' ? ['-t:Clean'] : []);
+      const createStandardFolderTask = () => new vscode.Task(
+        { type: 'dotnet', task: `${verb}-folder`, projects: projects.map(project => project.path), folder: folderPath },
         vscode.TaskScope.Workspace,
-        `build ${folderName} (${projects.length} projects)`,
+        `${verb} ${folderName} (${projects.length} projects)`,
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
-          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
+          'msbuild', orchestrationPath!, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
           '-p:BuildInParallel=true', '-p:UseSharedCompilation=false',
-          '-clp:NoSummary', '-clp:Verbosity=minimal'
+          '-clp:NoSummary', '-clp:Verbosity=minimal',
+          ...targetArg
         ], { cwd: folderPath }),
         ['$msCompile']
       );
+
+      const startTask = () => useReSharperBuild
+        ? getReSharperIntegration().executeBuild(new ReSharperBuildRequest(
+            reSharperTarget(verb),
+            projects.map(project => project.path),
+            `${verb} ${folderName} (${projects.length} projects)`
+          ))
+        : vscode.tasks.executeTask(createStandardFolderTask());
       const session = processManager.beginRun(
-        `folder-build:${path.resolve(folderPath)}`,
-        `build ${folderName}`,
+        `folder-build:${path.resolve(folderPath)}:${verb}`,
+        `${verb} ${folderName}`,
         'build',
         projects.map(project => ({ project }))
       );
       let execution: vscode.TaskExecution;
       try {
-        execution = await vscode.tasks.executeTask(task);
+        execution = await startTask();
       }
       catch (error) {
-        const message = `Could not start folder build: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `Could not start folder ${verb}: ${error instanceof Error ? error.message : String(error)}`;
         processManager.failRun(session.runId, { code: 'unexpected-exit', message });
         vscode.window.showErrorMessage(message);
         return false;
       }
-      const binding = processManager.trackTaskGroup(projects, 'build', execution, session.runId);
+      const binding = processManager.trackTaskGroup(projects, verb, execution, session.runId);
       const cancellation = token.onCancellationRequested(() => { void processManager.stopRun(binding.runId); });
       try {
         const exitCode = await processManager.waitForTask(execution, timeoutMs);
         if (token.isCancellationRequested) return false;
         if (exitCode === 0) {
-          vscode.window.showInformationMessage(`Build succeeded for ${projects.length} project${projects.length === 1 ? '' : 's'} under ${folderName}.`);
+          vscode.window.showInformationMessage(`${operationLabel(verb)} succeeded for ${projects.length} project${projects.length === 1 ? '' : 's'} under ${folderName}.`);
           return true;
         }
-        if (exitCode === undefined) vscode.window.showErrorMessage(`Build ended without an exit code for ${folderName}.`);
-        else vscode.window.showErrorMessage(`Build failed for projects under ${folderName} (exit code ${exitCode}).`);
+        if (exitCode === undefined) vscode.window.showErrorMessage(`${operationLabel(verb)} ended without an exit code for ${folderName}.`);
+        else vscode.window.showErrorMessage(`${operationLabel(verb)} failed for ${folderName} with exit code ${exitCode}.`);
         return false;
       } catch (error) {
         processManager.terminateTimedOutRunTask(binding.runId, execution, {
@@ -427,6 +480,12 @@ function operationLabel(operation: SolutionOperation | 'test'): string {
     case 'clean': return 'Clean';
     case 'test': return 'Test';
   }
+}
+
+function reSharperTarget(operation: SolutionOperation | 'test'): ReSharperBuildTarget {
+  if (operation === 'rebuild') return 'Rebuild';
+  if (operation === 'clean') return 'Clean';
+  return 'Build';
 }
 
 export function openTerminalAt(directory: string): void {

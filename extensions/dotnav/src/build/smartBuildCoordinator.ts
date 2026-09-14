@@ -15,6 +15,7 @@ import { scopeTransitiveUpstream } from './smartBuildTraversal';
 import { EvaluatedBuildGraph, SmartBuildPlan } from './types';
 import { isSmartBuildEnabled, requestSmartBuildEnabled } from './smartBuildFeature';
 import { SmartBuildStatusBar } from './smartBuildStatusBar';
+import { isReSharperBuildEnabled } from '../engineDetector';
 
 interface SolutionRuntime {
   graph?: EvaluatedBuildGraph;
@@ -93,12 +94,24 @@ export class SmartBuildCoordinator implements vscode.Disposable {
   }
 
   async buildSolution(solution: SolutionModel, processManager: ProcessManager): Promise<boolean> {
+    if (isReSharperBuildEnabled()) {
+      return runDotnetForSolution(solution, 'build', processManager);
+    }
     if (!await requestSmartBuildEnabled()) return false;
     this.lastSolution = solution;
     return this.buildScope(solution, processManager, true);
   }
 
   async buildProjects(solution: SolutionModel, projects: readonly ProjectModel[], processManager: ProcessManager, label?: string): Promise<boolean> {
+    if (isReSharperBuildEnabled()) {
+      return runDotnetForProjects(
+        [...projects],
+        solution.rootPath,
+        processManager,
+        label,
+        'build'
+      );
+    }
     if (!await requestSmartBuildEnabled()) return false;
     if (projects.length === 0) return true;
     this.lastSolution = solution;
@@ -450,4 +463,3 @@ function combineExecutionResults(
     binaryLogPath
   };
 }
-
