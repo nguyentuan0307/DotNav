@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.31.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.31.0...dotnav-v0.31.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **dotnav:** route builds through ReSharper ([5b9b894](https://github.com/nguyentuan0307/DotNav/commit/5b9b8948f34ea64e44a8d358d01fd5d93b660851))
+
+
 ## [0.31.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.30.1...dotnav-v0.31.0) (2026-09-13)
 
 
