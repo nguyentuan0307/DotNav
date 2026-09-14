@@ -240,6 +240,16 @@
         "icon": "$(tools)"
       },
       {
+        "command": "dotnav.rebuildFolderProjects",
+        "title": "Rebuild Projects in Folder",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dotnav.cleanFolderProjects",
+        "title": "Clean Projects in Folder",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "dotnav.rebuildProject",
         "title": "Rebuild"
       },
@@ -580,6 +590,36 @@
         "icon": "$(trash)"
       },
       {
+        "command": "dotnav.resharper.attachDebugger",
+        "title": "Attach Debugger (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "dotnav.resharper.userSecrets",
+        "title": "Manage .NET User Secrets (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(key)"
+      },
+      {
+        "command": "dotnav.resharper.rearrangeCodeUp",
+        "title": "Rearrange Code Up (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "dotnav.resharper.rearrangeCodeDown",
+        "title": "Rearrange Code Down (ReSharper)",
+        "category": "DotNav",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "dotnav.resharper.openExplorerForReload",
+        "title": "Open ReSharper Explorer to Reload",
+        "category": "DotNav",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "dotnav.searchEverywhere",
         "title": "Search Everywhere (All Symbols & Endpoints)",
         "category": "DotNav",
@@ -722,7 +762,7 @@
         },
         {
           "command": "dotnav.resharper.showValueTracking",
-          "when": "editorLangId == csharp && dotnav.hasReSharper",
+          "when": "editorLangId == csharp && dotnav.isReSharperActive",
           "group": "6_dotnav@3"
         },
         {
@@ -952,8 +992,13 @@
         },
         {
           "command": "dotnav.resharper.resetPsiCaches",
-          "when": "view == dotnav && viewItem == solution && dotnav.hasReSharper",
+          "when": "view == dotnav && viewItem == solution && dotnav.isReSharperActive",
           "group": "solution@4"
+        },
+        {
+          "command": "dotnav.resharper.openExplorerForReload",
+          "when": "view == dotnav && viewItem == solution && dotnav.isReSharperActive",
+          "group": "solution@5"
         },
         {
           "submenu": "dotnav.add",
@@ -1021,6 +1066,16 @@
           "group": "2_build@1"
         },
         {
+          "command": "dotnav.rebuildFolderProjects",
+          "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
+          "group": "2_build@2"
+        },
+        {
+          "command": "dotnav.cleanFolderProjects",
+          "when": "view == dotnav && viewItem =~ /folder|solutionFolder/",
+          "group": "2_build@3"
+        },
+        {
           "command": "dotnav.rebuildProject",
           "when": "view == dotnav && viewItem =~ /project/",
           "group": "2_build@2"
@@ -1039,6 +1094,11 @@
           "command": "dotnav.cleanProject",
           "when": "view == dotnav && viewItem =~ /project/",
           "group": "2_build@4"
+        },
+        {
+          "command": "dotnav.resharper.openExplorerForReload",
+          "when": "view == dotnav && viewItem =~ /^project(\\s|$)/ && dotnav.isReSharperActive",
+          "group": "2_build@6"
         },
         {
           "command": "dotnav.openTerminalHere",
@@ -1434,6 +1494,11 @@
           ],
           "default": "auto",
           "description": "Preferred C# engine when multiple extensions are installed."
+        },
+        "dotnav.resharper.useReSharperBuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use JetBrains ReSharper Build Engine for building projects and solutions when ReSharper is the active engine."
         },
         "dotnav.buildBeforeRun": {
           "type": "boolean",
