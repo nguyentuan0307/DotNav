@@ -278,5 +278,145 @@ test('Local Adaptive Ranking records query associations and supports reset', asy
   assert.deepEqual(clicksAfterReset, {});
 });
 
+test('UniversalSymbolIndex synthesizes routes from [FromRoute] params and finds get data-entities/235/forms/124', () => {
+  const index = new UniversalSymbolIndex();
+  const code = `
+public partial class DataEntityFormController
+{
+	[FeatureAccessControl(AccessControlBusinessType.AppBuilder, FeatureKey.App_Start_Form_View)]
+	[HttpGet("{formId:int}")]
+	public async Task<FormDetailsResponse> GetFormDetails([FromRoute] int appId
+		, [FromRoute] int dataEntityId
+		, [FromRoute] int formId
+		, CancellationToken cancellationToken)
+	{
+		return await _formService.GetFormDetailsAsync(appId, dataEntityId, formId, cancellationToken);
+	}
+}
+`;
 
+  index.scanFileContent('/src/Controllers/DataEntityFormController.cs', code, 'CustomApp', 'Controllers/DataEntityFormController.cs');
+  index.markFullScanCompleted();
 
+  const query = searchUniversalSymbols(index, 'get data-entities/235/forms/124');
+  assert.ok(query.length > 0, 'Should find endpoint for get data-entities/235/forms/124');
+  const topResult = query[0];
+  assert.equal(topResult.symbol.kind, 'endpoint');
+  assert.equal(topResult.score, 100);
+  assert.equal(topResult.symbol.containerName, 'DataEntityFormController');
+  assert.ok(
+    topResult.symbol.metadata?.routeTemplate?.includes('data-entities') &&
+    topResult.symbol.metadata?.routeTemplate?.includes('forms')
+  );
+});
+
+test('UniversalSymbolIndex shares explicit routes across multi-file partial controllers regardless of scan order', () => {
+  const file1 = `
+[Route("api/apps/{appId}/data-entities/{dataEntityId}/forms")]
+public partial class DataEntityFormController : ControllerBase
+{
+}
+`;
+  const file2 = `
+public partial class DataEntityFormController
+{
+	[HttpGet("{formId:int}")]
+	public async Task<FormDetailsResponse> GetFormDetails([FromRoute] int formId)
+	{
+		return null;
+	}
+}
+`;
+
+  // Order A: file1 then file2
+  const indexA = new UniversalSymbolIndex();
+  indexA.scanFileContent('/src/DataEntityFormController.cs', file1, 'MyProj', 'DataEntityFormController.cs');
+  indexA.scanFileContent('/src/DataEntityFormController.Get.cs', file2, 'MyProj', 'DataEntityFormController.Get.cs');
+  indexA.markFullScanCompleted();
+  const endpointsA = indexA.getAllSymbols().filter(s => s.kind === 'endpoint');
+  assert.ok(endpointsA.some(e => e.metadata?.routeTemplate === 'api/apps/{appId}/data-entities/{dataEntityId}/forms/{formId:int}'));
+
+  // Order B: file2 then file1
+  const indexB = new UniversalSymbolIndex();
+  indexB.scanFileContent('/src/DataEntityFormController.Get.cs', file2, 'MyProj', 'DataEntityFormController.Get.cs');
+  indexB.scanFileContent('/src/DataEntityFormController.cs', file1, 'MyProj', 'DataEntityFormController.cs');
+  indexB.markFullScanCompleted();
+  const endpointsB = indexB.getAllSymbols().filter(s => s.kind === 'endpoint');
+  assert.ok(endpointsB.some(e => e.metadata?.routeTemplate === 'api/apps/{appId}/data-entities/{dataEntityId}/forms/{formId:int}'));
+});
+
+test('DiskSymbolStore specificity-weighted ranking finds target method despite 100+ generic Get... methods', () => {
+  const { DiskSymbolStore } = require('../solutionSearch/searchDiskStore');
+  const disk = new DiskSymbolStore();
+
+  // Populate 25 files with generic Get... methods
+  for (let f = 1; f <= 25; f++) {
+    const dummySymbols: any[] = [];
+    for (let m = 1; m <= 5; m++) {
+      dummySymbols.push({
+        name: `GetGenericData${f}_${m}Async(int id)`,
+        kind: 'method',
+        filePath: `/src/Services/GenericService${f}.cs`,
+        relativePath: `Services/GenericService${f}.cs`,
+        projectName: 'MyProj',
+        line: m * 10,
+        column: 1
+      });
+    }
+    disk.registerFileSymbols(`/src/Services/GenericService${f}.cs`, `Services/GenericService${f}.cs`, 'MyProj', dummySymbols);
+  }
+
+  // Register real target method
+  disk.registerFileSymbols('/src/Services/SpecificationService.cs', 'Services/SpecificationService.cs', 'MyProj', [
+    {
+      name: 'GetSpecificationPrefillValueAsync(int id, CancellationToken ct)',
+      kind: 'method',
+      filePath: '/src/Services/SpecificationService.cs',
+      relativePath: 'Services/SpecificationService.cs',
+      projectName: 'MyProj',
+      line: 45,
+      column: 1,
+      metadata: {
+        returnType: 'Task<FormDetailsResponse>'
+      }
+    }
+  ]);
+
+  // Query with full name
+  const res1 = disk.searchColdSymbols(['GetSpecificationPrefillValueAsync']);
+  assert.ok(res1.length > 0, 'Must find GetSpecificationPrefillValueAsync in cold store');
+  assert.equal(res1[0].name, 'GetSpecificationPrefillValueAsync(int id, CancellationToken ct)');
+  assert.equal(res1[0].filePath, '/src/Services/SpecificationService.cs');
+
+  // Query without Async
+  const res2 = disk.searchColdSymbols(['GetSpecificationPrefillValue']);
+  assert.ok(res2.length > 0, 'Must find GetSpecificationPrefillValue in cold store');
+  assert.equal(res2[0].name, 'GetSpecificationPrefillValueAsync(int id, CancellationToken ct)');
+  assert.equal(res2[0].filePath, '/src/Services/SpecificationService.cs');
+});
+
+test('UniversalSymbolIndex parses explicit interface implementations and partial methods', () => {
+  const index = new UniversalSymbolIndex();
+  const code = `
+public partial class SpecificationService : ISpecificationService
+{
+    Task<SpecificationPrefillValueResponse> ISpecificationService.GetSpecificationPrefillValueAsync(int id, CancellationToken ct)
+    {
+        return null;
+    }
+
+    partial void OnPrefill(int id);
+}
+`;
+
+  index.scanFileContent('/src/SpecificationService.cs', code, 'MyProj', 'SpecificationService.cs');
+  index.markFullScanCompleted();
+
+  const symbols = index.getAllSymbols();
+  assert.ok(symbols.some(s => s.kind === 'method' && s.name.startsWith('GetSpecificationPrefillValueAsync')));
+  assert.ok(symbols.some(s => s.kind === 'method' && s.name.startsWith('OnPrefill')));
+
+  const searchRes = searchUniversalSymbols(index, 'GetSpecificationPrefillValueAsync');
+  assert.ok(searchRes.length > 0, 'Should search explicit interface implementation');
+  assert.ok(searchRes[0].symbol.name.startsWith('GetSpecificationPrefillValueAsync'));
+});

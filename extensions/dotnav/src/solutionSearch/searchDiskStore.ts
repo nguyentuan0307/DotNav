@@ -101,7 +101,12 @@ export class DiskSymbolStore {
     this.scheduleSave();
   }
 
+  private static readonly STOP_WORDS = new Set([
+    'get', 'set', 'async', 'is', 'has', 'to', 'by', 'for', 'in', 'on', 'of', 'and', 'or', 'not', 'with', 'from', 'at'
+  ]);
+
   private indexSymbolTokens(filePath: string, name: string): void {
+    if (!name) return;
     const bareName = name.split('(')[0].replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '').trim();
     const bareLower = bareName.toLowerCase();
     if (bareLower.length >= 2) {
@@ -111,6 +116,27 @@ export class DiskSymbolStore {
         this.wordToFileMap.set(bareLower, fSet);
       }
       fSet.add(filePath);
+    }
+
+    const simpleName = bareName.includes('.') ? bareName.split('.').pop()! : '';
+    if (simpleName && simpleName.length >= 2) {
+      const simpleLower = simpleName.toLowerCase();
+      let sfSet = this.wordToFileMap.get(simpleLower);
+      if (!sfSet) {
+        sfSet = new Set<string>();
+        this.wordToFileMap.set(simpleLower, sfSet);
+      }
+      sfSet.add(filePath);
+    }
+
+    const uppercase = bareName.replace(/[^A-Z]/g, '').toLowerCase();
+    if (uppercase.length >= 2) {
+      let acSet = this.wordToFileMap.get(uppercase);
+      if (!acSet) {
+        acSet = new Set<string>();
+        this.wordToFileMap.set(uppercase, acSet);
+      }
+      acSet.add(filePath);
     }
 
     const words = bareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 2);
@@ -139,12 +165,32 @@ export class DiskSymbolStore {
     if (!oldSymbols) return;
 
     for (const s of oldSymbols) {
+      if (!s || !s.n) continue;
       const bareName = s.n.split('(')[0].replace(/^(DbSet|Table|Map|RuleFor|Job|AddScoped|AddTransient|AddSingleton):\s*/i, '').trim();
       const bareLower = bareName.toLowerCase();
       const bareSet = this.wordToFileMap.get(bareLower);
       if (bareSet) {
         bareSet.delete(filePath);
         if (bareSet.size === 0) this.wordToFileMap.delete(bareLower);
+      }
+
+      const simpleName = bareName.includes('.') ? bareName.split('.').pop()! : '';
+      if (simpleName && simpleName.length >= 2) {
+        const simpleLower = simpleName.toLowerCase();
+        const sfSet = this.wordToFileMap.get(simpleLower);
+        if (sfSet) {
+          sfSet.delete(filePath);
+          if (sfSet.size === 0) this.wordToFileMap.delete(simpleLower);
+        }
+      }
+
+      const uppercase = bareName.replace(/[^A-Z]/g, '').toLowerCase();
+      if (uppercase.length >= 2) {
+        const acSet = this.wordToFileMap.get(uppercase);
+        if (acSet) {
+          acSet.delete(filePath);
+          if (acSet.size === 0) this.wordToFileMap.delete(uppercase);
+        }
       }
 
       const words = bareName.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 2);
@@ -169,77 +215,148 @@ export class DiskSymbolStore {
     }
   }
 
-  public searchColdSymbols(tokens: string[], limit = 50): UniversalSymbol[] {
+  public searchColdSymbols(tokens: string[], limit = 100): UniversalSymbol[] {
     if (tokens.length === 0) return [];
 
-    const candidateFiles = new Set<string>();
-    const searchTerms: string[] = [];
+    const rawTerms: string[] = [];
+    const specificTerms: string[] = [];
+    const stopTerms: string[] = [];
 
     for (const tok of tokens) {
       const tokLower = tok.toLowerCase();
-      searchTerms.push(tokLower);
+      rawTerms.push(tokLower);
       const subWords = tok.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[-_\s/.:{}="',<>]+/).filter(w => w.length >= 2);
       for (const sw of subWords) {
-        searchTerms.push(sw.toLowerCase());
+        const swLower = sw.toLowerCase();
+        if (DiskSymbolStore.STOP_WORDS.has(swLower)) {
+          stopTerms.push(swLower);
+        } else {
+          specificTerms.push(swLower);
+        }
+      }
+      const upper = tok.replace(/[^A-Z]/g, '').toLowerCase();
+      if (upper.length >= 2) {
+        specificTerms.push(upper);
       }
     }
 
-    for (const term of searchTerms) {
+    specificTerms.sort((a, b) => b.length - a.length);
+
+    const filePriority = new Map<string, number>();
+    const addFileWithPriority = (file: string, priority: number) => {
+      const cur = filePriority.get(file) || 0;
+      if (priority > cur) filePriority.set(file, priority);
+    };
+
+    // 1. Direct full token matches (highest priority = 3)
+    for (const raw of rawTerms) {
+      const direct = this.wordToFileMap.get(raw);
+      if (direct) {
+        for (const f of direct) addFileWithPriority(f, 3);
+      }
+    }
+
+    // 2. Specific terms (priority = 2)
+    for (const term of specificTerms) {
       const direct = this.wordToFileMap.get(term);
       if (direct) {
-        for (const f of direct) candidateFiles.add(f);
+        for (const f of direct) addFileWithPriority(f, 2);
       }
-      if (term.length >= 3) {
+      if (term.length >= 4) {
         const p3 = term.slice(0, 3);
         const p3Set = this.wordToFileMap.get(p3);
-        if (p3Set && candidateFiles.size < 50) {
-          for (const f of p3Set) candidateFiles.add(f);
+        if (p3Set && p3Set.size < 100) {
+          for (const f of p3Set) addFileWithPriority(f, 1);
         }
       }
     }
 
-    if (candidateFiles.size === 0) {
+    // 3. Fallback to stop terms ONLY if no candidate files found from specific/raw terms
+    if (filePriority.size === 0) {
+      for (const term of stopTerms) {
+        const direct = this.wordToFileMap.get(term);
+        if (direct) {
+          for (const f of direct) addFileWithPriority(f, 1);
+        }
+      }
+    }
+
+    if (filePriority.size === 0) {
       return [];
     }
 
-    const results: UniversalSymbol[] = [];
+    const sortedFiles = Array.from(filePriority.keys()).sort((a, b) => {
+      return (filePriority.get(b) || 0) - (filePriority.get(a) || 0);
+    });
 
-    for (const filePath of candidateFiles) {
+    const results: { sym: UniversalSymbol; score: number }[] = [];
+
+    for (const filePath of sortedFiles) {
       const symbols = this.fileSymbolsMap.get(filePath);
       if (!symbols) continue;
 
       for (const s of symbols) {
         const nameLower = s.n.toLowerCase();
-        let matched = false;
-        for (const term of searchTerms) {
-          if (nameLower.includes(term)) {
-            matched = true;
-            break;
+        let matchScore = 0;
+
+        for (const raw of rawTerms) {
+          if (nameLower.split('(')[0].trim() === raw) {
+            matchScore += 100;
+          } else if (nameLower.includes(raw)) {
+            matchScore += 80;
           }
         }
 
-        if (matched) {
-          results.push({
-            id: `${s.f}:${s.l}:${s.k}:${s.n}`,
-            name: s.n,
-            kind: s.k,
-            filePath: s.f,
-            relativePath: s.r,
-            projectName: s.p,
-            line: s.l,
-            column: s.c,
-            metadata: {
-              returnType: s.rt,
-              parameterSummary: s.ps
+        for (const term of specificTerms) {
+          if (nameLower.includes(term)) {
+            matchScore += term.length * 5;
+          }
+        }
+
+        const upper = s.n.replace(/[^A-Z]/g, '').toLowerCase();
+        for (const raw of rawTerms) {
+          if (upper.length >= 2 && (upper === raw || upper.startsWith(raw))) {
+            matchScore += 60;
+          }
+        }
+
+        if (specificTerms.length === 0 && matchScore === 0) {
+          for (const term of stopTerms) {
+            if (nameLower.includes(term)) {
+              matchScore += 20;
+              break;
             }
+          }
+        }
+
+        if (matchScore > 0) {
+          results.push({
+            sym: {
+              id: `${s.f}:${s.l}:${s.k}:${s.n}`,
+              name: s.n,
+              kind: s.k,
+              filePath: s.f,
+              relativePath: s.r,
+              projectName: s.p,
+              line: s.l,
+              column: s.c,
+              metadata: {
+                returnType: s.rt,
+                parameterSummary: s.ps
+              }
+            },
+            score: matchScore
           });
-          if (results.length >= limit * 2) break;
         }
       }
-      if (results.length >= limit * 2) break;
+
+      if (results.length >= limit * 4) {
+        break;
+      }
     }
 
-    return results.slice(0, limit);
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, limit).map(r => r.sym);
   }
 
   public clear(): void {
