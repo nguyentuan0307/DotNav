@@ -1927,6 +1927,13 @@ mark.search-match {
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
+.diff-sign {
+  display: inline-block;
+  width: 12px;
+  user-select: none;
+  opacity: 0.85;
+}
+
 .diff-line.diff-add {
   color: var(--vscode-gitDecoration-addedResourceForeground);
   background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 12%, transparent);
