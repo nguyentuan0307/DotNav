@@ -35,6 +35,28 @@ export const MS_CSHARP_EXTENSION_ID = 'ms-dotnettools.csharp';
 export const MS_CSDEVKIT_EXTENSION_ID = 'ms-dotnettools.csdevkit';
 export const RESHARPER_EXTENSION_ID = 'jetbrains.resharper-code';
 
+let activeDetector: EngineDetector | undefined;
+let reSharperReady = false;
+
+export function getActiveEngineDetector(): EngineDetector | undefined {
+  return activeDetector;
+}
+
+export function isReSharperActive(): boolean {
+  return activeDetector?.currentInfo.activeEngine === 'resharper';
+}
+
+export function isReSharperBuildEnabled(): boolean {
+  return isReSharperActive() && vscode.workspace
+    .getConfiguration('dotnav.resharper')
+    .get<boolean>('useReSharperBuild', true);
+}
+
+export function setReSharperReady(ready: boolean): void {
+  reSharperReady = ready;
+  void vscode.commands.executeCommand('setContext', 'dotnav.isReSharperReady', ready && isReSharperActive());
+}
+
 export class EngineDetector implements vscode.Disposable {
   private readonly _onDidChangeEngine = new vscode.EventEmitter<CSharpEngineInfo>();
   public readonly onDidChangeEngine: vscode.Event<CSharpEngineInfo> = this._onDidChangeEngine.event;
@@ -45,6 +67,7 @@ export class EngineDetector implements vscode.Disposable {
 
   constructor(deps?: EngineDetectorDependencies) {
     this._deps = deps ?? {};
+    activeDetector = this;
     this._currentInfo = this.detect();
     this.applyContextKeys(this._currentInfo);
 
@@ -58,7 +81,8 @@ export class EngineDetector implements vscode.Disposable {
     const onConfigChanged = this._deps.onConfigChanged ?? vscode.workspace.onDidChangeConfiguration;
     this._disposables.push(
       onConfigChanged(e => {
-        if (e.affectsConfiguration('dotnav.csharpEngine.preferred')) {
+        if (e.affectsConfiguration('dotnav.csharpEngine.preferred')
+          || e.affectsConfiguration('dotnav.resharper.useReSharperBuild')) {
           this.refresh();
         }
       })
@@ -117,15 +141,8 @@ export class EngineDetector implements vscode.Disposable {
       } else if (preference === 'microsoft') {
         activeEngine = 'microsoft';
       } else {
-        // 'auto': determine based on active state or installed features
-        if (resharper?.isActive && !msCSharp?.isActive && !msDevKit?.isActive) {
-          activeEngine = 'resharper';
-        } else if ((msCSharp?.isActive || msDevKit?.isActive) && !resharper?.isActive) {
-          activeEngine = 'microsoft';
-        } else {
-          // Both active or neither active yet: prefer C# Dev Kit if present, otherwise ReSharper
-          activeEngine = hasMsDevKit ? 'microsoft' : 'resharper';
-        }
+        // 'auto': prioritize ReSharper when detected so all tools migrate to it
+        activeEngine = hasReSharper ? 'resharper' : (hasMsDevKit || hasMsCSharp ? 'microsoft' : 'none');
       }
     }
 
@@ -190,6 +207,14 @@ export class EngineDetector implements vscode.Disposable {
     void setCtx('dotnav.hasReSharper', info.hasReSharper);
     void setCtx('dotnav.hasMicrosoftCSharp', info.hasMicrosoftCSharp);
     void setCtx('dotnav.hasCsDevKit', info.hasCsDevKit);
+    void setCtx('dotnav.isReSharperActive', info.activeEngine === 'resharper');
+    void setCtx('dotnav.isReSharperReady', info.activeEngine === 'resharper' && reSharperReady);
+    void setCtx('dotnav.useReSharperBuild', info.activeEngine === 'resharper' && vscode.workspace
+      .getConfiguration('dotnav.resharper')
+      .get<boolean>('useReSharperBuild', true));
+    if (info.activeEngine !== 'resharper') {
+      reSharperReady = false;
+    }
   }
 
   public async showQuickPick(): Promise<void> {
@@ -277,6 +302,30 @@ export class EngineDetector implements vscode.Disposable {
           await vscode.commands.executeCommand('resharper.psi.caches.reset');
         }
       });
+
+      items.push({
+        label: '$(key) ReSharper: Manage .NET User Secrets',
+        detail: 'Open and manage User Secrets for the project',
+        action: async () => {
+          await vscode.commands.executeCommand('resharper.solutionExplorer.userSecrets');
+        }
+      });
+
+      items.push({
+        label: '$(debug-disconnect) ReSharper: Attach Debugger',
+        detail: 'Attach ReSharper debugger to a running .NET process',
+        action: async () => {
+          await vscode.commands.executeCommand('resharper.debugger.attach.coreclr');
+        }
+      });
+
+      items.push({
+        label: '$(refresh) ReSharper: Open Explorer to Reload',
+        detail: 'Select the solution or project in ReSharper Solution Explorer, then run Reload',
+        action: async () => {
+          await vscode.commands.executeCommand('dotnav.resharper.openExplorerForReload');
+        }
+      });
     }
 
     const picked = await vscode.window.showQuickPick(items, {
@@ -301,6 +350,9 @@ export class EngineDetector implements vscode.Disposable {
   }
 
   public dispose(): void {
+    if (activeDetector === this) {
+      activeDetector = undefined;
+    }
     this._onDidChangeEngine.dispose();
     for (const d of this._disposables) {
       d.dispose();

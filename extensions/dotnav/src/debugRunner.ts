@@ -8,6 +8,8 @@ import { LaunchProfile, ProjectModel, RunConfig, SolutionModel } from './models'
 import { samePath } from './pathUtils';
 import { ProcessManager } from './processManager';
 import { BuildBeforeRunMode, resolveBuildBeforeRunMode } from './buildMode';
+import { isReSharperActive, isReSharperBuildEnabled } from './engineDetector';
+import { getReSharperIntegration, ReSharperBuildRequest } from './resharperIntegration';
 
 interface StartOptions {
   readonly debug: boolean;
@@ -38,6 +40,61 @@ export async function pickProfile(project: ProjectModel): Promise<LaunchProfile 
   return picked?.profile ?? null;
 }
 
+export function buildDebugConfiguration(
+  project: ProjectModel,
+  profile: LaunchProfile | undefined,
+  debug: boolean,
+  program: string,
+  runId?: string,
+  targetId?: string
+): vscode.DebugConfiguration {
+  const useReSharper = isReSharperActive();
+  const name = `${debug ? 'Debug' : 'Run'} ${project.name}${profile ? ` (${profile.name})` : ''}`;
+
+  if (useReSharper) {
+    const config: vscode.DebugConfiguration = {
+      name,
+      type: 'dotnet',
+      request: 'launch',
+      projectPath: project.path,
+      noDebug: !debug,
+      dotnavProjectPath: project.path,
+      dotnavRunId: runId,
+      dotnavTargetId: targetId
+    };
+
+    const tfm = project.targetFrameworks[0]?.trim();
+    const profileName = profile?.name?.trim();
+    if (tfm || profileName) {
+      config.launchConfigurationId = `TargetFramework=${tfm ?? ''};${profileName ?? ''}`;
+    }
+    if (profile?.commandLineArgs?.trim()) {
+      config.args = parseCommandLineArgs(profile.commandLineArgs);
+    }
+    if (profile?.environmentVariables && Object.keys(profile.environmentVariables).length > 0) {
+      config.env = { ...profile.environmentVariables };
+    }
+
+    return config;
+  }
+
+  const configuration: vscode.DebugConfiguration = {
+    name,
+    type: 'coreclr',
+    request: 'launch',
+    program,
+    cwd: project.directory,
+    args: parseCommandLineArgs(profile?.commandLineArgs),
+    console: 'internalConsole',
+    noDebug: !debug,
+    dotnavProjectPath: project.path,
+    dotnavRunId: runId,
+    dotnavTargetId: targetId
+  };
+
+  return configuration;
+}
+
 export async function startTarget(project: ProjectModel, profile: LaunchProfile | undefined, options: StartOptions): Promise<boolean> {
   await vscode.workspace.saveAll?.(false);
   let runId = options.runId;
@@ -65,6 +122,19 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     }
   }
 
+  if (isReSharperActive()) {
+    try {
+      await getReSharperIntegration().syncBuildOwnership(true);
+    } catch (error) {
+      const message = `Could not configure ReSharper build ownership: ${error instanceof Error ? error.message : String(error)}`;
+      if (options.processManager && runId && targetId) {
+        options.processManager.failTarget(runId, targetId, { code: 'build-failed', message });
+      }
+      vscode.window.showErrorMessage(message);
+      return false;
+    }
+  }
+
   if (configuredBuildBeforeRunMode() !== 'none' && !options.skipBuild) {
     const built = await buildProject(project, options.processManager, runId, targetId);
     if (!built) {
@@ -72,38 +142,28 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     }
   }
 
-  let program: string;
+  let program = '';
   try {
     program = await resolveProgramPath(project);
   } catch (error) {
-    if (options.processManager && runId && targetId) {
-      options.processManager.failTarget(runId, targetId, {
-        code: 'start-error',
-        message: error instanceof Error ? error.message : String(error)
-      });
+    if (!isReSharperActive()) {
+      if (options.processManager && runId && targetId) {
+        options.processManager.failTarget(runId, targetId, {
+          code: 'start-error',
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+      vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+      return false;
     }
-    vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
-    return false;
   }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const launchSettingsPath = path.join(project.directory, 'Properties', 'launchSettings.json');
-  const name = `${options.debug ? 'Debug' : 'Run'} ${project.name}${profile ? ` (${profile.name})` : ''}`;
-  const configuration: vscode.DebugConfiguration = {
-    name,
-    type: 'coreclr',
-    request: 'launch',
-    program,
-    cwd: project.directory,
-    args: parseCommandLineArgs(profile?.commandLineArgs),
-    console: 'internalConsole',
-    noDebug: !options.debug,
-    dotnavProjectPath: project.path,
-    dotnavRunId: runId,
-    dotnavTargetId: targetId
-  };
+  const configuration = buildDebugConfiguration(project, profile, options.debug, program, runId, targetId);
+  const name = configuration.name;
 
-  if (profile && await exists(launchSettingsPath)) {
+  if (!isReSharperActive() && profile && await exists(launchSettingsPath)) {
     configuration.launchSettingsFilePath = launchSettingsPath;
     configuration.launchSettingsProfile = profile.name;
   }
@@ -123,7 +183,7 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
     .get<number>('startTimeoutSeconds', 30)) * 1000;
   try {
     started = await withTimeout(
-      vscode.debug.startDebugging(workspaceFolder, configuration),
+      vscode.debug.startDebugging(workspaceFolder, configuration, { noDebug: !options.debug }),
       startTimeoutMs,
       `Starting ${project.name} timed out.`
     );
@@ -134,7 +194,11 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
           message: `Could not start ${project.name}.`
         });
       }
-      void promptForMissingEngineOrRunFallback(project, profile, options.debug);
+      if (isReSharperActive()) {
+        showReSharperDebuggerFailure(options.debug);
+      } else {
+        void promptForMissingEngineOrRunFallback(project, profile, options.debug);
+      }
     }
   } catch (error) {
     if (error instanceof OperationTimeoutError && options.processManager && runId && targetId) {
@@ -146,7 +210,11 @@ export async function startTarget(project: ProjectModel, profile: LaunchProfile 
         cause: error instanceof Error ? error.message : String(error)
       });
     }
-    vscode.window.showErrorMessage(`Could not start ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
+    if (isReSharperActive()) {
+      showReSharperDebuggerFailure(options.debug, error);
+    } else {
+      vscode.window.showErrorMessage(`Could not start ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   } finally {
     if (!started) {
       options.processManager?.cancelExpectedDebugSession(project, runId, targetId);
@@ -222,18 +290,22 @@ export async function buildProject(
 ): Promise<boolean> {
   await vscode.workspace.saveAll?.(false);
   const configuration = buildConfiguration();
-  const task = new vscode.Task(
-    { type: 'dotnet', task: 'build', project: project.path },
-    vscode.TaskScope.Workspace,
-    `build ${project.name}`,
-    '.NET Navigator',
-    new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration} -p:UseSharedCompilation=false`, { cwd: project.directory }),
-    ['$msCompile']
-  );
+  const useReSharperBuild = isReSharperBuildEnabled();
+  const createStandardTask = () => new vscode.Task(
+        { type: 'dotnet', task: 'build', project: project.path },
+        vscode.TaskScope.Workspace,
+        `build ${project.name}`,
+        '.NET Navigator',
+        new vscode.ShellExecution(`dotnet build "${project.path}" --configuration ${configuration} -p:UseSharedCompilation=false`, { cwd: project.directory }),
+        ['$msCompile']
+      );
+  const startTask = () => useReSharperBuild
+    ? getReSharperIntegration().executeBuild(new ReSharperBuildRequest('Build', [project.path], `build ${project.name}`))
+    : vscode.tasks.executeTask(createStandardTask());
 
   let execution: vscode.TaskExecution;
   try {
-    execution = await vscode.tasks.executeTask(task);
+    execution = await startTask();
   } catch (error) {
     if (processManager && runId && targetId) {
       processManager.failTarget(runId, targetId, {
@@ -327,6 +399,19 @@ export async function runConfig(
     }
   }
 
+  if (isReSharperActive()) {
+    try {
+      await getReSharperIntegration().syncBuildOwnership(true);
+    } catch (error) {
+      const message = `Could not configure ReSharper build ownership: ${error instanceof Error ? error.message : String(error)}`;
+      if (session) {
+        await options.processManager?.stopRun(session.runId);
+      }
+      vscode.window.showErrorMessage(message);
+      return;
+    }
+  }
+
   const prebuildGroup = buildMode !== 'none' && resolvedTargets.length > 1;
   if (prebuildGroup) {
     const built = await buildProjectGroup(config.label, resolvedTargets.map(target => target.project!), options.processManager, session?.runId);
@@ -376,36 +461,52 @@ async function buildProjectGroup(
   const maxParallelBuilds = normalizeMaxParallelBuilds(vscode.workspace
     .getConfiguration('dotnav')
     .get<number>('maxParallelBuilds', 6));
+  const useReSharperBuild = isReSharperBuildEnabled();
   let tempDirectory: string | undefined;
+  let orchestrationPath: string | undefined;
 
   await vscode.workspace.saveAll?.(false);
   try {
-    tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-compound-build-'));
-    const orchestrationPath = path.join(tempDirectory, 'compound-build.proj');
-    await fs.writeFile(orchestrationPath, createFolderBuildProject(unique), 'utf8');
+    if (!useReSharperBuild) {
+      tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-compound-build-'));
+      orchestrationPath = path.join(tempDirectory, 'compound-build.proj');
+      await fs.writeFile(orchestrationPath, createFolderBuildProject(unique), 'utf8');
+    }
 
     return await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       cancellable: true,
-      title: `Build ${label} (${unique.length} projects, ${maxParallelBuilds} workers)`
+      title: useReSharperBuild
+        ? `Build ${label} (${unique.length} projects · ReSharper Build)`
+        : `Build ${label} (${unique.length} projects, ${maxParallelBuilds} workers)`
     }, async (progress, token) => {
-      progress.report({ message: `${configuration} · up to ${maxParallelBuilds} parallel workers` });
-      const task = new vscode.Task(
+      progress.report({ message: useReSharperBuild
+        ? 'ReSharper Build owns incremental build and the active solution configuration'
+        : `${configuration} · up to ${maxParallelBuilds} parallel workers` });
+      const createStandardTask = () => new vscode.Task(
         { type: 'dotnet', task: 'build-compound', projects: unique.map(project => project.path), config: label },
         vscode.TaskScope.Workspace,
         `build ${label} (${unique.length} projects)`,
         '.NET Navigator',
         new vscode.ProcessExecution('dotnet', [
-          'msbuild', orchestrationPath, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
+          'msbuild', orchestrationPath!, `-maxCpuCount:${maxParallelBuilds}`, `-p:Configuration=${configuration}`,
           '-p:BuildInParallel=true', '-p:UseSharedCompilation=false',
           '-clp:NoSummary', '-clp:Verbosity=minimal'
         ], { cwd: commonProjectDirectory(unique) }),
         ['$msCompile']
       );
 
+      const startTask = () => useReSharperBuild
+        ? getReSharperIntegration().executeBuild(new ReSharperBuildRequest(
+            'Build',
+            unique.map(project => project.path),
+            `build ${label} (${unique.length} projects)`
+          ))
+        : vscode.tasks.executeTask(createStandardTask());
+
       let execution: vscode.TaskExecution;
       try {
-        execution = await vscode.tasks.executeTask(task);
+        execution = await startTask();
       } catch (error) {
         if (processManager && runId) {
           processManager.failRun(runId, {
@@ -697,3 +798,14 @@ async function promptForMissingEngineOrRunFallback(
   }
 }
 
+function showReSharperDebuggerFailure(debug: boolean, error?: unknown): void {
+  const hasMicrosoftDebugger = Boolean(
+    vscode.extensions.getExtension('ms-dotnettools.csharp')
+    || vscode.extensions.getExtension('ms-dotnettools.csdevkit')
+  );
+  const detail = error ? ` ${error instanceof Error ? error.message : String(error)}` : '';
+  const guidance = hasMicrosoftDebugger
+    ? ' Disable Microsoft C# / C# Dev Kit debugging, then reload VS Code so ReSharper can own the .NET debugger.'
+    : ' Ensure the same solution is open and ready in ReSharper.';
+  vscode.window.showErrorMessage(`ReSharper could not start ${debug ? 'debugging' : 'the run'}.${detail}${guidance}`);
+}

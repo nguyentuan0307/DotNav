@@ -14,6 +14,10 @@ import { RunConfigTreeProvider } from './runConfigTreeProvider';
 import * as runConfigStore from './runConfigStore';
 import { createStatusBar, updateStatusBar, updateEngineStatusBar } from './statusBar';
 import { EngineDetector } from './engineDetector';
+import {
+  disposeReSharperIntegration,
+  initializeReSharperIntegration
+} from './resharperIntegration';
 import { DotnetTreeProvider } from './treeProvider';
 import { activateEfCore } from './ef/efMain';
 import { addPackage, checkOutdated, removePackage, restorePackages, updatePackage } from './nugetCommands';
@@ -94,6 +98,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const statusItems = createStatusBar();
   const engineDetector = new EngineDetector();
+  const reSharperIntegration = initializeReSharperIntegration(context);
+  void reSharperIntegration.syncBuildOwnership(engineDetector.currentInfo.activeEngine === 'resharper').catch(error =>
+    vscode.window.showErrorMessage(`Could not synchronize ReSharper build ownership: ${error instanceof Error ? error.message : String(error)}`)
+  );
+  if (engineDetector.currentInfo.activeEngine === 'resharper') {
+    void reSharperIntegration.refreshReadiness();
+  }
   updateEngineStatusBar(engineDetector.currentInfo);
 
   const refreshStatusBar = () => {
@@ -116,7 +127,16 @@ export function activate(context: vscode.ExtensionContext): void {
     runConfigTreeView,
     processManager,
     engineDetector,
-    engineDetector.onDidChangeEngine(info => updateEngineStatusBar(info)),
+    reSharperIntegration,
+    engineDetector.onDidChangeEngine(info => {
+      updateEngineStatusBar(info);
+      void reSharperIntegration.syncBuildOwnership(info.activeEngine === 'resharper').catch(error =>
+        vscode.window.showErrorMessage(`Could not synchronize ReSharper build ownership: ${error instanceof Error ? error.message : String(error)}`)
+      );
+      if (info.activeEngine === 'resharper') {
+        void reSharperIntegration.refreshReadiness();
+      }
+    }),
     ...statusItems,
     provider.onDidChangeTreeData(refreshStatusBar),
     processManager.onDidChangeRunningState(updateRunningContext),
@@ -126,6 +146,23 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('dotnav.resharper.resetPsiCaches', () =>
       executeReSharperCommand('resharper.psi.caches.reset', 'Reset PSI Caches')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.attachDebugger', () =>
+      executeReSharperCommand('resharper.debugger.attach.coreclr', 'Attach Debugger')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.userSecrets', () =>
+      executeReSharperCommand('resharper.solutionExplorer.userSecrets', 'Manage .NET User Secrets')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.rearrangeCodeUp', () =>
+      executeReSharperCommand('resharper.editor.rearrangeCode:up', 'Rearrange Code Up')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.rearrangeCodeDown', () =>
+      executeReSharperCommand('resharper.editor.rearrangeCode:down', 'Rearrange Code Down')
+    ),
+    vscode.commands.registerCommand('dotnav.resharper.openExplorerForReload', () =>
+      reSharperIntegration.openExplorerForReload().catch(error =>
+        vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error))
+      )
     ),
     vscode.commands.registerCommand('dotnav.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('dotnav.addPackage', (node: TreeNode) => addPackage(provider, node)),
@@ -155,7 +192,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.openSolutionFile', () => openSolutionFile(provider)),
     vscode.commands.registerCommand('dotnav.openSolutionTerminal', () => openSolutionTerminal(provider)),
     vscode.commands.registerCommand('dotnav.buildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'build')),
-    vscode.commands.registerCommand('dotnav.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node)),
+    vscode.commands.registerCommand('dotnav.buildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node, 'build')),
+    vscode.commands.registerCommand('dotnav.rebuildFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node, 'rebuild')),
+    vscode.commands.registerCommand('dotnav.cleanFolderProjects', (node: TreeNode) => buildFolderProjects(provider, processManager, node, 'clean')),
     vscode.commands.registerCommand('dotnav.rebuildProject', (node: TreeNode) => runProjectCommand(processManager, node, 'rebuild')),
     vscode.commands.registerCommand('dotnav.buildSolution', () => runSolutionCommand(provider, processManager, 'build')),
     vscode.commands.registerCommand('dotnav.rebuildSolution', () => runSolutionCommand(provider, processManager, 'rebuild')),
@@ -169,7 +208,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.stopAll', () => processManager.stopAll()),
     vscode.commands.registerCommand('dotnav.stopActiveConfig', () => stopActiveConfig(context, provider, processManager)),
     vscode.commands.registerCommand('dotnav.showRunOutput', () => processManager.showOutput()),
-    vscode.commands.registerCommand('dotnav.stopConfigNode', (node: TreeNode) => node.configId ? processManager.stopConfig(node.configId) : undefined),
+    vscode.commands.registerCommand('dotnav.stopConfigNode', (node?: TreeNode) => node?.configId ? processManager.stopConfig(node.configId) : undefined),
     vscode.commands.registerCommand('dotnav.openTerminalHere', openTerminalHere),
     vscode.commands.registerCommand('dotnav.toggleProjectFiles', () => toggleProjectFiles(provider)),
     vscode.commands.registerCommand('dotnav.toggleFileNesting', () => toggleFileNesting(provider)),
@@ -199,19 +238,19 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.copyRelativePath', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, copyRelativePath)),
     vscode.commands.registerCommand('dotnav.revealInOs', (node?: TreeNode, allSelected?: TreeNode[]) => runSelectedResourceCommand(interaction, node, allSelected, revealInFileExplorer)),
     vscode.commands.registerCommand('dotnav.addRunConfig', () => addRunConfig(context, provider)),
-    vscode.commands.registerCommand('dotnav.editRunConfigProjects', (node: TreeNode) => editRunConfigProjects(context, provider, node)),
-    vscode.commands.registerCommand('dotnav.renameRunConfig', (node: TreeNode) => renameRunConfig(context, provider, node)),
-    vscode.commands.registerCommand('dotnav.removeRunConfig', (node: TreeNode) => removeRunConfig(context, provider, node)),
+    vscode.commands.registerCommand('dotnav.editRunConfigProjects', (node?: TreeNode) => node ? editRunConfigProjects(context, provider, node) : undefined),
+    vscode.commands.registerCommand('dotnav.renameRunConfig', (node?: TreeNode) => node ? renameRunConfig(context, provider, node) : undefined),
+    vscode.commands.registerCommand('dotnav.removeRunConfig', (node?: TreeNode) => node ? removeRunConfig(context, provider, node) : undefined),
     vscode.commands.registerCommand('dotnav.selectRunConfig', () => selectRunConfig(context, provider)),
     vscode.commands.registerCommand('dotnav.attachProcess', () => attachProcessCommand(provider)),
     vscode.commands.registerCommand('dotnav.newCompound', () => newCompound(context, provider)),
     vscode.commands.registerCommand('dotnav.deleteCompound', () => deleteCompound(context, provider)),
-    vscode.commands.registerCommand('dotnav.setActiveConfig', (node: TreeNode) => setActiveConfig(context, provider, node)),
+    vscode.commands.registerCommand('dotnav.setActiveConfig', (node?: TreeNode) => node ? setActiveConfig(context, provider, node) : undefined),
     vscode.commands.registerCommand('dotnav.runActiveConfig', () => withActiveConfig(context, provider, config => runConfiguredConfig(provider.getSolution()!, config, false, processManager))),
     vscode.commands.registerCommand('dotnav.debugActiveConfig', () => withActiveConfig(context, provider, config => runConfiguredConfig(provider.getSolution()!, config, true, processManager))),
     vscode.commands.registerCommand('dotnav.buildActiveConfig', () => withActiveConfig(context, provider, config => buildConfig(provider.getSolution()!, config, processManager))),
-    vscode.commands.registerCommand('dotnav.runConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
-    vscode.commands.registerCommand('dotnav.debugConfigNode', (node: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
+    vscode.commands.registerCommand('dotnav.runConfigNode', (node?: TreeNode) => runConfigNode(context, provider, node, false, processManager)),
+    vscode.commands.registerCommand('dotnav.debugConfigNode', (node?: TreeNode) => runConfigNode(context, provider, node, true, processManager)),
     vscode.commands.registerCommand('dotnav.formatSelection', () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
@@ -273,6 +312,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export async function deactivate(): Promise<void> {
   await activeProcessManager?.shutdown();
+  await disposeReSharperIntegration();
   activeProcessManager = undefined;
 }
 
@@ -434,7 +474,12 @@ async function testProject(
   await runDotnetForProject(project, 'test', processManager, { noBuild: mode === 'none' });
 }
 
-async function buildFolderProjects(provider: DotnetTreeProvider, processManager: ProcessManager, node: TreeNode): Promise<void> {
+async function buildFolderProjects(
+  provider: DotnetTreeProvider,
+  processManager: ProcessManager,
+  node: TreeNode,
+  verb: SolutionOperation
+): Promise<void> {
   if (node.kind !== 'folder') {
     vscode.window.showInformationMessage('Select a folder in Solution Navigator before building folder projects.');
     return;
@@ -460,7 +505,7 @@ async function buildFolderProjects(provider: DotnetTreeProvider, processManager:
     return;
   }
   const loadedProjects = await provider.ensureProjectMetadataForProjects(projects);
-  await runDotnetForProjects(loadedProjects, node.resourcePath ?? solution.rootPath, processManager, node.label);
+  await runDotnetForProjects(loadedProjects, node.resourcePath ?? solution.rootPath, processManager, node.label, verb);
 }
 
 async function runSolutionCommand(
@@ -1152,8 +1197,8 @@ async function deleteCompound(context: vscode.ExtensionContext, provider: Dotnet
   await provider.refresh();
 }
 
-async function setActiveConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider, node: TreeNode): Promise<void> {
-  if (!node.configId) {
+async function setActiveConfig(context: vscode.ExtensionContext, provider: DotnetTreeProvider, node?: TreeNode): Promise<void> {
+  if (!node?.configId) {
     return;
   }
 
@@ -1164,17 +1209,22 @@ async function setActiveConfig(context: vscode.ExtensionContext, provider: Dotne
 async function runConfigNode(
   context: vscode.ExtensionContext,
   provider: DotnetTreeProvider,
-  node: TreeNode,
+  node: TreeNode | undefined,
   debug: boolean,
   processManager: ProcessManager
 ): Promise<void> {
   await provider.ensureAllProjectMetadata();
   const solution = provider.getSolution();
-  if (!solution || !node.configId) {
+  if (!solution) {
     return;
   }
 
-  const config = runConfigStore.listConfigs(solution, context).find(candidate => candidate.id === node.configId);
+  const configId = node?.configId ?? runConfigStore.getActive(solution, context)?.id;
+  if (!configId) {
+    return;
+  }
+
+  const config = runConfigStore.listConfigs(solution, context).find(candidate => candidate.id === configId);
   if (config) {
     await runConfiguredConfig(solution, config, debug, processManager);
   }
@@ -1218,4 +1268,3 @@ async function executeReSharperCommand(commandId: string, label: string): Promis
     );
   }
 }
-
