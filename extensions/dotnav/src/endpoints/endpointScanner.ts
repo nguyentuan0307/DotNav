@@ -145,18 +145,6 @@ export function isIgnoredEndpointFile(filePath: string): boolean {
   return false;
 }
 
-export interface RegisteredControllerRoute {
-  routes: string[];
-  areaName?: string;
-  isExplicit: boolean;
-}
-
-export const controllerRouteRegistry = new Map<string, RegisteredControllerRoute>();
-
-export function clearControllerRouteRegistry(): void {
-  controllerRouteRegistry.clear();
-}
-
 export function synthesizeRoutesFromParams(
   controllerName: string,
   actionRouteArg: string,
@@ -247,24 +235,8 @@ export function parseEndpointsFromCSharp(
     }
 
     if (explicitRoutes.length > 0) {
-      const entry: RegisteredControllerRoute = { routes: [...explicitRoutes], areaName, isExplicit: true };
-      controllerRouteRegistry.set(`${projectName}:${controllerName}`, entry);
-      controllerRouteRegistry.set(controllerName, entry);
       for (const r of explicitRoutes) {
         classRoutes.push(r);
-      }
-    } else {
-      // Check cross-file registry for routes registered by another file of this partial controller
-      const registered = controllerRouteRegistry.get(`${projectName}:${controllerName}`) || controllerRouteRegistry.get(controllerName);
-      if (registered && registered.routes.length > 0) {
-        for (const r of registered.routes) {
-          if (!classRoutes.includes(r)) {
-            classRoutes.push(r);
-          }
-        }
-        if (!areaName && registered.areaName) {
-          areaName = registered.areaName;
-        }
       }
     }
 
@@ -500,7 +472,6 @@ export function parseEndpointsFromCSharp(
 
 export class EndpointIndex {
   private readonly fileCache = new Map<string, ApiEndpoint[]>();
-  private readonly fileContentMap = new Map<string, { content: string; projectName: string; relativePath: string }>();
   private cachedAllEndpoints: ApiEndpoint[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
 
@@ -518,26 +489,9 @@ export class EndpointIndex {
     projectName: string,
     relativePath: string
   ): ApiEndpoint[] {
-    this.fileContentMap.set(filePath, { content, projectName, relativePath });
     const endpoints = parseEndpointsFromCSharp(content, filePath, projectName, relativePath);
     this.fileCache.set(filePath, endpoints);
     this.cachedAllEndpoints = undefined;
-
-    // Check if any controller in this file registered explicit routes that might affect previously scanned partial files
-    for (const ep of endpoints) {
-      if (ep.kind === 'controller' && ep.controllerName) {
-        const cName = ep.controllerName;
-        const reg = controllerRouteRegistry.get(`${projectName}:${cName}`) || controllerRouteRegistry.get(cName);
-        if (reg && reg.isExplicit) {
-          for (const [prevPath, prevData] of this.fileContentMap.entries()) {
-            if (prevPath !== filePath && prevData.content.includes(cName)) {
-              const updated = parseEndpointsFromCSharp(prevData.content, prevPath, prevData.projectName, prevData.relativePath);
-              this.fileCache.set(prevPath, updated);
-            }
-          }
-        }
-      }
-    }
 
     return endpoints;
   }
@@ -557,7 +511,6 @@ export class EndpointIndex {
   }
 
   public invalidateFile(filePath: string): void {
-    this.fileContentMap.delete(filePath);
     if (this.fileCache.delete(filePath)) {
       this.cachedAllEndpoints = undefined;
     }
@@ -565,10 +518,8 @@ export class EndpointIndex {
 
   public clear(): void {
     this.fileCache.clear();
-    this.fileContentMap.clear();
     this.cachedAllEndpoints = undefined;
     this._isFullScanCompleted = false;
-    clearControllerRouteRegistry();
   }
 
   public hasFile(filePath: string): boolean {

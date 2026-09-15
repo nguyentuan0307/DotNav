@@ -42,6 +42,7 @@ import {
   traceCqrsFlowInteractive,
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex,
+  getCurrentGitBranch,
   getSearchIndexStatusBar
 } from './solutionSearch';
 
@@ -760,6 +761,7 @@ function registerWorkspaceFileWatcher(
   // Git branch checkout / switch watcher
   const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/heads/**,index}');
   let gitDebounceTimer: NodeJS.Timeout | undefined;
+  let lastIndexedGitBranch = getCurrentGitBranch();
   const onGitStateChanged = () => {
     if (gitDebounceTimer) {
       clearTimeout(gitDebounceTimer);
@@ -771,6 +773,11 @@ function registerWorkspaceFileWatcher(
       } catch (err) {
         console.warn(`[DotNav] Tree refresh on git event failed: ${err}`);
       }
+      const currentGitBranch = getCurrentGitBranch();
+      if (currentGitBranch === lastIndexedGitBranch) {
+        return;
+      }
+      lastIndexedGitBranch = currentGitBranch;
       void warmUpUniversalSearchIndex(provider, symbolIndex, context, true).catch(err =>
         console.warn(`[DotNav] Auto re-scan on git event failed: ${err}`)
       );

@@ -7,7 +7,7 @@ export { CompactDiskSymbol };
 
 export class DiskSymbolStore {
   private cacheDir: string;
-  private isInitialized = false;
+  private initializePromise?: Promise<void>;
 
   // Inverted word index for cold symbols: word -> Set of file paths
   // Since this only maps word -> file paths (not full objects), 50k words -> ~3MB RAM
@@ -41,15 +41,26 @@ export class DiskSymbolStore {
   }
 
   public async initialize(): Promise<void> {
-    if (this.isInitialized) return;
-    this.isInitialized = true;
-    try {
-      if (!fs.existsSync(this.cacheDir)) {
-        await fs.promises.mkdir(this.cacheDir, { recursive: true });
-      }
-      await this.loadFromDisk();
-    } catch {
-      // Best-effort initialization
+    if (!this.initializePromise) {
+      this.initializePromise = (async () => {
+        try {
+          if (!fs.existsSync(this.cacheDir)) {
+            await fs.promises.mkdir(this.cacheDir, { recursive: true });
+          }
+          await this.loadFromDisk();
+        } catch {
+          // Best-effort initialization
+        }
+      })();
+    }
+    return this.initializePromise;
+  }
+
+  public removeFile(filePath: string): void {
+    this.removeFileTokens(filePath);
+    if (this.fileSymbolsMap.delete(filePath)) {
+      this.dirtyFiles.add(filePath);
+      this.scheduleSave();
     }
   }
 
@@ -63,7 +74,7 @@ export class DiskSymbolStore {
     this.removeFileTokens(filePath);
 
     if (symbols.length === 0) {
-      this.fileSymbolsMap.delete(filePath);
+      this.fileSymbolsMap.set(filePath, []);
       this.dirtyFiles.add(filePath);
       this.scheduleSave();
       return;
@@ -373,7 +384,9 @@ export class DiskSymbolStore {
   }
 
   private scheduleSave(): void {
-    if (this.saveDebounceTimer) return;
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+    }
     this.saveDebounceTimer = setTimeout(async () => {
       this.saveDebounceTimer = undefined;
       await this.saveToDisk();
@@ -404,6 +417,10 @@ export class DiskSymbolStore {
   }
 
   public async saveToDisk(): Promise<void> {
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = undefined;
+    }
     try {
       if (!fs.existsSync(this.cacheDir)) {
         await fs.promises.mkdir(this.cacheDir, { recursive: true });

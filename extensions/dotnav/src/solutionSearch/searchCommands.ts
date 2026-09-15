@@ -641,6 +641,8 @@ export async function populateUniversalIndexFromSolution(
     return;
   }
 
+  await index.getDiskStore()?.initialize();
+
   const solution = provider.getSolution();
   const projects = solution?.projects;
 

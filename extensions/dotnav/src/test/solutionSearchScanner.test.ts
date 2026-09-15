@@ -153,7 +153,7 @@ test('extractIndexTokens and internString optimize candidate lookups and memory'
   assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
 });
 
-test('UniversalSymbolIndex snapshot export and load restores all symbols, cold store and token buckets', () => {
+test('UniversalSymbolIndex snapshot avoids cold-store duplication and loads legacy v6 cold data', () => {
   const store = new DiskSymbolStore();
   const index = new UniversalSymbolIndex();
   index.setDiskStore(store);
@@ -173,13 +173,17 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols, cold s
   assert.equal(snapshot.version, 6);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
-  assert.ok(snapshot.coldSymbolsByFile);
-  assert.ok(snapshot.coldSymbolsByFile['/src/SubmitService.cs']);
+  assert.equal(snapshot.coldSymbolsByFile, undefined);
+
+  const legacySnapshot = {
+    ...snapshot,
+    coldSymbolsByFile: store.exportData()
+  };
 
   const restoredStore = new DiskSymbolStore();
   const restoredIndex = new UniversalSymbolIndex();
   restoredIndex.setDiskStore(restoredStore);
-  restoredIndex.loadSnapshot(snapshot);
+  restoredIndex.loadSnapshot(legacySnapshot);
 
   assert.equal(restoredIndex.count, 2);
   assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
@@ -188,6 +192,22 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols, cold s
   const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
   assert.ok(searchResults.length >= 1);
   assert.ok(searchResults.some((r: any) => r.symbol.name === 'ProcessOrder()'));
+
+  store.clear();
+  restoredStore.clear();
+});
+
+test('DiskSymbolStore tracks files with no cold symbols and removes invalidated files', () => {
+  const store = new DiskSymbolStore();
+  const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
+
+  index.scanFileContent('/src/Marker.cs', 'public class Marker {}', 'App', 'Marker.cs');
+  assert.equal(store.hasFile('/src/Marker.cs'), true);
+
+  index.invalidateFile('/src/Marker.cs');
+  assert.equal(store.hasFile('/src/Marker.cs'), false);
+  store.clear();
 });
 
 test('CQRS Flow Builder traces Command -> Handler -> Domain Event -> Listener flow', () => {
@@ -573,6 +593,5 @@ test('SearchIndexStatusBar displays % progress, completes, and auto-hides', asyn
   statusBar.dispose();
   assert.equal(mockItem.disposed, true);
 });
-
 
 

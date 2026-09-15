@@ -9,7 +9,7 @@ import {
   UniversalSymbolKind
 } from './searchModel';
 import { DiskSymbolStore } from './searchDiskStore';
-import { clearControllerRouteRegistry, parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
+import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 export const PRIMARY_HOT_KINDS = new Set<UniversalSymbolKind>([
   'endpoint',
@@ -1118,13 +1118,11 @@ export function parseSymbolsFromMarkdown(
 export class UniversalSymbolIndex {
   private readonly fileCache = new Map<string, UniversalSymbol[]>();
   private readonly fileTimestamps = new Map<string, number>();
-  private readonly fileContentMap = new Map<string, { content: string; projectName: string; relativePath: string; mtime?: number }>();
   private readonly kindBuckets = new Map<UniversalSymbolKind, Set<UniversalSymbol>>();
   private readonly tokenBuckets = new Map<string, Set<UniversalSymbol>>();
   private readonly projectBuckets = new Map<string, Set<UniversalSymbol>>();
   private cachedAllSymbols: UniversalSymbol[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
-  private _isRescanningPartials: boolean = false;
   private diskStore?: DiskSymbolStore;
 
   public setDiskStore(store: DiskSymbolStore): void {
@@ -1161,8 +1159,7 @@ export class UniversalSymbolIndex {
       version: 6,
       timestamp: Date.now(),
       fileTimestamps,
-      symbolsByFile,
-      coldSymbolsByFile: this.diskStore?.exportData()
+      symbolsByFile
     };
   }
 
@@ -1323,27 +1320,8 @@ export class UniversalSymbolIndex {
       this.addSymbolToBuckets(s);
     }
 
-    this.fileContentMap.set(filePath, { content, projectName, relativePath, mtime });
     this.fileCache.set(filePath, retainedSymbols);
     this.cachedAllSymbols = undefined;
-
-    if (!this._isRescanningPartials) {
-      this._isRescanningPartials = true;
-      try {
-        for (const s of retainedSymbols) {
-          if (s.kind === 'endpoint' && s.containerName) {
-            const cName = s.containerName;
-            for (const [prevPath, prevData] of this.fileContentMap.entries()) {
-              if (prevPath !== filePath && prevData.content.includes(cName)) {
-                this.scanFileContent(prevPath, prevData.content, prevData.projectName, prevData.relativePath, prevData.mtime);
-              }
-            }
-          }
-        }
-      } finally {
-        this._isRescanningPartials = false;
-      }
-    }
 
     return symbols;
   }
@@ -1367,7 +1345,6 @@ export class UniversalSymbolIndex {
   }
 
   public invalidateFile(filePath: string): void {
-    this.fileContentMap.delete(filePath);
     const old = this.fileCache.get(filePath);
     if (old) {
       for (const s of old) {
@@ -1378,21 +1355,19 @@ export class UniversalSymbolIndex {
       this.cachedAllSymbols = undefined;
     }
     if (this.diskStore) {
-      this.diskStore.registerFileSymbols(filePath, '', '', []);
+      this.diskStore.removeFile(filePath);
     }
   }
 
   public clear(): void {
     this.fileCache.clear();
     this.fileTimestamps.clear();
-    this.fileContentMap.clear();
     this.kindBuckets.clear();
     this.tokenBuckets.clear();
     this.projectBuckets.clear();
     this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = false;
     this.diskStore?.clear();
-    clearControllerRouteRegistry();
   }
 
   public hasFile(filePath: string): boolean {
@@ -1764,4 +1739,3 @@ export function buildCqrsFlow(queryOrName: string, index: UniversalSymbolIndex):
     nodes
   };
 }
-

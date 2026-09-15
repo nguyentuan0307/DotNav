@@ -294,6 +294,39 @@ public class UsersController : ControllerBase {
   assert.equal(index.getAllEndpoints().length, 0);
 });
 
+test('EndpointIndex does not replay previously scanned partial controller source', () => {
+  const { EndpointIndex } = require('../endpoints/endpointScanner');
+  const index = new EndpointIndex();
+  const firstFile = `
+public partial class OrdersController : ControllerBase {
+    [HttpGet("first")]
+    public IActionResult First() => Ok();
+}
+`;
+  const secondFile = `
+[Route("api/orders")]
+public partial class OrdersController : ControllerBase {
+    [HttpGet("second")]
+    public IActionResult Second() => Ok();
+}
+`;
+
+  index.scanFileContent('/src/OrdersController.First.cs', firstFile, 'MyProject', 'OrdersController.First.cs');
+  const routesBefore = index.getAllEndpoints()
+    .filter((endpoint: any) => endpoint.filePath.endsWith('First.cs'))
+    .map((endpoint: any) => endpoint.routeTemplate)
+    .sort();
+  assert.ok(routesBefore.length > 0);
+
+  index.scanFileContent('/src/OrdersController.Second.cs', secondFile, 'MyProject', 'OrdersController.Second.cs');
+  const routesAfter = index.getAllEndpoints()
+    .filter((endpoint: any) => endpoint.filePath.endsWith('First.cs'))
+    .map((endpoint: any) => endpoint.routeTemplate)
+    .sort();
+
+  assert.deepEqual(routesAfter, routesBefore);
+});
+
 test('parseEndpointsFromCSharp fast-paths and ignores non-endpoint C# files', () => {
   const modelCode = `
 namespace MyProject.Models;
@@ -330,4 +363,3 @@ public class ProjectController : ControllerBase
   assert.ok(endpoints.some(e => e.httpMethod === 'GET' && e.routeTemplate.includes('{projectId:guid}/members')));
   assert.ok(endpoints.some(e => e.httpMethod === 'POST' && e.routeTemplate.includes('{projectId:int}/confirm')));
 });
-
