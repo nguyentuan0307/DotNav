@@ -4,6 +4,24 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.31.1...dotnav-v0.32.0) (2026-09-15)
+
+
+### Features
+
+* **dotnav:** resolve partial controller routes and improve cold symbol search ([0125b3f](https://github.com/nguyentuan0307/DotNav/commit/0125b3f62d3244d913b989a884345c5554af1fd9))
+* **dotnav:** display file and line in search description and compact folder path ([dae9193](https://github.com/nguyentuan0307/DotNav/commit/dae9193615448bcc6de3e9b665f7e13c3fe51155))
+* **dotnav:** add solution search indexing progress status bar with auto-hide ([4abb87a](https://github.com/nguyentuan0307/DotNav/commit/4abb87ac49b6df25c4f53e46bbc55ff90b1b9801))
+* **dotnav:** expand search directory depth to 4, remove project labels, and add hover tooltips ([7ee13fa](https://github.com/nguyentuan0307/DotNav/commit/7ee13facd6d1186a132fc40453f5dc1740d45807))
+* **dotnav:** add adaptive character limit for search path display ([713a2bf](https://github.com/nguyentuan0307/DotNav/commit/713a2bff2ee504e461fc0d05022bca6fb00941bc))
+
+### Bug Fixes
+
+* **dotnav:** synchronize cold symbols in branch snapshot and bump index schema to v6 ([5800d1f](https://github.com/nguyentuan0307/DotNav/commit/5800d1faba0f58a79490ba6bf1a7c23e1a8930cb))
+* **dotnav:** isolate diff sign markers to prevent copying with code in local history ([0652fb6](https://github.com/nguyentuan0307/DotNav/commit/0652fb61449ede2a9ad332c89d29b77b80345eb8))
+* **dotnav:** remove proposed quickPickItemTooltip and use stable dynamic title tracking ([8e525c4](https://github.com/nguyentuan0307/DotNav/commit/8e525c4ea3775b7a5e5bc40a4f9c358bebc4eb90))
+
+
 ## [0.31.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.31.0...dotnav-v0.31.1) (2026-09-14)
 
 

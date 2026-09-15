@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.20.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.20.0...gitnav-v0.20.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **gitnav:** isolate diff sign markers to prevent copying with code ([62b7d17](https://github.com/nguyentuan0307/DotNav/commit/62b7d17f0ec59a5a57dd4a74cbd1987a207cfd8d))
+* **dotnav:** isolate diff sign markers to prevent copying with code in local history ([0652fb6](https://github.com/nguyentuan0307/DotNav/commit/0652fb61449ede2a9ad332c89d29b77b80345eb8))
+
+
 ## [0.20.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.19.1...gitnav-v0.20.0) (2026-09-09)
 
 
