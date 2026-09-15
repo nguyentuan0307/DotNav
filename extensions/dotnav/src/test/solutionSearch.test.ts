@@ -211,7 +211,7 @@ test('getCurrentGitBranch extracts branch name from git repo and isolates cache 
     } as any;
     const cachePath = getCacheFilePath(fakeContext, tempDir);
     assert.ok(cachePath);
-    assert.match(cachePath, /dotnav_search_cache_feature_auth-v2\.json\.gz/);
+    assert.match(cachePath, /dotnav_search_cache_v8_feature_auth-v2\.ndjson\.gz/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

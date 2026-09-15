@@ -1,7 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as zlib from 'zlib';
 import { UniversalSymbol, UniversalSymbolKind, CompactDiskSymbol } from './searchModel';
+import {
+  readGzipNdjson,
+  SEARCH_CACHE_CHUNK_SIZE,
+  SEARCH_CACHE_SAVE_IDLE_MS,
+  SEARCH_CACHE_SAVE_MAX_MS,
+  SEARCH_CACHE_VERSION,
+  writeGzipNdjson
+} from './streamingCache';
 
 export { CompactDiskSymbol };
 
@@ -15,6 +22,7 @@ export class DiskSymbolStore {
   private readonly fileSymbolsMap = new Map<string, CompactDiskSymbol[]>();
   private readonly dirtyFiles = new Set<string>();
   private saveDebounceTimer?: NodeJS.Timeout;
+  private saveMaxTimer?: NodeJS.Timeout;
 
   constructor(cacheDir?: string) {
     this.cacheDir = cacheDir || path.join(process.cwd(), '.dotnav', 'cache');
@@ -25,7 +33,15 @@ export class DiskSymbolStore {
   }
 
   public get storagePath(): string {
+    return path.join(this.cacheDir, 'cold_symbols_v8.ndjson.gz');
+  }
+
+  private get legacyStoragePath(): string {
     return path.join(this.cacheDir, 'cold_symbols.gz');
+  }
+
+  private get previousStoragePath(): string {
+    return path.join(this.cacheDir, 'cold_symbols_v7.ndjson.gz');
   }
 
   public get cacheFilePath(): string {
@@ -368,6 +384,10 @@ export class DiskSymbolStore {
       clearTimeout(this.saveDebounceTimer);
       this.saveDebounceTimer = undefined;
     }
+    if (this.saveMaxTimer) {
+      clearTimeout(this.saveMaxTimer);
+      this.saveMaxTimer = undefined;
+    }
   }
 
   public async purgeDiskCache(): Promise<void> {
@@ -380,6 +400,12 @@ export class DiskSymbolStore {
       if (fs.existsSync(tmpPath)) {
         await fs.promises.unlink(tmpPath);
       }
+      if (fs.existsSync(this.legacyStoragePath)) {
+        await fs.promises.unlink(this.legacyStoragePath);
+      }
+      if (fs.existsSync(this.previousStoragePath)) {
+        await fs.promises.unlink(this.previousStoragePath);
+      }
     } catch {}
   }
 
@@ -390,7 +416,15 @@ export class DiskSymbolStore {
     this.saveDebounceTimer = setTimeout(async () => {
       this.saveDebounceTimer = undefined;
       await this.saveToDisk();
-    }, 2000);
+    }, SEARCH_CACHE_SAVE_IDLE_MS);
+    this.saveDebounceTimer.unref?.();
+    if (!this.saveMaxTimer) {
+      this.saveMaxTimer = setTimeout(async () => {
+        this.saveMaxTimer = undefined;
+        await this.saveToDisk();
+      }, SEARCH_CACHE_SAVE_MAX_MS);
+      this.saveMaxTimer.unref?.();
+    }
   }
 
   public hasFile(filePath: string): boolean {
@@ -421,22 +455,23 @@ export class DiskSymbolStore {
       clearTimeout(this.saveDebounceTimer);
       this.saveDebounceTimer = undefined;
     }
+    if (this.saveMaxTimer) {
+      clearTimeout(this.saveMaxTimer);
+      this.saveMaxTimer = undefined;
+    }
     try {
+      const dirtyFilesAtStart = new Set(this.dirtyFiles);
       if (!fs.existsSync(this.cacheDir)) {
         await fs.promises.mkdir(this.cacheDir, { recursive: true });
       }
-      const data = this.exportData();
-      const jsonStr = JSON.stringify(data);
-      const compressed = await new Promise<Buffer>((resolve, reject) => {
-        zlib.gzip(Buffer.from(jsonStr), { level: 6 }, (err, buf) => {
-          if (err) reject(err);
-          else resolve(buf);
-        });
-      });
-      const tempPath = `${this.storagePath}.tmp`;
-      await fs.promises.writeFile(tempPath, compressed);
-      await fs.promises.rename(tempPath, this.storagePath);
-      this.dirtyFiles.clear();
+      await writeGzipNdjson(this.storagePath, this.createCacheRecords());
+      for (const filePath of dirtyFilesAtStart) {
+        this.dirtyFiles.delete(filePath);
+      }
+      await Promise.all([
+        fs.promises.unlink(this.previousStoragePath).catch(() => {}),
+        fs.promises.unlink(this.legacyStoragePath).catch(() => {})
+      ]);
     } catch {
       // Ignore disk write errors
     }
@@ -447,21 +482,92 @@ export class DiskSymbolStore {
       if (!fs.existsSync(this.storagePath)) {
         return false;
       }
-      const compressed = await fs.promises.readFile(this.storagePath);
-      const jsonStr = await new Promise<string>((resolve, reject) => {
-        zlib.gunzip(compressed, (err, buf) => {
-          if (err) reject(err);
-          else resolve(buf.toString('utf8'));
-        });
-      });
-      const data: Record<string, CompactDiskSymbol[]> = JSON.parse(jsonStr);
-      if (!data) return false;
+      this.clear();
+      let headerFound = false;
+      let currentFilePath: string | undefined;
+      let currentSymbols: CompactDiskSymbol[] = [];
+      const loadedFiles = new Set<string>();
+      let completedFileCount: number | undefined;
 
-      this.loadData(data);
+      const commitCurrentFile = () => {
+        if (currentFilePath === undefined) return;
+        if (loadedFiles.has(currentFilePath)) {
+          throw new Error(`Duplicate cold cache record for ${currentFilePath}`);
+        }
+        loadedFiles.add(currentFilePath);
+        this.fileSymbolsMap.set(currentFilePath, currentSymbols);
+        for (const symbol of currentSymbols) {
+          this.indexSymbolTokens(currentFilePath, symbol.n);
+        }
+      };
+
+      for await (const rawRecord of readGzipNdjson(this.storagePath)) {
+        const record = rawRecord as any;
+        if (!headerFound) {
+          if (record?.type !== 'dotnav-cold-symbols' || record.version !== SEARCH_CACHE_VERSION) {
+            throw new Error('Unsupported cold symbol cache');
+          }
+          headerFound = true;
+          continue;
+        }
+        if (record?.type === 'complete') {
+          if (!Number.isInteger(record.fileCount) || record.fileCount < 0) {
+            throw new Error('Invalid cold symbol cache footer');
+          }
+          commitCurrentFile();
+          currentFilePath = undefined;
+          currentSymbols = [];
+          completedFileCount = record.fileCount;
+          continue;
+        }
+        if (completedFileCount !== undefined) {
+          throw new Error('Cold symbol cache has records after footer');
+        }
+        if (record?.type !== 'file' || typeof record.filePath !== 'string' || !Array.isArray(record.symbols)
+          || record.symbols.length > SEARCH_CACHE_CHUNK_SIZE) {
+          throw new Error('Invalid cold symbol cache record');
+        }
+        if (currentFilePath !== record.filePath) {
+          commitCurrentFile();
+          currentFilePath = record.filePath;
+          currentSymbols = [];
+        }
+        currentSymbols.push(...record.symbols);
+      }
+      if (!headerFound) {
+        throw new Error('Missing cold symbol cache header');
+      }
+      commitCurrentFile();
+      if (completedFileCount !== loadedFiles.size) {
+        throw new Error('Incomplete cold symbol cache');
+      }
       return true;
     } catch {
+      this.clear();
       return false;
     }
+  }
+
+  private *createCacheRecords(): IterableIterator<unknown> {
+    yield {
+      type: 'dotnav-cold-symbols',
+      version: SEARCH_CACHE_VERSION,
+      createdAt: Date.now()
+    };
+    for (const [filePath, symbols] of this.fileSymbolsMap.entries()) {
+      if (symbols.length === 0) {
+        yield { type: 'file', filePath, symbols: [] };
+        continue;
+      }
+      for (let offset = 0; offset < symbols.length; offset += SEARCH_CACHE_CHUNK_SIZE) {
+        yield {
+          type: 'file',
+          filePath,
+          symbols: symbols.slice(offset, offset + SEARCH_CACHE_CHUNK_SIZE)
+        };
+      }
+    }
+    yield { type: 'complete', fileCount: this.fileSymbolsMap.size };
   }
 
   public get count(): number {

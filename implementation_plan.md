@@ -1,3 +1,123 @@
+# DotNav Hotfix Phase 2.1 — Solution-Relevant Search Whitelist
+
+**Trạng thái:** Đã triển khai, full test pass, đóng gói và cài local ngày 2026-09-15.
+
+## Mục tiêu
+
+- Search Everywhere chỉ index các loại file có giá trị với solution .NET.
+- Không discover/read `.sql`, Markdown, YAML, Proto hoặc JSON cấu hình không liên quan.
+- Giữ nguyên stale-while-idle Phase 2 và không thêm setting mới.
+
+## Thực trạng đã xác minh
+
+1. Startup scan hiện nhận `cs`, mọi `json`, `csproj`, `resx`, `sql`, `yaml/yml` và `proto`.
+2. File watcher dùng cùng tập extension trên. Parser Markdown vẫn tồn tại nhưng `.md` không nằm trong startup glob/watcher, nên Markdown hiện không được tự động index.
+3. Workspace Backend có 702 JSON, trong đó 241 file là `appsettings*.json`; 461 JSON còn lại đang được discover và parse dù phần lớn không phải mục tiêu Search.
+4. Workspace có 2 SQL và 10 YAML; file SQL lớn từng là parse hotspot dù parser đã được tối ưu ở Phase 2.
+5. Folder glob không tương đương MSBuild project membership: một số `.csproj` có `<Compile Remove=...>`. Việc đánh giá chính xác item graph của MSBuild là scope lớn hơn và có nguy cơ tái tạo tranh chấp CPU với Roslyn/C# Dev Kit.
+
+## Rule đề xuất — whitelist thực dụng
+
+- Index: `.cs`, `.csproj`, `.resx`, `appsettings*.json`.
+- Không index: `.sql`, `.md`, `.yaml`, `.yml`, `.proto`, mọi JSON không có basename bắt đầu bằng `appsettings`.
+- Tiếp tục loại `.Designer.cs`, `.g.cs`, `.generated.cs`, `*ModelSnapshot.cs`, `bin/`, `obj/` và các thư mục tooling hiện có.
+- Đây là whitelist theo giá trị tìm kiếm, không phải MSBuild item evaluation. Cách này loại nhiễu mà không gọi MSBuild hoặc thêm full scan nặng.
+
+## File và thay đổi sau khi được duyệt
+
+1. `extensions/dotnav/src/solutionSearch/searchScanner.ts`
+   - Mở rộng file-policy hiện có thành một nguồn kiểm tra duy nhất cho loại file được hỗ trợ.
+   - Chặn cả `scanFile()` và `scanFileContent()` để đường gọi trực tiếp không thể đưa file ngoài whitelist vào index.
+   - Giữ parser cũ để tránh refactor lan; chúng chỉ không còn được gọi từ Search Everywhere.
+   - Verify: SQL/Markdown/YAML/Proto/generic JSON trả 0 symbol; C#/project/resx/appsettings vẫn parse.
+
+2. `extensions/dotnav/src/solutionSearch/searchCommands.ts`, `extensions/dotnav/src/extension.ts`
+   - Startup chỉ glob `cs/csproj/resx` và `appsettings*.json`; không glob tất cả JSON hay các loại bị loại.
+   - Watcher dùng cùng file-policy thay vì regex extension riêng.
+   - Verify: startup và save event không stat/read/queue file ngoài whitelist.
+
+3. `extensions/dotnav/src/solutionSearch/streamingCache.ts`, `searchCommands.ts`, `searchDiskStore.ts`
+   - Tăng internal cache schema lên v8 để cache v7 chứa SQL/YAML/generic JSON không thể làm symbol cũ xuất hiện lại.
+   - Rebuild đúng một lần; chỉ xóa v7 sau khi v8 ghi thành công. Không sửa extension version hoặc tag.
+   - Verify: v7 bị bỏ qua, v8 hot/cold round-trip và không chứa file ngoài whitelist.
+
+4. `extensions/dotnav/src/test/solutionSearchScanner.test.ts`, `solutionSearch.test.ts`, `streamingSearchCache.test.ts`
+   - Thêm regression tests cho whitelist, startup/watcher boundary và cache invalidation.
+   - Chạy `npm run compile`, `npm test`, `npm run package:all`, cài VSIX và shutdown build server.
+
+## Rủi ro được khoanh vùng
+
+- Search sẽ không còn trả kết quả từ `ocelot*.json`, launch settings, SQL scripts, YAML và Proto.
+- `.resx` được giữ vì loại `.Designer.cs` nhưng vẫn cần tìm localization keys.
+- Nếu yêu cầu là “chỉ đúng các MSBuild items thực sự thuộc project”, cần một phase riêng để đọc/evaluate `Compile Include/Remove`; không gộp vào hotfix này vì blast radius và CPU cost lớn hơn đáng kể.
+
+## Kết quả xác minh
+
+- Full suite: 822 tests, 821 pass, 1 platform-specific skip, 0 fail.
+- Backend smoke: 12.311 file được đọc/index; chỉ gồm 11.895 C#, 114 csproj, 241 appsettings JSON và 61 resx.
+- 545 file mục tiêu bị loại: 461 generic JSON, 72 Markdown, 10 YAML và 2 SQL; `ModelSnapshot.cs` có 0 lần đọc.
+- Cache v7 không được load; hot/cold cache v8 round-trip, chunking, atomic write và cleanup cache cũ đều pass.
+- `npm run compile`, `npm test`, `npm run package:all` và cài `dist/dotnav.vsix --force` đều thành công.
+- VS Code runtime trên workspace Backend tạo cache v8 với 12.311 file và 103.378 cold symbols; không có SQL, Markdown, YAML, Proto, generic JSON hoặc ModelSnapshot.
+- Live-cache queries: `UpdateVisibilitySettingAsync` 74 ms, `FormService` 52 ms; watcher create/delete cập nhật sau quiet/save window và Extension Host đo được 0% CPU khi idle, không có sự kiện `UNRESPONSIVE` mới.
+
+---
+
+# DotNav Hotfix Phase 2 — Stale-While-Idle Search Index
+
+**Trạng thái:** Đã triển khai, full test pass, đóng gói và cài local ngày 2026-09-15.
+
+## Mục tiêu
+
+- Giữ Search Everywhere phản hồi trong lúc workspace lớn đang được sửa liên tục.
+- Phục vụ index cũ và chỉ cập nhật sau 5 giây yên, tối đa stale 30 giây.
+- Bỏ qua generated source và `*ModelSnapshot.cs`, nhưng giữ migration chính searchable.
+- Chuyển hot/cold cache sang streaming NDJSON gzip schema v7 để không parse/stringify object 38–54 MB trên Extension Host.
+
+## File và thay đổi đã duyệt
+
+1. `extensions/dotnav/src/solutionSearch/searchScanner.ts`, `extensions/dotnav/src/endpoints/endpointScanner.ts`
+   - Bỏ qua `.Designer.cs`, `.g.cs`, `.generated.cs`, `obj/`, `bin/` và `*ModelSnapshot.cs`.
+   - Giữ migration chính; log một lần khi một file parse quá 250 ms.
+   - Verify: generated/ModelSnapshot không được đọc, migration chính vẫn có symbol.
+
+2. `extensions/dotnav/src/extension.ts`, `extensions/dotnav/src/solutionSearch/searchCommands.ts`
+   - Watcher chỉ queue trạng thái file cuối; flush sau quiet window 5 giây, hard limit 30 giây.
+   - Search tiếp tục dùng index cũ; manual Re-scan chạy ngay.
+   - Git status/stage không refresh Search; branch/mass change stale-while-revalidate và chỉ có một pending generation.
+   - Verify: save burst parse một lần; branch burst tạo một refresh; thay đổi trong active scan không mất.
+
+3. `extensions/dotnav/src/solutionSearch/searchDiskStore.ts`, `extensions/dotnav/src/solutionSearch/searchModel.ts`, `extensions/dotnav/src/solutionSearch/searchCommands.ts`
+   - Dùng `dotnav_search_cache_v7_<branch>.ndjson.gz` và `cold_symbols_v7.ndjson.gz`.
+   - Header riêng, record tối đa 100 symbols/file, CPU slice 8 ms, atomic temp rename.
+   - Không load cache v6; chỉ xóa v6 sau khi v7 được ghi thành công.
+   - Save sau 15 giây idle, hard limit 60 giây.
+   - Verify: round-trip hot/cold, empty marker, chunking, corrupt/truncated cache và atomic write.
+
+4. `extensions/dotnav/src/solutionSearch/searchCommands.ts`
+   - Startup hydration chờ 5 giây; mở Search sớm bắt đầu hydration cooperative.
+   - Query debounce 100 ms và chỉ render kết quả mới nhất.
+   - Status bar: queued, updating, ready.
+   - Verify: Search dùng snapshot cũ trong quiet window và input burst chỉ render query cuối.
+
+## Verification gates
+
+1. Focused Search/Endpoint tests và Backend smoke test.
+2. `npm run compile`, `npm test`, `git diff --check`.
+3. `npm run package:all`, cài `dist/dotnav.vsix --force`.
+4. `dotnet build-server shutdown`; không kill Roslyn/C# Dev Kit/debug session của user.
+
+Không sửa version và không tạo tag thủ công. Worker Thread nằm ngoài Phase 2 trừ khi profile sau hotfix vẫn có một file block Extension Host trên 1 giây.
+
+## Kết quả xác minh
+
+- Full suite: 819 tests, 818 pass, 1 platform-specific skip, 0 fail.
+- Backend: 12.784 file parsed trong 11,7 giây; 0 `ModelSnapshot.cs`; không file nào giữ CPU quá 250 ms.
+- Cache v7 trên dữ liệu Backend: hot load 2,12 giây tổng với event-loop lag tối đa 41,3 ms; cold load 665 ms với lag tối đa 7 ms.
+- `npm run compile`, `npm run package:all` và cài `dist/dotnav.vsix --force` đều thành công.
+
+---
+
 # DotNav — Search Everywhere v0.32 performance hotfix
 
 **Trạng thái:** Đã triển khai, full test pass, đóng gói và cài local ngày 2026-09-15.

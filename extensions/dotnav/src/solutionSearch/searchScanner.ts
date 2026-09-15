@@ -9,7 +9,10 @@ import {
   UniversalSymbolKind
 } from './searchModel';
 import { DiskSymbolStore } from './searchDiskStore';
+import { SEARCH_CACHE_VERSION } from './streamingCache';
 import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
+
+const slowSearchFiles = new Set<string>();
 
 export const PRIMARY_HOT_KINDS = new Set<UniversalSymbolKind>([
   'endpoint',
@@ -211,10 +214,21 @@ export function isIgnoredSearchFile(filePath: string): boolean {
     return true;
   }
   const base = path.basename(filePath);
-  if (/\.(g|Designer|generated)\.cs$/i.test(base)) {
+  if (/\.(g|Designer|generated)\.cs$/i.test(base) || /ModelSnapshot\.cs$/i.test(base)) {
     return true;
   }
   return false;
+}
+
+export function isSupportedSolutionSearchFile(filePath: string): boolean {
+  if (isIgnoredSearchFile(filePath)) {
+    return false;
+  }
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.cs' || extension === '.csproj' || extension === '.resx') {
+    return true;
+  }
+  return extension === '.json' && /^appsettings.*\.json$/i.test(path.basename(filePath));
 }
 
 export function parseSymbolsFromCSharp(
@@ -979,10 +993,15 @@ export function parseSymbolsFromSql(
 
   const sqlObjRegex = /CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_."`]+)/gi;
   let match: RegExpExecArray | null;
+  let line = 1;
+  let lineScanOffset = 0;
   while ((match = sqlObjRegex.exec(content)) !== null) {
     const objType = match[1].toUpperCase();
     const rawObjName = match[2].replace(/["`]/g, '');
-    const line = content.substring(0, match.index).split(/\r?\n/).length;
+    for (let offset = lineScanOffset; offset < match.index; offset++) {
+      if (content.charCodeAt(offset) === 10) line++;
+    }
+    lineScanOffset = match.index;
 
     symbols.push({
       id: `${filePath}:${line}:sql:${rawObjName}`,
@@ -1156,7 +1175,7 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 6,
+      version: SEARCH_CACHE_VERSION,
       timestamp: Date.now(),
       fileTimestamps,
       symbolsByFile
@@ -1164,6 +1183,25 @@ export class UniversalSymbolIndex {
   }
 
   public loadSnapshot(snapshot: SearchIndexSnapshot): void {
+    this.beginSnapshotLoad();
+    if (!snapshot || !snapshot.symbolsByFile) return;
+    for (const [filePath, symbols] of Object.entries(snapshot.symbolsByFile)) {
+      this.loadSnapshotFile(filePath, snapshot.fileTimestamps?.[filePath] || 0, symbols);
+    }
+    this.finishSnapshotLoad();
+  }
+
+  public *getSnapshotFiles(): IterableIterator<{ filePath: string; mtime: number; symbols: readonly UniversalSymbol[] }> {
+    for (const [filePath, symbols] of this.fileCache.entries()) {
+      yield {
+        filePath,
+        mtime: this.fileTimestamps.get(filePath) || 0,
+        symbols
+      };
+    }
+  }
+
+  public beginSnapshotLoad(): void {
     this.fileCache.clear();
     this.fileTimestamps.clear();
     this.kindBuckets.clear();
@@ -1171,20 +1209,24 @@ export class UniversalSymbolIndex {
     this.projectBuckets.clear();
     this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = false;
-    if (!snapshot || !snapshot.symbolsByFile) return;
-    for (const [filePath, symbols] of Object.entries(snapshot.symbolsByFile)) {
-      this.fileCache.set(filePath, symbols);
-      const mtime = snapshot.fileTimestamps?.[filePath] || 0;
-      if (mtime > 0) {
-        this.fileTimestamps.set(filePath, mtime);
-      }
-      for (const s of symbols) {
-        this.addSymbolToBuckets(s);
-      }
+  }
+
+  public loadSnapshotFile(filePath: string, mtime: number, symbols: readonly UniversalSymbol[]): void {
+    if (!isSupportedSolutionSearchFile(filePath)) {
+      return;
     }
-    if (snapshot.coldSymbolsByFile && this.diskStore) {
-      this.diskStore.loadData(snapshot.coldSymbolsByFile);
+    const loadedSymbols = Array.from(symbols);
+    this.fileCache.set(filePath, loadedSymbols);
+    if (mtime > 0) {
+      this.fileTimestamps.set(filePath, mtime);
     }
+    for (const symbol of loadedSymbols) {
+      this.addSymbolToBuckets(symbol);
+    }
+  }
+
+  public finishSnapshotLoad(): void {
+    this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = true;
   }
 
@@ -1239,6 +1281,11 @@ export class UniversalSymbolIndex {
     relativePath: string,
     mtime?: number
   ): UniversalSymbol[] {
+    if (!isSupportedSolutionSearchFile(filePath)) {
+      this.invalidateFile(filePath);
+      return [];
+    }
+    const parseStartedAt = Date.now();
     const oldSymbols = this.fileCache.get(filePath);
     if (oldSymbols) {
       for (const s of oldSymbols) {
@@ -1323,12 +1370,18 @@ export class UniversalSymbolIndex {
     this.fileCache.set(filePath, retainedSymbols);
     this.cachedAllSymbols = undefined;
 
+    const parseDuration = Date.now() - parseStartedAt;
+    if (parseDuration > 250 && !slowSearchFiles.has(filePath)) {
+      slowSearchFiles.add(filePath);
+      console.warn(`[DotNav] Slow search parse: ${parseDuration}ms ${filePath}`);
+    }
+
     return symbols;
   }
 
   public async scanFile(filePath: string, projectName: string, relativePath: string): Promise<UniversalSymbol[]> {
     try {
-      if (isIgnoredSearchFile(filePath) || !fs.existsSync(filePath)) {
+      if (!isSupportedSolutionSearchFile(filePath) || !fs.existsSync(filePath)) {
         this.invalidateFile(filePath);
         return [];
       }

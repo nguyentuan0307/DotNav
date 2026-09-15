@@ -43,7 +43,11 @@ import {
   UniversalSymbolIndex,
   warmUpUniversalSearchIndex,
   getCurrentGitBranch,
-  getSearchIndexStatusBar
+  getSearchIndexStatusBar,
+  isSupportedSolutionSearchFile,
+  scheduleSaveSnapshotToDisk,
+  SearchUpdateCoordinator,
+  runUniversalSearchIndexUpdate
 } from './solutionSearch';
 
 let activeProcessManager: ProcessManager | undefined;
@@ -53,9 +57,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const processManager = new ProcessManager();
   const cacheDir = context.storageUri?.fsPath || context.globalStorageUri?.fsPath || path.join(context.extensionPath, '.cache');
   const diskStore = new DiskSymbolStore(cacheDir);
-  if (isSolutionSearchEnabled()) {
-    diskStore.initialize().catch(() => {});
-  }
   const symbolIndex = new UniversalSymbolIndex();
   symbolIndex.setDiskStore(diskStore);
 
@@ -310,7 +311,7 @@ export function activate(context: vscode.ExtensionContext): void {
   void showFeatureAnnouncements(context);
   setTimeout(() => {
     void warmUpUniversalSearchIndex(provider, symbolIndex, context);
-  }, 1200);
+  }, 5000);
 }
 
 export async function deactivate(): Promise<void> {
@@ -663,56 +664,59 @@ function registerWorkspaceFileWatcher(
   const watcher = vscode.workspace.createFileSystemWatcher('**/*');
   let refreshTimer: NodeJS.Timeout | undefined;
   const pending = new Map<string, WorkspaceChange>();
-  const pendingCsFiles = new Map<string, WorkspaceFileEventKind>();
 
-  const isRelevantSymbolFile = (fsPath: string) => {
-    return (
-      (fsPath.endsWith('.cs') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
-      (fsPath.endsWith('.resx') && !fsPath.includes('/bin/') && !fsPath.includes('/obj/')) ||
-      path.basename(fsPath).startsWith('appsettings') ||
-      fsPath.endsWith('.csproj')
-    );
-  };
+  const isRelevantSymbolFile = (fsPath: string) => isSupportedSolutionSearchFile(fsPath);
+
+  const searchStatusBar = getSearchIndexStatusBar();
+  const searchUpdates = new SearchUpdateCoordinator(
+    async files => {
+      if (!isSolutionSearchEnabled()) return;
+      if (files.size > 25) {
+        await warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+        return;
+      }
+      await runUniversalSearchIndexUpdate(async () => {
+        const projects = provider.getSolution()?.projects;
+        let sliceStartedAt = Date.now();
+        for (const [fsPath, eventKind] of files) {
+          if (eventKind === 'delete') {
+            symbolIndex.invalidateFile(fsPath);
+          } else {
+            const projectName = resolveProjectForFile(fsPath, projects);
+            const relPath = vscode.workspace.asRelativePath(fsPath);
+            await symbolIndex.scanFile(fsPath, projectName, relPath);
+          }
+          if (Date.now() - sliceStartedAt >= 8) {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            sliceStartedAt = Date.now();
+          }
+        }
+        scheduleSaveSnapshotToDisk(context, symbolIndex);
+      });
+    },
+    async () => {
+      if (isSolutionSearchEnabled()) {
+        await warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+      }
+    },
+    state => {
+      if (state === 'queued') searchStatusBar.queued();
+      else if (state === 'updating') searchStatusBar.updating();
+      else searchStatusBar.ready(symbolIndex.count);
+    }
+  );
 
   const flush = async () => {
     const changes = [...pending.values()];
-    const csChanges = [...pendingCsFiles.entries()];
     pending.clear();
-    pendingCsFiles.clear();
     refreshTimer = undefined;
 
     if (changes.some(item => item.kind === 'solution')) {
-      if (isSolutionSearchEnabled()) {
-        symbolIndex.clear();
-      }
       await provider.refresh();
       if (isSolutionSearchEnabled()) {
-        void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
+        searchUpdates.queueFullRefresh();
       }
       return;
-    }
-
-    // Process file changes for UniversalSymbolIndex
-    if (isSolutionSearchEnabled()) {
-      if (csChanges.length > 25) {
-        symbolIndex.clear();
-        void warmUpUniversalSearchIndex(provider, symbolIndex, context, true);
-      } else if (csChanges.length > 0) {
-        const solution = provider.getSolution();
-        const projects = solution?.projects;
-
-        await Promise.all(
-          csChanges.map(async ([fsPath, eventKind]) => {
-            if (eventKind === 'delete') {
-              symbolIndex.invalidateFile(fsPath);
-            } else {
-              const projectName = resolveProjectForFile(fsPath, projects);
-              const relPath = vscode.workspace.asRelativePath(fsPath);
-              await symbolIndex.scanFile(fsPath, projectName, relPath);
-            }
-          })
-        );
-      }
     }
 
     for (const item of changes.filter(candidate => candidate.kind === 'projectMetadata')) {
@@ -732,19 +736,11 @@ function registerWorkspaceFileWatcher(
 
   const scheduleRefresh = (uri: vscode.Uri, eventKind: WorkspaceFileEventKind) => {
     if (isRelevantSymbolFile(uri.fsPath)) {
-      pendingCsFiles.set(uri.fsPath, eventKind);
+      searchUpdates.queueFile(uri.fsPath, eventKind);
     }
 
     const change = classifyWorkspaceChange(uri.fsPath, eventKind);
     if (change.kind === 'ignored') {
-      if (isRelevantSymbolFile(uri.fsPath)) {
-        if (refreshTimer) {
-          clearTimeout(refreshTimer);
-        }
-        refreshTimer = setTimeout(() => {
-          void flush().catch(error => console.error(`DotNav workspace refresh failed: ${error}`));
-        }, 250);
-      }
       return;
     }
 
@@ -759,7 +755,7 @@ function registerWorkspaceFileWatcher(
   };
 
   // Git branch checkout / switch watcher
-  const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/heads/**,index}');
+  const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/heads/**}');
   let gitDebounceTimer: NodeJS.Timeout | undefined;
   let lastIndexedGitBranch = getCurrentGitBranch();
   const onGitStateChanged = () => {
@@ -768,19 +764,17 @@ function registerWorkspaceFileWatcher(
     }
     gitDebounceTimer = setTimeout(async () => {
       gitDebounceTimer = undefined;
-      try {
-        await provider.refresh();
-      } catch (err) {
-        console.warn(`[DotNav] Tree refresh on git event failed: ${err}`);
-      }
       const currentGitBranch = getCurrentGitBranch();
       if (currentGitBranch === lastIndexedGitBranch) {
         return;
       }
       lastIndexedGitBranch = currentGitBranch;
-      void warmUpUniversalSearchIndex(provider, symbolIndex, context, true).catch(err =>
-        console.warn(`[DotNav] Auto re-scan on git event failed: ${err}`)
-      );
+      try {
+        await provider.refresh();
+      } catch (err) {
+        console.warn(`[DotNav] Tree refresh on git event failed: ${err}`);
+      }
+      searchUpdates.queueFullRefresh();
     }, 350);
   };
 
@@ -827,28 +821,25 @@ function registerWorkspaceFileWatcher(
     watcher.onDidChange(uri => scheduleRefresh(uri, 'change')),
     vscode.workspace.onDidSaveTextDocument(doc => {
       if (doc.uri.scheme === 'file' && isRelevantSymbolFile(doc.uri.fsPath)) {
-        const solution = provider.getSolution();
-        const projects = solution?.projects;
-        const projectName = resolveProjectForFile(doc.uri.fsPath, projects);
-        const relPath = vscode.workspace.asRelativePath(doc.uri.fsPath);
-        symbolIndex.scanFileContent(doc.uri.fsPath, doc.getText(), projectName, relPath);
+        searchUpdates.queueFile(doc.uri.fsPath, 'change');
       }
     }),
     vscode.workspace.onDidRenameFiles(event => {
-      const solution = provider.getSolution();
-      const projects = solution?.projects;
       for (const file of event.files) {
         if (isRelevantSymbolFile(file.oldUri.fsPath)) {
-          symbolIndex.invalidateFile(file.oldUri.fsPath);
+          searchUpdates.queueFile(file.oldUri.fsPath, 'delete');
         }
         if (isRelevantSymbolFile(file.newUri.fsPath)) {
-          const projectName = resolveProjectForFile(file.newUri.fsPath, projects);
-          const relPath = vscode.workspace.asRelativePath(file.newUri.fsPath);
-          void symbolIndex.scanFile(file.newUri.fsPath, projectName, relPath);
+          searchUpdates.queueFile(file.newUri.fsPath, 'create');
         }
       }
     }),
-    { dispose: () => refreshTimer && clearTimeout(refreshTimer) }
+    {
+      dispose: () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        searchUpdates.dispose();
+      }
+    }
   );
 }
 

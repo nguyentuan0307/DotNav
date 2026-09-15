@@ -139,7 +139,7 @@ export function isIgnoredEndpointFile(filePath: string): boolean {
     return true;
   }
   const base = path.basename(filePath);
-  if (/\.(g|Designer|generated)\.cs$/i.test(base)) {
+  if (/\.(g|Designer|generated)\.cs$/i.test(base) || /ModelSnapshot\.cs$/i.test(base)) {
     return true;
   }
   return false;
@@ -489,6 +489,10 @@ export class EndpointIndex {
     projectName: string,
     relativePath: string
   ): ApiEndpoint[] {
+    if (isIgnoredEndpointFile(filePath)) {
+      this.invalidateFile(filePath);
+      return [];
+    }
     const endpoints = parseEndpointsFromCSharp(content, filePath, projectName, relativePath);
     this.fileCache.set(filePath, endpoints);
     this.cachedAllEndpoints = undefined;

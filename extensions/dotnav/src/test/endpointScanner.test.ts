@@ -231,6 +231,8 @@ test('isIgnoredEndpointFile detects bin, obj, generated, and designer files', ()
   assert.equal(isIgnoredEndpointFile('C:\\repo\\src\\bin\\Release\\net8.0\\App.g.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/MyView.Designer.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/User.generated.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Migrations/AppDbContextModelSnapshot.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Migrations/20260915_AddOrders.cs'), false);
   assert.equal(isIgnoredEndpointFile('/repo/.git/HEAD'), true);
   assert.equal(isIgnoredEndpointFile('/repo/node_modules/pkg/index.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/UsersController.cs'), false);
@@ -292,6 +294,20 @@ public class UsersController : ControllerBase {
   assert.equal(index.count, 0);
   assert.equal(index.fileCount, 0);
   assert.equal(index.getAllEndpoints().length, 0);
+});
+
+test('EndpointIndex rejects ModelSnapshot content at the index boundary', () => {
+  const { EndpointIndex } = require('../endpoints/endpointScanner');
+  const index = new EndpointIndex();
+  const endpoints = index.scanFileContent(
+    '/src/Migrations/AppDbContextModelSnapshot.cs',
+    '[Route("api/fake")] public class FakeController { [HttpGet] public void Get() {} }',
+    'App',
+    'Migrations/AppDbContextModelSnapshot.cs'
+  );
+
+  assert.equal(endpoints.length, 0);
+  assert.equal(index.hasFile('/src/Migrations/AppDbContextModelSnapshot.cs'), false);
 });
 
 test('EndpointIndex does not replay previously scanned partial controller source', () => {
