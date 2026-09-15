@@ -28,6 +28,7 @@ import {
   UniversalSymbolKind
 } from './searchModel';
 import { UniversalSymbolIndex, buildCqrsFlow, detectActiveCqrsContext } from './searchScanner';
+import { getSearchIndexStatusBar } from './searchStatusBar';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
@@ -672,33 +673,53 @@ export async function populateUniversalIndexFromSolution(
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**,**/.cache/**,**/dist/**}'
   );
 
+  const statusBar = getSearchIndexStatusBar();
+  const startTime = Date.now();
+  let scannedCount = 0;
+  if (files.length > 0) {
+    statusBar.start(files.length);
+  }
+
   let hasChanges = false;
   const normKey = (p: string) => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
   const existingFilesInDisk = new Set<string>();
   const chunkSize = 48;
 
-  for (let i = 0; i < files.length; i += chunkSize) {
-    const chunk = files.slice(i, i + chunkSize);
-    await Promise.all(
-      chunk.map(async file => {
-        const fsPath = file.fsPath;
-        existingFilesInDisk.add(normKey(fsPath));
-        try {
-          const stat = await fs.promises.stat(fsPath);
-          const cachedMtime = index.getFileTimestamp(fsPath);
-          const isCs = fsPath.endsWith('.cs');
-          const isMissingCold = isCs && (!index.getDiskStore() || !index.getDiskStore()!.hasFile(fsPath));
-          if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath) || isMissingCold) {
-            const projectName = resolveProjectForFile(fsPath, projects);
-            const relPath = vscode.workspace.asRelativePath(fsPath);
-            await index.scanFile(fsPath, projectName, relPath);
-            hasChanges = true;
+  try {
+    for (let i = 0; i < files.length; i += chunkSize) {
+      const chunk = files.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async file => {
+          const fsPath = file.fsPath;
+          existingFilesInDisk.add(normKey(fsPath));
+          try {
+            const stat = await fs.promises.stat(fsPath);
+            const cachedMtime = index.getFileTimestamp(fsPath);
+            const isCs = fsPath.endsWith('.cs');
+            const isMissingCold = isCs && (!index.getDiskStore() || !index.getDiskStore()!.hasFile(fsPath));
+            if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath) || isMissingCold) {
+              const projectName = resolveProjectForFile(fsPath, projects);
+              const relPath = vscode.workspace.asRelativePath(fsPath);
+              await index.scanFile(fsPath, projectName, relPath);
+              hasChanges = true;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
-        }
-      })
-    );
+        })
+      );
+      scannedCount += chunk.length;
+      statusBar.reportProgress(scannedCount, files.length);
+    }
+  } finally {
+    if (files.length > 0) {
+      const elapsed = Date.now() - startTime;
+      if (!hasChanges && elapsed < 200) {
+        statusBar.hide();
+      } else {
+        statusBar.complete(index.count, elapsed);
+      }
+    }
   }
 
   // Clean up any deleted files from cache efficiently via fileCache keys

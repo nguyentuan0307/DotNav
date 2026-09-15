@@ -497,4 +497,42 @@ test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail forma
   assert.ok(!detail.includes('src/Services/CustomAppShared'));
 });
 
+test('SearchIndexStatusBar displays % progress, completes, and auto-hides', async () => {
+  const { SearchIndexStatusBar } = require('../solutionSearch/searchStatusBar');
+
+  const mockItem: any = {
+    text: '',
+    tooltip: '',
+    command: '',
+    name: '',
+    visible: false,
+    disposed: false,
+    show() { this.visible = true; },
+    hide() { this.visible = false; },
+    dispose() { this.disposed = true; }
+  };
+
+  const statusBar = new SearchIndexStatusBar(mockItem);
+
+  // 1. start
+  statusBar.start(1000);
+  assert.equal(mockItem.visible, true);
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 0%');
+
+  // 2. report progress
+  statusBar.reportProgress(450, 1000);
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 45%');
+
+  // 3. complete
+  statusBar.complete(1500, 2500);
+  assert.equal(mockItem.visible, true);
+  assert.ok(mockItem.text.includes('Indexed 1,500 symbols'));
+  assert.ok(mockItem.tooltip.includes('in 2.5s'));
+
+  // 4. dispose
+  statusBar.dispose();
+  assert.equal(mockItem.disposed, true);
+});
+
+
 

@@ -41,7 +41,8 @@ import {
   showSearchDiagnosticsCommand,
   traceCqrsFlowInteractive,
   UniversalSymbolIndex,
-  warmUpUniversalSearchIndex
+  warmUpUniversalSearchIndex,
+  getSearchIndexStatusBar
 } from './solutionSearch';
 
 let activeProcessManager: ProcessManager | undefined;
@@ -58,6 +59,7 @@ export function activate(context: vscode.ExtensionContext): void {
   symbolIndex.setDiskStore(diskStore);
 
   context.subscriptions.push(
+    getSearchIndexStatusBar(),
     vscode.workspace.onDidChangeConfiguration(async e => {
       if (e.affectsConfiguration('dotnav.solutionSearch.enabled')) {
         const enabled = isSolutionSearchEnabled();
