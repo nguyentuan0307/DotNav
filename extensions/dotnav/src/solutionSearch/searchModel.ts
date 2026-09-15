@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 export type UniversalSymbolKind =
   | 'endpoint'
   | 'cqrs_command'
@@ -138,6 +140,69 @@ export interface SearchIndexSnapshot {
   readonly fileTimestamps: Record<string, number>;
   readonly symbolsByFile: Record<string, UniversalSymbol[]>;
   readonly coldSymbolsByFile?: Record<string, CompactDiskSymbol[]>;
+}
+
+export function compactDirectoryPath(filePath: string): string {
+  if (!filePath) return '.';
+  const normalized = filePath.replace(/\\/g, '/');
+  const dir = path.dirname(normalized);
+  if (dir === '.' || !dir) {
+    return '.';
+  }
+  const parts = dir.split('/').filter(Boolean);
+  if (parts.length <= 2) {
+    return parts.join('/');
+  }
+  return `.../${parts.slice(-2).join('/')}`;
+}
+
+export function formatSymbolDescription(
+  symbol: UniversalSymbol,
+  searchResult?: UniversalSearchResult,
+  explainRanking = false
+): string {
+  const fileName = symbol.relativePath
+    ? path.basename(symbol.relativePath)
+    : path.basename(symbol.filePath || '');
+  const location = fileName && symbol.line > 0 ? `${fileName}:${symbol.line}` : fileName;
+
+  let baseDesc = '';
+  if (symbol.kind === 'file') {
+    baseDesc = `$(project) ${symbol.projectName}`;
+  } else {
+    baseDesc = location;
+  }
+
+  if (explainRanking && searchResult) {
+    return `[Score: ${searchResult.score} | ${searchResult.matchReason}] • ${baseDesc}`;
+  }
+
+  return baseDesc;
+}
+
+export function formatSymbolDetail(symbol: UniversalSymbol): string {
+  const compactDir = compactDirectoryPath(symbol.relativePath || symbol.filePath);
+  const dirInfo = compactDir === '.' ? '' : `$(folder) ${compactDir} • `;
+  const projInfo = `$(project) ${symbol.projectName}`;
+  const baseNameWithoutExt = path.basename(symbol.filePath || symbol.relativePath || '', '.cs');
+  const container =
+    symbol.containerName && symbol.containerName !== baseNameWithoutExt
+      ? ` • Container: ${symbol.containerName}`
+      : '';
+  const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
+  const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
+  const handled = symbol.metadata?.handledType ? ` • Handles: ${symbol.metadata.handledType}` : '';
+  const emits =
+    symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
+      ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
+      : '';
+  const injected =
+    symbol.metadata?.injectedParams && symbol.metadata.injectedParams.length > 0
+      ? ` • Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
+      : '';
+  const sqlTable = symbol.metadata?.sqlTable ? ` • Table: ${symbol.metadata.sqlTable}` : '';
+
+  return `${dirInfo}${projInfo}${container}${baseType}${handled}${emits}${injected}${sqlTable}${configVal}`;
 }
 
 

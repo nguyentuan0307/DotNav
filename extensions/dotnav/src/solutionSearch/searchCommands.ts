@@ -14,6 +14,9 @@ import {
   searchUniversalSymbols
 } from './searchEngine';
 import {
+  compactDirectoryPath,
+  formatSymbolDescription,
+  formatSymbolDetail,
   AdaptiveQueryMap,
   AdaptiveQueryRecord,
   FrecencyRecord,
@@ -137,26 +140,11 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
   }
 }
 
-export function formatSymbolDetail(symbol: UniversalSymbol): string {
-  const fileInfo = symbol.relativePath
-    ? `${symbol.relativePath}:${symbol.line}`
-    : `${path.basename(symbol.filePath)}:${symbol.line}`;
-  const container = symbol.containerName ? ` • Container: ${symbol.containerName}` : '';
-  const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
-  const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
-  const handled = symbol.metadata?.handledType ? ` • Handles: ${symbol.metadata.handledType}` : '';
-  const emits =
-    symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
-      ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
-      : '';
-  const injected =
-    symbol.metadata?.injectedParams && symbol.metadata.injectedParams.length > 0
-      ? ` • Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
-      : '';
-  const sqlTable = symbol.metadata?.sqlTable ? ` • Table: ${symbol.metadata.sqlTable}` : '';
-
-  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${handled}${emits}${injected}${sqlTable}${configVal}`;
-}
+export {
+  compactDirectoryPath,
+  formatSymbolDescription,
+  formatSymbolDetail
+} from './searchModel';
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
   switch (kind) {
@@ -937,7 +925,7 @@ function buildEmptySearchItems(
             addedIds.add(s.id);
             items.push({
               label: formatSymbolLabel(s),
-              description: `🌿 Git Modified`,
+              description: `🌿 Git Modified • ${formatSymbolDescription(s)}`,
               detail: formatSymbolDetail(s),
               alwaysShow: true,
               symbol: s,
@@ -961,7 +949,7 @@ function buildEmptySearchItems(
           items.push({
             label: `$(diff-modified) ${path.basename(gitPath)}`,
             description: `🌿 Git Modified`,
-            detail: `$(file) ${gitPath}`,
+            detail: `$(folder) ${compactDirectoryPath(gitPath)} • $(file) ${path.basename(gitPath)}`,
             alwaysShow: true,
             symbol: fileSym,
             buttons: getButtonsForSymbol(fileSym)
@@ -988,7 +976,7 @@ function buildEmptySearchItems(
         addedIds.add(s.id);
         items.push({
           label: formatSymbolLabel(s),
-          description: `🎯 Active Context`,
+          description: `🎯 Active Context • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
           alwaysShow: true,
           symbol: s,
@@ -1014,7 +1002,7 @@ function buildEmptySearchItems(
         addedIds.add(sym.id);
         items.push({
           label: formatSymbolLabel(sym),
-          description: rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`,
+          description: `${rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`} • ${formatSymbolDescription(sym)}`,
           detail: formatSymbolDetail(sym),
           alwaysShow: true,
           symbol: sym,
@@ -1037,7 +1025,7 @@ function buildEmptySearchItems(
         addedIds.add(s.id);
         items.push({
           label: formatSymbolLabel(s),
-          description: `⏱️ Recent`,
+          description: `⏱️ Recent • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
           alwaysShow: true,
           symbol: s,
@@ -1222,7 +1210,7 @@ export async function searchEverywhereInteractive(
       const sym = res.symbol;
       items.push({
         label: formatSymbolLabel(sym),
-        description: explainRanking ? `[Score: ${res.score} | ${res.matchReason}]` : undefined,
+        description: formatSymbolDescription(sym, res, explainRanking),
         detail: formatSymbolDetail(sym),
         alwaysShow: true,
         symbol: sym,

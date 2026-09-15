@@ -457,3 +457,44 @@ public class OrderService
   } catch {}
 });
 
+test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail format long paths cleanly', () => {
+  const {
+    compactDirectoryPath,
+    formatSymbolDescription,
+    formatSymbolDetail
+  } = require('../solutionSearch/searchModel');
+
+  // Test compactDirectoryPath
+  assert.equal(
+    compactDirectoryPath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs'),
+    '.../Mappers/FormSubmissions'
+  );
+  assert.equal(compactDirectoryPath('src/Controllers/OrdersController.cs'), 'src/Controllers');
+  assert.equal(compactDirectoryPath('Program.cs'), '.');
+
+  // Test formatSymbolDescription
+  const methodSym = {
+    id: 'sym1',
+    name: 'GetSpecificationPrefillValueAsync(...)',
+    kind: 'method',
+    filePath: '/repo/src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs',
+    relativePath: 'src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs',
+    projectName: 'Cleeksy.CustomApp.SharedService',
+    line: 24,
+    column: 1
+  };
+
+  const desc = formatSymbolDescription(methodSym);
+  assert.equal(desc, 'IFunctionManualPrefillProvider.cs:24');
+
+  const descWithScore = formatSymbolDescription(methodSym, { score: 98, matchReason: 'Exact match' }, true);
+  assert.equal(descWithScore, '[Score: 98 | Exact match] • IFunctionManualPrefillProvider.cs:24');
+
+  // Test formatSymbolDetail
+  const detail = formatSymbolDetail(methodSym);
+  assert.ok(detail.includes('.../Mappers/FormSubmissions'));
+  assert.ok(detail.includes('Cleeksy.CustomApp.SharedService'));
+  assert.ok(!detail.includes('src/Services/CustomAppShared'));
+});
+
+
