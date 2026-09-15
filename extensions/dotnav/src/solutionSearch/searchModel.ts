@@ -142,7 +142,7 @@ export interface SearchIndexSnapshot {
   readonly coldSymbolsByFile?: Record<string, CompactDiskSymbol[]>;
 }
 
-export function compactDirectoryPath(filePath: string): string {
+export function compactDirectoryPath(filePath: string, maxSegments = 4): string {
   if (!filePath) return '.';
   const normalized = filePath.replace(/\\/g, '/');
   const dir = path.dirname(normalized);
@@ -150,10 +150,10 @@ export function compactDirectoryPath(filePath: string): string {
     return '.';
   }
   const parts = dir.split('/').filter(Boolean);
-  if (parts.length <= 2) {
+  if (parts.length <= maxSegments) {
     return parts.join('/');
   }
-  return `.../${parts.slice(-2).join('/')}`;
+  return `.../${parts.slice(-maxSegments).join('/')}`;
 }
 
 export function formatSymbolDescription(
@@ -166,15 +166,12 @@ export function formatSymbolDescription(
     : path.basename(symbol.filePath || '');
   const location = fileName && symbol.line > 0 ? `${fileName}:${symbol.line}` : fileName;
 
-  let baseDesc = '';
-  if (symbol.kind === 'file') {
-    baseDesc = `$(project) ${symbol.projectName}`;
-  } else {
-    baseDesc = location;
-  }
+  const baseDesc = symbol.kind === 'file' ? '' : location;
 
   if (explainRanking && searchResult) {
-    return `[Score: ${searchResult.score} | ${searchResult.matchReason}] • ${baseDesc}`;
+    return baseDesc
+      ? `[Score: ${searchResult.score} | ${searchResult.matchReason}] • ${baseDesc}`
+      : `[Score: ${searchResult.score} | ${searchResult.matchReason}]`;
   }
 
   return baseDesc;
@@ -182,27 +179,44 @@ export function formatSymbolDescription(
 
 export function formatSymbolDetail(symbol: UniversalSymbol): string {
   const compactDir = compactDirectoryPath(symbol.relativePath || symbol.filePath);
-  const dirInfo = compactDir === '.' ? '' : `$(folder) ${compactDir} • `;
-  const projInfo = `$(project) ${symbol.projectName}`;
+  const dirInfo = compactDir === '.' ? '' : `$(folder) ${compactDir}`;
   const baseNameWithoutExt = path.basename(symbol.filePath || symbol.relativePath || '', '.cs');
   const container =
     symbol.containerName && symbol.containerName !== baseNameWithoutExt
-      ? ` • Container: ${symbol.containerName}`
+      ? `Container: ${symbol.containerName}`
       : '';
-  const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
-  const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
-  const handled = symbol.metadata?.handledType ? ` • Handles: ${symbol.metadata.handledType}` : '';
+  const baseType = symbol.metadata?.baseType ? `Base: ${symbol.metadata.baseType}` : '';
+  const configVal = symbol.metadata?.configValue ? `Config: ${symbol.metadata.configValue}` : '';
+  const handled = symbol.metadata?.handledType ? `Handles: ${symbol.metadata.handledType}` : '';
   const emits =
     symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
-      ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
+      ? `Emits: ${symbol.metadata.emittedEvents.join(', ')}`
       : '';
   const injected =
     symbol.metadata?.injectedParams && symbol.metadata.injectedParams.length > 0
-      ? ` • Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
+      ? `Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
       : '';
-  const sqlTable = symbol.metadata?.sqlTable ? ` • Table: ${symbol.metadata.sqlTable}` : '';
+  const sqlTable = symbol.metadata?.sqlTable ? `Table: ${symbol.metadata.sqlTable}` : '';
 
-  return `${dirInfo}${projInfo}${container}${baseType}${handled}${emits}${injected}${sqlTable}${configVal}`;
+  const segments = [
+    dirInfo,
+    container,
+    baseType,
+    handled,
+    emits,
+    injected,
+    sqlTable,
+    configVal
+  ].filter(Boolean);
+
+  return segments.join(' • ');
 }
+
+export function formatSymbolTooltip(symbol: UniversalSymbol): string {
+  const targetPath = symbol.relativePath || symbol.filePath || '';
+  if (!targetPath) return '';
+  return symbol.line > 0 ? `${targetPath}:${symbol.line}` : targetPath;
+}
+
 
 

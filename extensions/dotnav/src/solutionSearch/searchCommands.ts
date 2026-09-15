@@ -17,6 +17,7 @@ import {
   compactDirectoryPath,
   formatSymbolDescription,
   formatSymbolDetail,
+  formatSymbolTooltip,
   AdaptiveQueryMap,
   AdaptiveQueryRecord,
   FrecencyRecord,
@@ -34,6 +35,7 @@ export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
   readonly searchResult?: UniversalSearchResult;
   readonly isAction?: boolean;
+  tooltip?: string;
 }
 
 let lastSearchQuery = '';
@@ -144,7 +146,8 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
 export {
   compactDirectoryPath,
   formatSymbolDescription,
-  formatSymbolDetail
+  formatSymbolDetail,
+  formatSymbolTooltip
 } from './searchModel';
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
@@ -948,6 +951,7 @@ function buildEmptySearchItems(
               label: formatSymbolLabel(s),
               description: `🌿 Git Modified • ${formatSymbolDescription(s)}`,
               detail: formatSymbolDetail(s),
+              tooltip: formatSymbolTooltip(s),
               alwaysShow: true,
               symbol: s,
               buttons: getButtonsForSymbol(s)
@@ -970,7 +974,8 @@ function buildEmptySearchItems(
           items.push({
             label: `$(diff-modified) ${path.basename(gitPath)}`,
             description: `🌿 Git Modified`,
-            detail: `$(folder) ${compactDirectoryPath(gitPath)} • $(file) ${path.basename(gitPath)}`,
+            detail: `$(folder) ${compactDirectoryPath(gitPath)}`,
+            tooltip: gitPath,
             alwaysShow: true,
             symbol: fileSym,
             buttons: getButtonsForSymbol(fileSym)
@@ -999,6 +1004,7 @@ function buildEmptySearchItems(
           label: formatSymbolLabel(s),
           description: `🎯 Active Context • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
+          tooltip: formatSymbolTooltip(s),
           alwaysShow: true,
           symbol: s,
           buttons: getButtonsForSymbol(s)
@@ -1025,6 +1031,7 @@ function buildEmptySearchItems(
           label: formatSymbolLabel(sym),
           description: `${rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`} • ${formatSymbolDescription(sym)}`,
           detail: formatSymbolDetail(sym),
+          tooltip: formatSymbolTooltip(sym),
           alwaysShow: true,
           symbol: sym,
           buttons: getButtonsForSymbol(sym)
@@ -1048,6 +1055,7 @@ function buildEmptySearchItems(
           label: formatSymbolLabel(s),
           description: `⏱️ Recent • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
+          tooltip: formatSymbolTooltip(s),
           alwaysShow: true,
           symbol: s,
           buttons: getButtonsForSymbol(s)
@@ -1233,6 +1241,7 @@ export async function searchEverywhereInteractive(
         label: formatSymbolLabel(sym),
         description: formatSymbolDescription(sym, res, explainRanking),
         detail: formatSymbolDetail(sym),
+        tooltip: formatSymbolTooltip(sym),
         alwaysShow: true,
         symbol: sym,
         searchResult: res,
@@ -1381,6 +1390,7 @@ export async function traceCqrsFlowInteractive(
       items.push({
         label: node.label,
         detail: node.detail,
+        tooltip: node.symbol ? formatSymbolTooltip(node.symbol) : undefined,
         alwaysShow: true,
         symbol: node.symbol,
         buttons: [

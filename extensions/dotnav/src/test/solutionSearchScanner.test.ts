@@ -461,13 +461,14 @@ test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail forma
   const {
     compactDirectoryPath,
     formatSymbolDescription,
-    formatSymbolDetail
+    formatSymbolDetail,
+    formatSymbolTooltip
   } = require('../solutionSearch/searchModel');
 
-  // Test compactDirectoryPath
+  // Test compactDirectoryPath (4 folder segments)
   assert.equal(
     compactDirectoryPath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs'),
-    '.../Mappers/FormSubmissions'
+    '.../CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions'
   );
   assert.equal(compactDirectoryPath('src/Controllers/OrdersController.cs'), 'src/Controllers');
   assert.equal(compactDirectoryPath('Program.cs'), '.');
@@ -484,17 +485,41 @@ test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail forma
     column: 1
   };
 
+  const fileSym = {
+    id: 'sym2',
+    name: 'PrefillOptions.cs',
+    kind: 'file',
+    filePath: '/repo/src/Services/PrefillOptions.cs',
+    relativePath: 'src/Services/PrefillOptions.cs',
+    projectName: 'Workspace',
+    line: 1,
+    column: 1
+  };
+
   const desc = formatSymbolDescription(methodSym);
   assert.equal(desc, 'IFunctionManualPrefillProvider.cs:24');
 
   const descWithScore = formatSymbolDescription(methodSym, { score: 98, matchReason: 'Exact match' }, true);
   assert.equal(descWithScore, '[Score: 98 | Exact match] • IFunctionManualPrefillProvider.cs:24');
 
-  // Test formatSymbolDetail
+  // File symbols should have clean empty description (no project/Workspace)
+  const fileDesc = formatSymbolDescription(fileSym);
+  assert.equal(fileDesc, '');
+
+  // Test formatSymbolDetail - should not contain project name or Workspace
   const detail = formatSymbolDetail(methodSym);
-  assert.ok(detail.includes('.../Mappers/FormSubmissions'));
-  assert.ok(detail.includes('Cleeksy.CustomApp.SharedService'));
-  assert.ok(!detail.includes('src/Services/CustomAppShared'));
+  assert.ok(detail.includes('.../CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions'));
+  assert.ok(!detail.includes('$(project)'));
+  assert.ok(!detail.includes('Workspace'));
+
+  // Test formatSymbolTooltip - returns full relative path + line
+  const tooltip = formatSymbolTooltip(methodSym);
+  assert.equal(
+    tooltip,
+    'src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs:24'
+  );
+  const fileTooltip = formatSymbolTooltip(fileSym);
+  assert.equal(fileTooltip, 'src/Services/PrefillOptions.cs:1');
 });
 
 test('SearchIndexStatusBar displays % progress, completes, and auto-hides', async () => {
