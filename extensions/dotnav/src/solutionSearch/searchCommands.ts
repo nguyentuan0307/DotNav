@@ -598,7 +598,7 @@ export async function loadSnapshotFromDisk(
       });
     });
     const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
-    if (snapshot && snapshot.version === 5 && snapshot.symbolsByFile) {
+    if (snapshot && snapshot.version === 6 && snapshot.symbolsByFile) {
       index.loadSnapshot(snapshot);
       return true;
     }
@@ -640,7 +640,8 @@ export function scheduleSaveSnapshotToDisk(
 export async function populateUniversalIndexFromSolution(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  context?: vscode.ExtensionContext
+  context?: vscode.ExtensionContext,
+  force = false
 ): Promise<void> {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) {
@@ -661,7 +662,7 @@ export async function populateUniversalIndexFromSolution(
 
   // Phase 1: Zero-Delay Startup Load (< 50ms)
   let loadedFromCache = false;
-  if (!index.isFullScanCompleted && index.count === 0) {
+  if (!force && !index.isFullScanCompleted && index.count === 0) {
     loadedFromCache = await loadSnapshotFromDisk(context, index);
   }
 
@@ -697,7 +698,9 @@ export async function populateUniversalIndexFromSolution(
         try {
           const stat = await fs.promises.stat(fsPath);
           const cachedMtime = index.getFileTimestamp(fsPath);
-          if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath)) {
+          const isCs = fsPath.endsWith('.cs');
+          const isMissingCold = isCs && (!index.getDiskStore() || !index.getDiskStore()!.hasFile(fsPath));
+          if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath) || isMissingCold) {
             const projectName = resolveProjectForFile(fsPath, projects);
             const relPath = vscode.workspace.asRelativePath(fsPath);
             await index.scanFile(fsPath, projectName, relPath);
@@ -751,7 +754,7 @@ export async function warmUpUniversalSearchIndex(
   }
   activeFullScanPromise = (async () => {
     try {
-      await populateUniversalIndexFromSolution(provider, index, context);
+      await populateUniversalIndexFromSolution(provider, index, context, force);
       index.markFullScanCompleted();
     } catch (err) {
       console.error(`DotNav background universal search warmup failed: ${err}`);
@@ -774,7 +777,10 @@ export async function rescanUniversalSearchIndex(
 ): Promise<void> {
   const task = async () => {
     try {
-      await populateUniversalIndexFromSolution(provider, index, context);
+      if (showNotification) {
+        index.clear();
+      }
+      await populateUniversalIndexFromSolution(provider, index, context, showNotification);
       index.markFullScanCompleted();
       if (showNotification) {
         vscode.window.showInformationMessage(`DotNav: Re-scanned ${index.count} symbols and endpoints.`);

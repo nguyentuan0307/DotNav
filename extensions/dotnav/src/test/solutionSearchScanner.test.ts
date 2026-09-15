@@ -6,6 +6,7 @@ import {
   parseSymbolsFromCSharp,
   UniversalSymbolIndex
 } from '../solutionSearch/searchScanner';
+import { DiskSymbolStore } from '../solutionSearch/searchDiskStore';
 
 test('isIgnoredSearchFile ignores bin, obj, generated files and designer files', () => {
   assert.equal(isIgnoredSearchFile('/repo/src/bin/Debug/app.dll'), true);
@@ -152,8 +153,10 @@ test('extractIndexTokens and internString optimize candidate lookups and memory'
   assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
 });
 
-test('UniversalSymbolIndex snapshot export and load restores all symbols and token buckets', () => {
+test('UniversalSymbolIndex snapshot export and load restores all symbols, cold store and token buckets', () => {
+  const store = new DiskSymbolStore();
   const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
   index.scanFileContent(
     '/src/SubmitService.cs',
     'public class SubmitService {\n    public void ProcessOrder() {}\n}',
@@ -162,19 +165,25 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
     1700000000000
   );
 
-  assert.equal(index.count, 3); // Class, Method, and File
+  assert.equal(index.count, 2); // Class and File in RAM (Method is in cold store)
   assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+  assert.equal(store.coldSymbolCount, 1); // ProcessOrder is in cold store
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 5);
+  assert.equal(snapshot.version, 6);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
+  assert.ok(snapshot.coldSymbolsByFile);
+  assert.ok(snapshot.coldSymbolsByFile['/src/SubmitService.cs']);
 
+  const restoredStore = new DiskSymbolStore();
   const restoredIndex = new UniversalSymbolIndex();
+  restoredIndex.setDiskStore(restoredStore);
   restoredIndex.loadSnapshot(snapshot);
 
-  assert.equal(restoredIndex.count, 3);
+  assert.equal(restoredIndex.count, 2);
   assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+  assert.equal(restoredStore.coldSymbolCount, 1);
 
   const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
   assert.ok(searchResults.length >= 1);

@@ -1,19 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import { UniversalSymbol, UniversalSymbolKind } from './searchModel';
+import { UniversalSymbol, UniversalSymbolKind, CompactDiskSymbol } from './searchModel';
 
-export interface CompactDiskSymbol {
-  n: string; // name
-  k: UniversalSymbolKind; // kind
-  f: string; // filePath
-  r: string; // relativePath
-  p: string; // projectName
-  l: number; // line
-  c: number; // column
-  rt?: string; // returnType / baseType
-  ps?: string; // parameterSummary / configValue
-}
+export { CompactDiskSymbol };
 
 export class DiskSymbolStore {
   private cacheDir: string;
@@ -390,15 +380,35 @@ export class DiskSymbolStore {
     }, 2000);
   }
 
+  public hasFile(filePath: string): boolean {
+    return this.fileSymbolsMap.has(filePath);
+  }
+
+  public exportData(): Record<string, CompactDiskSymbol[]> {
+    const data: Record<string, CompactDiskSymbol[]> = {};
+    for (const [fp, syms] of this.fileSymbolsMap.entries()) {
+      data[fp] = syms;
+    }
+    return data;
+  }
+
+  public loadData(data: Record<string, CompactDiskSymbol[]>): void {
+    this.clear();
+    if (!data) return;
+    for (const [filePath, symbols] of Object.entries(data)) {
+      this.fileSymbolsMap.set(filePath, symbols);
+      for (const s of symbols) {
+        this.indexSymbolTokens(filePath, s.n);
+      }
+    }
+  }
+
   public async saveToDisk(): Promise<void> {
     try {
       if (!fs.existsSync(this.cacheDir)) {
         await fs.promises.mkdir(this.cacheDir, { recursive: true });
       }
-      const data: Record<string, CompactDiskSymbol[]> = {};
-      for (const [fp, syms] of this.fileSymbolsMap.entries()) {
-        data[fp] = syms;
-      }
+      const data = this.exportData();
       const jsonStr = JSON.stringify(data);
       const compressed = await new Promise<Buffer>((resolve, reject) => {
         zlib.gzip(Buffer.from(jsonStr), { level: 6 }, (err, buf) => {
@@ -430,13 +440,7 @@ export class DiskSymbolStore {
       const data: Record<string, CompactDiskSymbol[]> = JSON.parse(jsonStr);
       if (!data) return false;
 
-      this.clear();
-      for (const [filePath, symbols] of Object.entries(data)) {
-        this.fileSymbolsMap.set(filePath, symbols);
-        for (const s of symbols) {
-          this.indexSymbolTokens(filePath, s.n);
-        }
-      }
+      this.loadData(data);
       return true;
     } catch {
       return false;

@@ -120,11 +120,24 @@ export interface AdaptiveQueryMap {
   readonly [queryKey: string]: Record<string, AdaptiveQueryRecord>;
 }
 
+export interface CompactDiskSymbol {
+  n: string; // name
+  k: UniversalSymbolKind; // kind
+  f: string; // filePath
+  r: string; // relativePath
+  p: string; // projectName
+  l: number; // line
+  c: number; // column
+  rt?: string; // returnType / baseType
+  ps?: string; // parameterSummary / configValue
+}
+
 export interface SearchIndexSnapshot {
   readonly version: number;
   readonly timestamp: number;
   readonly fileTimestamps: Record<string, number>;
   readonly symbolsByFile: Record<string, UniversalSymbol[]>;
+  readonly coldSymbolsByFile?: Record<string, CompactDiskSymbol[]>;
 }
 
 

@@ -1158,10 +1158,11 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 5,
+      version: 6,
       timestamp: Date.now(),
       fileTimestamps,
-      symbolsByFile
+      symbolsByFile,
+      coldSymbolsByFile: this.diskStore?.exportData()
     };
   }
 
@@ -1183,6 +1184,9 @@ export class UniversalSymbolIndex {
       for (const s of symbols) {
         this.addSymbolToBuckets(s);
       }
+    }
+    if (snapshot.coldSymbolsByFile && this.diskStore) {
+      this.diskStore.loadData(snapshot.coldSymbolsByFile);
     }
     this._isFullScanCompleted = true;
   }
