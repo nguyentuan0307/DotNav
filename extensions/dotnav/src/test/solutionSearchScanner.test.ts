@@ -6,6 +6,7 @@ import {
   parseSymbolsFromCSharp,
   UniversalSymbolIndex
 } from '../solutionSearch/searchScanner';
+import { DiskSymbolStore } from '../solutionSearch/searchDiskStore';
 
 test('isIgnoredSearchFile ignores bin, obj, generated files and designer files', () => {
   assert.equal(isIgnoredSearchFile('/repo/src/bin/Debug/app.dll'), true);
@@ -152,8 +153,10 @@ test('extractIndexTokens and internString optimize candidate lookups and memory'
   assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
 });
 
-test('UniversalSymbolIndex snapshot export and load restores all symbols and token buckets', () => {
+test('UniversalSymbolIndex snapshot export and load restores all symbols, cold store and token buckets', () => {
+  const store = new DiskSymbolStore();
   const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
   index.scanFileContent(
     '/src/SubmitService.cs',
     'public class SubmitService {\n    public void ProcessOrder() {}\n}',
@@ -162,19 +165,25 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols and tok
     1700000000000
   );
 
-  assert.equal(index.count, 3); // Class, Method, and File
+  assert.equal(index.count, 2); // Class and File in RAM (Method is in cold store)
   assert.equal(index.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+  assert.equal(store.coldSymbolCount, 1); // ProcessOrder is in cold store
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 5);
+  assert.equal(snapshot.version, 6);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
+  assert.ok(snapshot.coldSymbolsByFile);
+  assert.ok(snapshot.coldSymbolsByFile['/src/SubmitService.cs']);
 
+  const restoredStore = new DiskSymbolStore();
   const restoredIndex = new UniversalSymbolIndex();
+  restoredIndex.setDiskStore(restoredStore);
   restoredIndex.loadSnapshot(snapshot);
 
-  assert.equal(restoredIndex.count, 3);
+  assert.equal(restoredIndex.count, 2);
   assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
+  assert.equal(restoredStore.coldSymbolCount, 1);
 
   const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
   assert.ok(searchResults.length >= 1);
@@ -447,4 +456,123 @@ public class OrderService
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
 });
+
+test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail format long paths cleanly', () => {
+  const {
+    compactDirectoryPath,
+    compactFilePath,
+    formatSymbolDescription,
+    formatSymbolDetail,
+    formatSymbolTooltip
+  } = require('../solutionSearch/searchModel');
+
+  // Test compactDirectoryPath with adaptive character limit (maxChars = 48)
+  assert.equal(
+    compactDirectoryPath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs'),
+    '.../Mappers/FormSubmissions'
+  );
+  assert.equal(
+    compactDirectoryPath('src/Controllers/Api/v1/Admin/OrdersController.cs'),
+    '.../Controllers/Api/v1/Admin'
+  );
+  assert.equal(compactDirectoryPath('src/Controllers/OrdersController.cs'), 'src/Controllers');
+  assert.equal(compactDirectoryPath('Program.cs'), '.');
+
+  // Test compactFilePath for title bar
+  assert.equal(
+    compactFilePath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/SharedFeatures/Records/ConditionalFieldVisibilities/IRecordConditionalFieldVisibilityHandler.cs:18', 55),
+    '.../IRecordConditionalFieldVisibilityHandler.cs:18'
+  );
+  assert.equal(
+    compactFilePath('src/Controllers/OrdersController.cs:25', 55),
+    'src/Controllers/OrdersController.cs:25'
+  );
+
+  // Test formatSymbolDescription
+  const methodSym = {
+    id: 'sym1',
+    name: 'GetSpecificationPrefillValueAsync(...)',
+    kind: 'method',
+    filePath: '/repo/src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs',
+    relativePath: 'src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs',
+    projectName: 'Cleeksy.CustomApp.SharedService',
+    line: 24,
+    column: 1
+  };
+
+  const fileSym = {
+    id: 'sym2',
+    name: 'PrefillOptions.cs',
+    kind: 'file',
+    filePath: '/repo/src/Services/PrefillOptions.cs',
+    relativePath: 'src/Services/PrefillOptions.cs',
+    projectName: 'Workspace',
+    line: 1,
+    column: 1
+  };
+
+  const desc = formatSymbolDescription(methodSym);
+  assert.equal(desc, 'IFunctionManualPrefillProvider.cs:24');
+
+  const descWithScore = formatSymbolDescription(methodSym, { score: 98, matchReason: 'Exact match' }, true);
+  assert.equal(descWithScore, '[Score: 98 | Exact match] • IFunctionManualPrefillProvider.cs:24');
+
+  // File symbols should have clean empty description (no project/Workspace)
+  const fileDesc = formatSymbolDescription(fileSym);
+  assert.equal(fileDesc, '');
+
+  // Test formatSymbolDetail - should not contain project name or Workspace
+  const detail = formatSymbolDetail(methodSym);
+  assert.ok(detail.includes('.../Mappers/FormSubmissions'));
+  assert.ok(!detail.includes('$(project)'));
+  assert.ok(!detail.includes('Workspace'));
+
+  // Test formatSymbolTooltip - returns full relative path + line
+  const tooltip = formatSymbolTooltip(methodSym);
+  assert.equal(
+    tooltip,
+    'src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs:24'
+  );
+  const fileTooltip = formatSymbolTooltip(fileSym);
+  assert.equal(fileTooltip, 'src/Services/PrefillOptions.cs:1');
+});
+
+test('SearchIndexStatusBar displays % progress, completes, and auto-hides', async () => {
+  const { SearchIndexStatusBar } = require('../solutionSearch/searchStatusBar');
+
+  const mockItem: any = {
+    text: '',
+    tooltip: '',
+    command: '',
+    name: '',
+    visible: false,
+    disposed: false,
+    show() { this.visible = true; },
+    hide() { this.visible = false; },
+    dispose() { this.disposed = true; }
+  };
+
+  const statusBar = new SearchIndexStatusBar(mockItem);
+
+  // 1. start
+  statusBar.start(1000);
+  assert.equal(mockItem.visible, true);
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 0%');
+
+  // 2. report progress
+  statusBar.reportProgress(450, 1000);
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 45%');
+
+  // 3. complete
+  statusBar.complete(1500, 2500);
+  assert.equal(mockItem.visible, true);
+  assert.ok(mockItem.text.includes('Indexed 1,500 symbols'));
+  assert.ok(mockItem.tooltip.includes('in 2.5s'));
+
+  // 4. dispose
+  statusBar.dispose();
+  assert.equal(mockItem.disposed, true);
+});
+
+
 

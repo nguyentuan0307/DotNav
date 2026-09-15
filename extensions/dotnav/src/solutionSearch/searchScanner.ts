@@ -9,7 +9,7 @@ import {
   UniversalSymbolKind
 } from './searchModel';
 import { DiskSymbolStore } from './searchDiskStore';
-import { parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
+import { clearControllerRouteRegistry, parseEndpointsFromCSharp } from '../endpoints/endpointScanner';
 
 export const PRIMARY_HOT_KINDS = new Set<UniversalSymbolKind>([
   'endpoint',
@@ -551,8 +551,8 @@ export function parseSymbolsFromCSharp(
     }
   }
 
-  // 6. Parse Methods (public, private, protected, internal, static, async, virtual)
-  const methodRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|new|readonly|unsafe)\s+)+([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*(?:where[^{;=>]+)?\s*(?:\{|=>|;)/gm;
+  // 6. Parse Methods (public, private, protected, internal, static, async, virtual, partial)
+  const methodRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:(?:public|private|protected|internal|static|async|virtual|override|sealed|new|readonly|unsafe|partial)\s+)+([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*(?:where[^{;=>]+)?\s*(?:\{|=>|;)/gm;
   let methodMatch: RegExpExecArray | null;
 
   while ((methodMatch = methodRegex.exec(code)) !== null) {
@@ -585,6 +585,38 @@ export function parseSymbolsFromCSharp(
       projectName: internString(projectName)!,
       line: lineIndex,
       column: 1,
+      metadata: {
+        returnType: internString(returnType),
+        parameterSummary: params.replace(/\s+/g, ' ').trim()
+      }
+    });
+  }
+
+  // 6b. Explicit Interface Method Implementations (e.g. Task<Dto> ISpecificationService.GetSpecificationPrefillValueAsync(...))
+  const explicitMethodRegex = /^\s*(?:\[[^\]]+\]\s*)*(?:async\s+)?([a-zA-Z0-9_<>?,.\[\]\(\)\s*]+?)\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*(?:<[^>]+>)?\s*\(([\s\S]*?)\)\s*(?:where[^{;=>]+)?\s*(?:\{|=>|;)/gm;
+  let explicitMatch: RegExpExecArray | null;
+
+  while ((explicitMatch = explicitMethodRegex.exec(code)) !== null) {
+    const returnType = explicitMatch[1].trim();
+    const interfaceName = explicitMatch[2].trim();
+    const methodName = explicitMatch[3].trim();
+    const params = explicitMatch[4].trim();
+    const lineIndex = code.substring(0, explicitMatch.index).split(/\r?\n/).length;
+
+    if (CSHARP_RESERVED_KEYWORDS.has(methodName) || CSHARP_RESERVED_KEYWORDS.has(returnType)) {
+      continue;
+    }
+
+    symbols.push({
+      id: `${filePath}:${lineIndex}:method:${interfaceName}.${methodName}`,
+      name: `${methodName}(${params.split(',').length > 1 ? '...' : (params.length > 25 ? '...' : params)})`,
+      kind: internString('method') as UniversalSymbolKind,
+      filePath,
+      relativePath,
+      projectName: internString(projectName)!,
+      line: lineIndex,
+      column: 1,
+      containerName: interfaceName,
       metadata: {
         returnType: internString(returnType),
         parameterSummary: params.replace(/\s+/g, ' ').trim()
@@ -1086,11 +1118,13 @@ export function parseSymbolsFromMarkdown(
 export class UniversalSymbolIndex {
   private readonly fileCache = new Map<string, UniversalSymbol[]>();
   private readonly fileTimestamps = new Map<string, number>();
+  private readonly fileContentMap = new Map<string, { content: string; projectName: string; relativePath: string; mtime?: number }>();
   private readonly kindBuckets = new Map<UniversalSymbolKind, Set<UniversalSymbol>>();
   private readonly tokenBuckets = new Map<string, Set<UniversalSymbol>>();
   private readonly projectBuckets = new Map<string, Set<UniversalSymbol>>();
   private cachedAllSymbols: UniversalSymbol[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
+  private _isRescanningPartials: boolean = false;
   private diskStore?: DiskSymbolStore;
 
   public setDiskStore(store: DiskSymbolStore): void {
@@ -1124,10 +1158,11 @@ export class UniversalSymbolIndex {
       }
     }
     return {
-      version: 5,
+      version: 6,
       timestamp: Date.now(),
       fileTimestamps,
-      symbolsByFile
+      symbolsByFile,
+      coldSymbolsByFile: this.diskStore?.exportData()
     };
   }
 
@@ -1149,6 +1184,9 @@ export class UniversalSymbolIndex {
       for (const s of symbols) {
         this.addSymbolToBuckets(s);
       }
+    }
+    if (snapshot.coldSymbolsByFile && this.diskStore) {
+      this.diskStore.loadData(snapshot.coldSymbolsByFile);
     }
     this._isFullScanCompleted = true;
   }
@@ -1285,8 +1323,28 @@ export class UniversalSymbolIndex {
       this.addSymbolToBuckets(s);
     }
 
+    this.fileContentMap.set(filePath, { content, projectName, relativePath, mtime });
     this.fileCache.set(filePath, retainedSymbols);
     this.cachedAllSymbols = undefined;
+
+    if (!this._isRescanningPartials) {
+      this._isRescanningPartials = true;
+      try {
+        for (const s of retainedSymbols) {
+          if (s.kind === 'endpoint' && s.containerName) {
+            const cName = s.containerName;
+            for (const [prevPath, prevData] of this.fileContentMap.entries()) {
+              if (prevPath !== filePath && prevData.content.includes(cName)) {
+                this.scanFileContent(prevPath, prevData.content, prevData.projectName, prevData.relativePath, prevData.mtime);
+              }
+            }
+          }
+        }
+      } finally {
+        this._isRescanningPartials = false;
+      }
+    }
+
     return symbols;
   }
 
@@ -1309,6 +1367,7 @@ export class UniversalSymbolIndex {
   }
 
   public invalidateFile(filePath: string): void {
+    this.fileContentMap.delete(filePath);
     const old = this.fileCache.get(filePath);
     if (old) {
       for (const s of old) {
@@ -1326,12 +1385,14 @@ export class UniversalSymbolIndex {
   public clear(): void {
     this.fileCache.clear();
     this.fileTimestamps.clear();
+    this.fileContentMap.clear();
     this.kindBuckets.clear();
     this.tokenBuckets.clear();
     this.projectBuckets.clear();
     this.cachedAllSymbols = undefined;
     this._isFullScanCompleted = false;
     this.diskStore?.clear();
+    clearControllerRouteRegistry();
   }
 
   public hasFile(filePath: string): boolean {

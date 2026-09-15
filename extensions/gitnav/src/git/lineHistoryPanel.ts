@@ -227,7 +227,7 @@ function renderHtml(webview: vscode.Webview, state: PanelState, extensionUri: vs
 
     .line {
       display: grid;
-      grid-template-columns: 62px 62px minmax(0, 1fr);
+      grid-template-columns: 62px 62px 20px minmax(0, 1fr);
       min-width: max-content;
       white-space: pre;
     }
@@ -248,8 +248,14 @@ function renderHtml(webview: vscode.Webview, state: PanelState, extensionUri: vs
       border-right: 1px solid var(--vscode-panel-border);
     }
 
+    .sign {
+      user-select: none;
+      text-align: center;
+      color: var(--vscode-descriptionForeground);
+    }
+
     .code {
-      padding: 0 12px;
+      padding: 0 8px;
       min-width: 0;
     }
 
@@ -404,11 +410,16 @@ function renderHtml(webview: vscode.Webview, state: PanelState, extensionUri: vs
           newNum.className = 'num';
           newNum.textContent = line.newLine === undefined ? '' : String(line.newLine);
 
+          const sign = document.createElement('span');
+          sign.className = 'sign';
+          sign.setAttribute('aria-hidden', 'true');
+          sign.textContent = line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' ';
+
           const code = document.createElement('span');
           code.className = 'code';
-          code.textContent = (line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' ') + line.text;
+          code.textContent = line.text;
 
-          row.append(oldNum, newNum, code);
+          row.append(oldNum, newNum, sign, code);
           hunkEl.append(row);
         }
 

@@ -14,6 +14,11 @@ import {
   searchUniversalSymbols
 } from './searchEngine';
 import {
+  compactDirectoryPath,
+  compactFilePath,
+  formatSymbolDescription,
+  formatSymbolDetail,
+  formatSymbolTooltip,
   AdaptiveQueryMap,
   AdaptiveQueryRecord,
   FrecencyRecord,
@@ -25,6 +30,7 @@ import {
   UniversalSymbolKind
 } from './searchModel';
 import { UniversalSymbolIndex, buildCqrsFlow, detectActiveCqrsContext } from './searchScanner';
+import { getSearchIndexStatusBar } from './searchStatusBar';
 
 export interface UniversalQuickPickItem extends vscode.QuickPickItem {
   readonly symbol?: UniversalSymbol;
@@ -137,26 +143,13 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
   }
 }
 
-export function formatSymbolDetail(symbol: UniversalSymbol): string {
-  const fileInfo = symbol.relativePath
-    ? `${symbol.relativePath}:${symbol.line}`
-    : `${path.basename(symbol.filePath)}:${symbol.line}`;
-  const container = symbol.containerName ? ` • Container: ${symbol.containerName}` : '';
-  const baseType = symbol.metadata?.baseType ? ` • Base: ${symbol.metadata.baseType}` : '';
-  const configVal = symbol.metadata?.configValue ? ` = ${symbol.metadata.configValue}` : '';
-  const handled = symbol.metadata?.handledType ? ` • Handles: ${symbol.metadata.handledType}` : '';
-  const emits =
-    symbol.metadata?.emittedEvents && symbol.metadata.emittedEvents.length > 0
-      ? ` • Emits: ${symbol.metadata.emittedEvents.join(', ')}`
-      : '';
-  const injected =
-    symbol.metadata?.injectedParams && symbol.metadata.injectedParams.length > 0
-      ? ` • Injects: ${symbol.metadata.injectedParams.slice(0, 3).join(', ')}${symbol.metadata.injectedParams.length > 3 ? '...' : ''}`
-      : '';
-  const sqlTable = symbol.metadata?.sqlTable ? ` • Table: ${symbol.metadata.sqlTable}` : '';
-
-  return `$(file-code) ${fileInfo} (${symbol.projectName})${container}${baseType}${handled}${emits}${injected}${sqlTable}${configVal}`;
-}
+export {
+  compactDirectoryPath,
+  compactFilePath,
+  formatSymbolDescription,
+  formatSymbolDetail,
+  formatSymbolTooltip
+} from './searchModel';
 
 export function getGroupTitleForKind(kind: UniversalSymbolKind): string {
   switch (kind) {
@@ -598,7 +591,7 @@ export async function loadSnapshotFromDisk(
       });
     });
     const snapshot: SearchIndexSnapshot = JSON.parse(unzipped);
-    if (snapshot && snapshot.version === 5 && snapshot.symbolsByFile) {
+    if (snapshot && snapshot.version === 6 && snapshot.symbolsByFile) {
       index.loadSnapshot(snapshot);
       return true;
     }
@@ -640,7 +633,8 @@ export function scheduleSaveSnapshotToDisk(
 export async function populateUniversalIndexFromSolution(
   provider: DotnetTreeProvider,
   index: UniversalSymbolIndex,
-  context?: vscode.ExtensionContext
+  context?: vscode.ExtensionContext,
+  force = false
 ): Promise<void> {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) {
@@ -661,7 +655,7 @@ export async function populateUniversalIndexFromSolution(
 
   // Phase 1: Zero-Delay Startup Load (< 50ms)
   let loadedFromCache = false;
-  if (!index.isFullScanCompleted && index.count === 0) {
+  if (!force && !index.isFullScanCompleted && index.count === 0) {
     loadedFromCache = await loadSnapshotFromDisk(context, index);
   }
 
@@ -683,31 +677,53 @@ export async function populateUniversalIndexFromSolution(
     '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/.idea/**,**/.cache/**,**/dist/**}'
   );
 
+  const statusBar = getSearchIndexStatusBar();
+  const startTime = Date.now();
+  let scannedCount = 0;
+  if (files.length > 0) {
+    statusBar.start(files.length);
+  }
+
   let hasChanges = false;
   const normKey = (p: string) => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
   const existingFilesInDisk = new Set<string>();
   const chunkSize = 48;
 
-  for (let i = 0; i < files.length; i += chunkSize) {
-    const chunk = files.slice(i, i + chunkSize);
-    await Promise.all(
-      chunk.map(async file => {
-        const fsPath = file.fsPath;
-        existingFilesInDisk.add(normKey(fsPath));
-        try {
-          const stat = await fs.promises.stat(fsPath);
-          const cachedMtime = index.getFileTimestamp(fsPath);
-          if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath)) {
-            const projectName = resolveProjectForFile(fsPath, projects);
-            const relPath = vscode.workspace.asRelativePath(fsPath);
-            await index.scanFile(fsPath, projectName, relPath);
-            hasChanges = true;
+  try {
+    for (let i = 0; i < files.length; i += chunkSize) {
+      const chunk = files.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async file => {
+          const fsPath = file.fsPath;
+          existingFilesInDisk.add(normKey(fsPath));
+          try {
+            const stat = await fs.promises.stat(fsPath);
+            const cachedMtime = index.getFileTimestamp(fsPath);
+            const isCs = fsPath.endsWith('.cs');
+            const isMissingCold = isCs && (!index.getDiskStore() || !index.getDiskStore()!.hasFile(fsPath));
+            if (!cachedMtime || stat.mtimeMs > cachedMtime || !index.hasFile(fsPath) || isMissingCold) {
+              const projectName = resolveProjectForFile(fsPath, projects);
+              const relPath = vscode.workspace.asRelativePath(fsPath);
+              await index.scanFile(fsPath, projectName, relPath);
+              hasChanges = true;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
-        }
-      })
-    );
+        })
+      );
+      scannedCount += chunk.length;
+      statusBar.reportProgress(scannedCount, files.length);
+    }
+  } finally {
+    if (files.length > 0) {
+      const elapsed = Date.now() - startTime;
+      if (!hasChanges && elapsed < 200) {
+        statusBar.hide();
+      } else {
+        statusBar.complete(index.count, elapsed);
+      }
+    }
   }
 
   // Clean up any deleted files from cache efficiently via fileCache keys
@@ -751,7 +767,7 @@ export async function warmUpUniversalSearchIndex(
   }
   activeFullScanPromise = (async () => {
     try {
-      await populateUniversalIndexFromSolution(provider, index, context);
+      await populateUniversalIndexFromSolution(provider, index, context, force);
       index.markFullScanCompleted();
     } catch (err) {
       console.error(`DotNav background universal search warmup failed: ${err}`);
@@ -774,7 +790,10 @@ export async function rescanUniversalSearchIndex(
 ): Promise<void> {
   const task = async () => {
     try {
-      await populateUniversalIndexFromSolution(provider, index, context);
+      if (showNotification) {
+        index.clear();
+      }
+      await populateUniversalIndexFromSolution(provider, index, context, showNotification);
       index.markFullScanCompleted();
       if (showNotification) {
         vscode.window.showInformationMessage(`DotNav: Re-scanned ${index.count} symbols and endpoints.`);
@@ -892,6 +911,13 @@ export async function getGitModifiedPaths(workspaceRoot?: string): Promise<strin
 
 function getButtonsForSymbol(sym: UniversalSymbol): vscode.QuickInputButton[] {
   const buttons: vscode.QuickInputButton[] = [];
+  const loc = formatSymbolTooltip(sym);
+  if (loc) {
+    buttons.push({
+      iconPath: new vscode.ThemeIcon('go-to-file'),
+      tooltip: `Location: ${loc} (Click to copy)`
+    });
+  }
   if (sym.kind === 'cqrs_command' || sym.kind === 'cqrs_query') {
     buttons.push({
       iconPath: new vscode.ThemeIcon('arrow-right'),
@@ -931,7 +957,7 @@ function buildEmptySearchItems(
             addedIds.add(s.id);
             items.push({
               label: formatSymbolLabel(s),
-              description: `🌿 Git Modified`,
+              description: `🌿 Git Modified • ${formatSymbolDescription(s)}`,
               detail: formatSymbolDetail(s),
               alwaysShow: true,
               symbol: s,
@@ -955,7 +981,7 @@ function buildEmptySearchItems(
           items.push({
             label: `$(diff-modified) ${path.basename(gitPath)}`,
             description: `🌿 Git Modified`,
-            detail: `$(file) ${gitPath}`,
+            detail: `$(folder) ${compactDirectoryPath(gitPath)}`,
             alwaysShow: true,
             symbol: fileSym,
             buttons: getButtonsForSymbol(fileSym)
@@ -982,7 +1008,7 @@ function buildEmptySearchItems(
         addedIds.add(s.id);
         items.push({
           label: formatSymbolLabel(s),
-          description: `🎯 Active Context`,
+          description: `🎯 Active Context • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
           alwaysShow: true,
           symbol: s,
@@ -1008,7 +1034,7 @@ function buildEmptySearchItems(
         addedIds.add(sym.id);
         items.push({
           label: formatSymbolLabel(sym),
-          description: rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`,
+          description: `${rec.count > 1 ? `⏱️ Visited ${rec.count}x` : `⏱️ Recent`} • ${formatSymbolDescription(sym)}`,
           detail: formatSymbolDetail(sym),
           alwaysShow: true,
           symbol: sym,
@@ -1031,7 +1057,7 @@ function buildEmptySearchItems(
         addedIds.add(s.id);
         items.push({
           label: formatSymbolLabel(s),
-          description: `⏱️ Recent`,
+          description: `⏱️ Recent • ${formatSymbolDescription(s)}`,
           detail: formatSymbolDetail(s),
           alwaysShow: true,
           symbol: s,
@@ -1070,10 +1096,22 @@ export async function searchEverywhereInteractive(
   currentUniversalQuickPick = quickPick;
   await vscode.commands.executeCommand('setContext', 'dotnav.solutionSearchOpen', true);
 
-  quickPick.title = 'DotNav: Search Everywhere (Universal Solution Search)';
+  const defaultTitle = 'DotNav: Search Everywhere (Universal Solution Search)';
+  quickPick.title = defaultTitle;
   quickPick.placeholder = 'Search everything: /api, $cqrs, %db, #type, @method, !file (Enter: Go to Code • Ctrl+Enter: Actions)';
   quickPick.matchOnDescription = true;
   quickPick.matchOnDetail = true;
+
+  quickPick.onDidChangeActive(activeItems => {
+    const item = activeItems[0];
+    if (item?.symbol) {
+      const loc = formatSymbolTooltip(item.symbol);
+      const displayLoc = loc ? compactFilePath(loc, 55) : '';
+      quickPick.title = displayLoc ? `DotNav: ${displayLoc}` : defaultTitle;
+    } else {
+      quickPick.title = defaultTitle;
+    }
+  });
 
   quickPick.buttons = [
     {
@@ -1216,7 +1254,7 @@ export async function searchEverywhereInteractive(
       const sym = res.symbol;
       items.push({
         label: formatSymbolLabel(sym),
-        description: explainRanking ? `[Score: ${res.score} | ${res.matchReason}]` : undefined,
+        description: formatSymbolDescription(sym, res, explainRanking),
         detail: formatSymbolDetail(sym),
         alwaysShow: true,
         symbol: sym,
@@ -1243,6 +1281,15 @@ export async function searchEverywhereInteractive(
   quickPick.onDidTriggerItemButton(async event => {
     const sym = event.item.symbol;
     if (!sym) return;
+
+    if (event.button.tooltip?.startsWith('Location:')) {
+      const loc = formatSymbolTooltip(sym);
+      if (loc) {
+        await vscode.env.clipboard.writeText(loc);
+        vscode.window.showInformationMessage(`Copied to clipboard: ${loc}`);
+      }
+      return;
+    }
 
     if (event.button.tooltip === 'Jump to Handler') {
       const all = index.getAllSymbols();
@@ -1330,10 +1377,24 @@ export async function traceCqrsFlowInteractive(
   }
 
   const quickPick = vscode.window.createQuickPick<UniversalQuickPickItem>();
-  quickPick.title = 'DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)';
+  const defaultFlowTitle = 'DotNav: Trace CQRS Flow (Command ➔ Handler ➔ Event ➔ Listener)';
+  let currentFlowTitle = defaultFlowTitle;
+  quickPick.title = defaultFlowTitle;
   quickPick.placeholder = 'Search CQRS pipelines by name (e.g. AddAppField, CopyFunction, AppFieldDeleted)...';
   quickPick.matchOnDescription = false;
   quickPick.matchOnDetail = false;
+
+  quickPick.onDidChangeActive(activeItems => {
+    const item = activeItems[0];
+    if (item?.symbol) {
+      const loc = formatSymbolTooltip(item.symbol);
+      if (loc) {
+        quickPick.title = `DotNav: CQRS Flow ➔ ${compactFilePath(loc, 50)}`;
+        return;
+      }
+    }
+    quickPick.title = currentFlowTitle;
+  });
 
   const updateFlowItems = (query: string) => {
     const flow = buildCqrsFlow(query, index);
@@ -1349,7 +1410,8 @@ export async function traceCqrsFlowInteractive(
       return;
     }
 
-    quickPick.title = `DotNav: CQRS Flow ➔ [${flow.rootNoun}] (${flow.nodes.length} components connected)`;
+    currentFlowTitle = `DotNav: CQRS Flow ➔ [${flow.rootNoun}] (${flow.nodes.length} components connected)`;
+    quickPick.title = currentFlowTitle;
 
     const items: UniversalQuickPickItem[] = [];
     let currentCategory = '';
@@ -1363,17 +1425,27 @@ export async function traceCqrsFlowInteractive(
         });
       }
 
+      const nodeButtons: vscode.QuickInputButton[] = [];
+      if (node.symbol) {
+        const loc = formatSymbolTooltip(node.symbol);
+        if (loc) {
+          nodeButtons.push({
+            iconPath: new vscode.ThemeIcon('go-to-file'),
+            tooltip: `Location: ${loc} (Click to copy)`
+          });
+        }
+      }
+      nodeButtons.push({
+        iconPath: new vscode.ThemeIcon('ellipsis'),
+        tooltip: 'More Actions (Ctrl+Enter)'
+      });
+
       items.push({
         label: node.label,
         detail: node.detail,
         alwaysShow: true,
         symbol: node.symbol,
-        buttons: [
-          {
-            iconPath: new vscode.ThemeIcon('ellipsis'),
-            tooltip: 'More Actions (Ctrl+Enter)'
-          }
-        ]
+        buttons: nodeButtons
       });
     }
 
@@ -1392,6 +1464,16 @@ export async function traceCqrsFlowInteractive(
   quickPick.onDidTriggerItemButton(async event => {
     const sym = event.item.symbol;
     if (!sym) return;
+
+    if (event.button.tooltip?.startsWith('Location:')) {
+      const loc = formatSymbolTooltip(sym);
+      if (loc) {
+        await vscode.env.clipboard.writeText(loc);
+        vscode.window.showInformationMessage(`Copied to clipboard: ${loc}`);
+      }
+      return;
+    }
+
     await showSymbolActions(sym);
   });
 

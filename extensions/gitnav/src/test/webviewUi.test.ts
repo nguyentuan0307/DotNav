@@ -182,3 +182,17 @@ test('commit column visibility uses eye toggle buttons instead of checkboxes', (
   assert.match(styles, /\.hide-col-author \[data-col="author"\]/);
   assert.match(styles, /\.hide-col-date \[data-col="date"\]/);
 });
+
+test('diff and history views separate sign markers with user-select none to prevent copy pollution', () => {
+  const history = read('src', 'git', 'lineHistoryPanel.ts');
+  const historyCss = read('media', 'webview', 'line-history.css');
+  const gitLogJs = read('media', 'webview', 'git-log.js');
+  const gitLogCss = read('media', 'webview', 'git-log.css');
+
+  assert.match(history, /sign\.className = 'sign'/);
+  assert.match(history, /sign\.setAttribute\('aria-hidden', 'true'\)/);
+  assert.match(history, /row\.append\(oldNum, newNum, sign, code\)/);
+  assert.match(historyCss, /\.sign\s*\{[^}]*user-select:\s*none;/);
+  assert.match(gitLogJs, /class="diff-sign"/);
+  assert.match(gitLogCss, /\.diff-sign\s*\{[^}]*user-select:\s*none;/);
+});

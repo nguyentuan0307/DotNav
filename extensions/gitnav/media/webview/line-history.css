@@ -150,7 +150,7 @@ body {
 
 .line {
   display: grid;
-  grid-template-columns: 62px 62px minmax(0, 1fr);
+  grid-template-columns: 62px 62px 20px minmax(0, 1fr);
   min-width: max-content;
   white-space: pre;
 }
@@ -171,7 +171,13 @@ body {
   user-select: none;
 }
 
+.sign {
+  color: var(--gn-muted, var(--vscode-descriptionForeground));
+  text-align: center;
+  user-select: none;
+}
+
 .code {
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 8px;
 }
