@@ -4,6 +4,15 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.0...dotnav-v0.32.1) (2026-09-15)
+
+
+### Performance Improvements
+
+* **dotnav:** stop repeated search indexing ([ef00e82](https://github.com/nguyentuan0307/DotNav/commit/ef00e82ede59dfb84a9dfe0712e8d8e8605cdb20))
+* **dotnav:** make search indexing cooperative and solution-aware ([f12e0bd](https://github.com/nguyentuan0307/DotNav/commit/f12e0bd992c6c0ccba331bb4a510be0fc41c1780))
+
+
 ## [0.32.0](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.31.1...dotnav-v0.32.0) (2026-09-15)
 
 

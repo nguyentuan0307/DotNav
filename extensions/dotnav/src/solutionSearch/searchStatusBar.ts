@@ -37,7 +37,7 @@ export class SearchIndexStatusBar {
     }
     this.lastReportedPercent = 0;
     this.lastUpdateTime = 0;
-    this.item.text = `$(sync~spin) DotNav: Indexing 0%`;
+    this.item.text = `$(sync~spin) DotNav: Updating index 0%`;
     this.item.tooltip = `DotNav Solution Search: Scanning solution symbols (0 / ${totalFiles.toLocaleString()}). Click to open Search Everywhere.`;
     this.item.show();
   }
@@ -51,7 +51,7 @@ export class SearchIndexStatusBar {
     if (percent !== this.lastReportedPercent && (now - this.lastUpdateTime > 200 || percent === 99)) {
       this.lastReportedPercent = percent;
       this.lastUpdateTime = now;
-      this.item.text = `$(sync~spin) DotNav: Indexing ${percent}%`;
+      this.item.text = `$(sync~spin) DotNav: Updating index ${percent}%`;
       this.item.tooltip = `DotNav Solution Search: Scanning solution symbols (${scannedFiles.toLocaleString()} / ${totalFiles.toLocaleString()}) • ${percent}%\nClick to open Search Everywhere.`;
     }
   }
@@ -60,13 +60,37 @@ export class SearchIndexStatusBar {
     if (this.hideTimer) {
       clearTimeout(this.hideTimer);
     }
-    this.item.text = `$(check) DotNav: Indexed ${symbolCount.toLocaleString()} symbols`;
+    this.item.text = `$(check) DotNav: Index ready`;
     const dur = durationMs ? ` in ${(durationMs / 1000).toFixed(1)}s` : '';
     this.item.tooltip = `DotNav Solution Search: Indexing complete (${symbolCount.toLocaleString()} symbols & endpoints${dur}). Click to open Search Everywhere.`;
     this.hideTimer = setTimeout(() => {
       this.item.hide();
       this.hideTimer = undefined;
     }, 1800);
+  }
+
+  public queued(): void {
+    if (this.hideTimer) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = undefined;
+    }
+    this.item.text = '$(clock) DotNav: Index update queued';
+    this.item.tooltip = 'DotNav Solution Search: Waiting for workspace activity to settle.';
+    this.item.show();
+  }
+
+  public updating(): void {
+    if (this.hideTimer) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = undefined;
+    }
+    this.item.text = '$(sync~spin) DotNav: Updating index';
+    this.item.tooltip = 'DotNav Solution Search: Updating changed files.';
+    this.item.show();
+  }
+
+  public ready(symbolCount: number): void {
+    this.complete(symbolCount);
   }
 
   public hide(): void {
