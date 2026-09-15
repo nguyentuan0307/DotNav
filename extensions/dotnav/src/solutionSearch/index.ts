@@ -3,5 +3,6 @@ export * from './searchScanner';
 export * from './searchEngine';
 export * from './searchDiskStore';
 export * from './searchCommands';
+export * from './searchStatusBar';
 
 

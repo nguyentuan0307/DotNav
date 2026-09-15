@@ -145,6 +145,64 @@ export function isIgnoredEndpointFile(filePath: string): boolean {
   return false;
 }
 
+export interface RegisteredControllerRoute {
+  routes: string[];
+  areaName?: string;
+  isExplicit: boolean;
+}
+
+export const controllerRouteRegistry = new Map<string, RegisteredControllerRoute>();
+
+export function clearControllerRouteRegistry(): void {
+  controllerRouteRegistry.clear();
+}
+
+export function synthesizeRoutesFromParams(
+  controllerName: string,
+  actionRouteArg: string,
+  missingRouteParams: string[]
+): string[] {
+  const synthesized: string[] = [];
+  const bareController = controllerName.replace(/Controller$/i, '');
+
+  const paramSegments: string[] = [];
+  for (const p of missingRouteParams) {
+    const cleanName = p.replace(/(?:Id|Guid|Key|Code|Number|No)$/i, '');
+    const segName = cleanName ? pluralize(toKebabCase(cleanName)) : toKebabCase(p);
+    paramSegments.push(`${segName}/{${p}}`);
+  }
+
+  // Decompose compound controller name into CamelCase words
+  const words = bareController.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).filter(Boolean);
+  let childSegment = '';
+  if (words.length >= 2) {
+    const lastWord = words[words.length - 1];
+    childSegment = pluralize(toKebabCase(lastWord));
+  }
+
+  const fullParamPrefix = paramSegments.join('/');
+
+  if (childSegment && !actionRouteArg.toLowerCase().includes(childSegment)) {
+    synthesized.push(`${fullParamPrefix}/${childSegment}`);
+    synthesized.push(`api/${fullParamPrefix}/${childSegment}`);
+    if (paramSegments.length > 1) {
+      const shorterPrefix = paramSegments.slice(1).join('/');
+      synthesized.push(`${shorterPrefix}/${childSegment}`);
+      synthesized.push(`api/${shorterPrefix}/${childSegment}`);
+    }
+  }
+
+  synthesized.push(fullParamPrefix);
+  synthesized.push(`api/${fullParamPrefix}`);
+  if (paramSegments.length > 1) {
+    const shorterPrefix = paramSegments.slice(1).join('/');
+    synthesized.push(shorterPrefix);
+    synthesized.push(`api/${shorterPrefix}`);
+  }
+
+  return Array.from(new Set(synthesized));
+}
+
 export function parseEndpointsFromCSharp(
   code: string,
   filePath: string,
@@ -177,26 +235,60 @@ export function parseEndpointsFromCSharp(
     let areaName: string | undefined;
     const classAuth: string[] = [];
 
+    const explicitRoutes: string[] = [];
     const routeAttrMatches = beforeClass.matchAll(/\[Route\(\s*(?:\$|@)?"([^"]+)"\s*\)\]/gi);
     for (const m of routeAttrMatches) {
-      classRoutes.push(m[1]);
+      explicitRoutes.push(m[1]);
+    }
+
+    const areaAttrMatch = beforeClass.match(/\[Area\(\s*"([^"]+)"\s*\)\]/i);
+    if (areaAttrMatch) {
+      areaName = areaAttrMatch[1];
+    }
+
+    if (explicitRoutes.length > 0) {
+      const entry: RegisteredControllerRoute = { routes: [...explicitRoutes], areaName, isExplicit: true };
+      controllerRouteRegistry.set(`${projectName}:${controllerName}`, entry);
+      controllerRouteRegistry.set(controllerName, entry);
+      for (const r of explicitRoutes) {
+        classRoutes.push(r);
+      }
+    } else {
+      // Check cross-file registry for routes registered by another file of this partial controller
+      const registered = controllerRouteRegistry.get(`${projectName}:${controllerName}`) || controllerRouteRegistry.get(controllerName);
+      if (registered && registered.routes.length > 0) {
+        for (const r of registered.routes) {
+          if (!classRoutes.includes(r)) {
+            classRoutes.push(r);
+          }
+        }
+        if (!areaName && registered.areaName) {
+          areaName = registered.areaName;
+        }
+      }
     }
 
     if (classRoutes.length === 0) {
       // If no explicit [Route], infer standard convention routes for controllers
       const bare = controllerName.replace(/Controller$/i, '');
       const plural = pluralize(bare);
+      const kebabBare = toKebabCase(bare);
+      const kebabPlural = pluralize(kebabBare);
+
       classRoutes.push('api/[controller]');
       classRoutes.push('[controller]');
       if (plural.toLowerCase() !== bare.toLowerCase()) {
         classRoutes.push(`api/${plural.toLowerCase()}`);
         classRoutes.push(plural.toLowerCase());
       }
-    }
-
-    const areaAttrMatch = beforeClass.match(/\[Area\(\s*"([^"]+)"\s*\)\]/i);
-    if (areaAttrMatch) {
-      areaName = areaAttrMatch[1];
+      if (kebabBare !== bare.toLowerCase()) {
+        classRoutes.push(`api/${kebabBare}`);
+        classRoutes.push(kebabBare);
+      }
+      if (kebabPlural !== plural.toLowerCase() && kebabPlural !== kebabBare) {
+        classRoutes.push(`api/${kebabPlural}`);
+        classRoutes.push(kebabPlural);
+      }
     }
 
     if (/\[Authorize/i.test(beforeClass)) {
@@ -294,7 +386,28 @@ export function parseEndpointsFromCSharp(
         .map(p => p.trim())
         .filter(Boolean);
 
-      for (const classRoute of classRoutes) {
+      // Extract [FromRoute] parameters from paramsArg
+      const fromRouteParams: string[] = [];
+      const fromRouteRegex = /\[FromRoute(?:\([^)]*\))?\]\s*(?:[A-Za-z0-9_<>?]+(?:\s+[A-Za-z0-9_<>?]+)*)\s+([A-Za-z0-9_]+)/g;
+      let frMatch: RegExpExecArray | null;
+      while ((frMatch = fromRouteRegex.exec(paramsArg)) !== null) {
+        fromRouteParams.push(frMatch[1]);
+      }
+
+      const actionParamMatches = Array.from(actionRouteArg.matchAll(/\{([a-zA-Z0-9_]+)/g)).map(m => m[1].toLowerCase());
+      const missingRouteParams = fromRouteParams.filter(p => !actionParamMatches.includes(p.toLowerCase()));
+
+      const effectiveClassRoutes = [...classRoutes];
+      if (missingRouteParams.length > 0) {
+        const synthesized = synthesizeRoutesFromParams(controllerName, actionRouteArg, missingRouteParams);
+        for (const s of synthesized) {
+          if (!effectiveClassRoutes.includes(s)) {
+            effectiveClassRoutes.push(s);
+          }
+        }
+      }
+
+      for (const classRoute of effectiveClassRoutes) {
         const combined = combineRoutes(classRoute, actionRouteArg);
         const rawRoute = resolveRouteTokens(combined, controllerName, actionName, areaName);
         const normalized = normalizeRouteTemplate(rawRoute);
@@ -387,6 +500,7 @@ export function parseEndpointsFromCSharp(
 
 export class EndpointIndex {
   private readonly fileCache = new Map<string, ApiEndpoint[]>();
+  private readonly fileContentMap = new Map<string, { content: string; projectName: string; relativePath: string }>();
   private cachedAllEndpoints: ApiEndpoint[] | undefined = undefined;
   private _isFullScanCompleted: boolean = false;
 
@@ -404,9 +518,27 @@ export class EndpointIndex {
     projectName: string,
     relativePath: string
   ): ApiEndpoint[] {
+    this.fileContentMap.set(filePath, { content, projectName, relativePath });
     const endpoints = parseEndpointsFromCSharp(content, filePath, projectName, relativePath);
     this.fileCache.set(filePath, endpoints);
     this.cachedAllEndpoints = undefined;
+
+    // Check if any controller in this file registered explicit routes that might affect previously scanned partial files
+    for (const ep of endpoints) {
+      if (ep.kind === 'controller' && ep.controllerName) {
+        const cName = ep.controllerName;
+        const reg = controllerRouteRegistry.get(`${projectName}:${cName}`) || controllerRouteRegistry.get(cName);
+        if (reg && reg.isExplicit) {
+          for (const [prevPath, prevData] of this.fileContentMap.entries()) {
+            if (prevPath !== filePath && prevData.content.includes(cName)) {
+              const updated = parseEndpointsFromCSharp(prevData.content, prevPath, prevData.projectName, prevData.relativePath);
+              this.fileCache.set(prevPath, updated);
+            }
+          }
+        }
+      }
+    }
+
     return endpoints;
   }
 
@@ -425,6 +557,7 @@ export class EndpointIndex {
   }
 
   public invalidateFile(filePath: string): void {
+    this.fileContentMap.delete(filePath);
     if (this.fileCache.delete(filePath)) {
       this.cachedAllEndpoints = undefined;
     }
@@ -432,8 +565,10 @@ export class EndpointIndex {
 
   public clear(): void {
     this.fileCache.clear();
+    this.fileContentMap.clear();
     this.cachedAllEndpoints = undefined;
     this._isFullScanCompleted = false;
+    clearControllerRouteRegistry();
   }
 
   public hasFile(filePath: string): boolean {

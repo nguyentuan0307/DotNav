@@ -104,7 +104,7 @@ export function renderLocalHistoryPanelHtml(state: LocalHistoryPanelState, nonce
       border-bottom: 1px solid var(--vscode-panel-border);
     }
     .line {
-      display: grid; grid-template-columns: 62px 62px minmax(0, 1fr);
+      display: grid; grid-template-columns: 62px 62px 20px minmax(0, 1fr);
       min-width: max-content; white-space: pre;
     }
     .line.add { background: var(--vscode-diffEditor-insertedTextBackground); }
@@ -114,7 +114,12 @@ export function renderLocalHistoryPanelHtml(state: LocalHistoryPanelState, nonce
       color: var(--vscode-editorLineNumber-foreground);
       border-right: 1px solid var(--vscode-panel-border);
     }
-    .code { min-width: 0; padding: 0 12px; }
+    .sign {
+      user-select: none;
+      text-align: center;
+      color: var(--vscode-descriptionForeground);
+    }
+    .code { min-width: 0; padding: 0 8px; }
     .empty { padding: 18px; color: var(--vscode-descriptionForeground); }
     .loading::after { content: 'Loading diff…'; display: block; padding: 18px; color: var(--vscode-descriptionForeground); }
   </style>
@@ -242,10 +247,14 @@ export function renderLocalHistoryPanelHtml(state: LocalHistoryPanelState, nonce
           const newNumber = document.createElement('span');
           newNumber.className = 'num';
           newNumber.textContent = line.newLine === undefined ? '' : String(line.newLine);
+          const sign = document.createElement('span');
+          sign.className = 'sign';
+          sign.setAttribute('aria-hidden', 'true');
+          sign.textContent = line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' ';
           const code = document.createElement('span');
           code.className = 'code';
-          code.textContent = (line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' ') + line.text;
-          row.append(oldNumber, newNumber, code);
+          code.textContent = line.text;
+          row.append(oldNumber, newNumber, sign, code);
           section.append(row);
         }
         patch.append(section);
