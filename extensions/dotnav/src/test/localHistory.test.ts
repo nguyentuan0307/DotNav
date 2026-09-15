@@ -223,6 +223,21 @@ test('generated Local History webview JavaScript is syntactically valid', () => 
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('Local History webview separates sign markers with user-select none to prevent copy pollution', () => {
+  const html = renderLocalHistoryPanelHtml({
+    fileName: 'Program.cs',
+    filePath: '/workspace/Program.cs',
+    scopeLabel: 'File history',
+    revisions: []
+  }, 'sign-nonce');
+
+  assert.match(html, /\.sign\s*\{[^}]*user-select:\s*none;/);
+  assert.match(html, /sign\.className = 'sign'/);
+  assert.match(html, /sign\.setAttribute\('aria-hidden', 'true'\)/);
+  assert.match(html, /code\.textContent = line\.text;/);
+  assert.match(html, /row\.append\(oldNumber, newNumber, sign, code\)/);
+});
+
 test('Selection Local History excludes revisions that only change other lines', async () => {
   const revisions = [
     revision('newest', 3),
