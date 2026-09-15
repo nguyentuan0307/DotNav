@@ -460,18 +460,33 @@ public class OrderService
 test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail format long paths cleanly', () => {
   const {
     compactDirectoryPath,
+    compactFilePath,
     formatSymbolDescription,
     formatSymbolDetail,
     formatSymbolTooltip
   } = require('../solutionSearch/searchModel');
 
-  // Test compactDirectoryPath (4 folder segments)
+  // Test compactDirectoryPath with adaptive character limit (maxChars = 48)
   assert.equal(
     compactDirectoryPath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions/IFunctionManualPrefillProvider.cs'),
-    '.../CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions'
+    '.../Mappers/FormSubmissions'
+  );
+  assert.equal(
+    compactDirectoryPath('src/Controllers/Api/v1/Admin/OrdersController.cs'),
+    '.../Controllers/Api/v1/Admin'
   );
   assert.equal(compactDirectoryPath('src/Controllers/OrdersController.cs'), 'src/Controllers');
   assert.equal(compactDirectoryPath('Program.cs'), '.');
+
+  // Test compactFilePath for title bar
+  assert.equal(
+    compactFilePath('src/Services/CustomAppShared/Cleeksy.CustomApp.SharedService/SharedFeatures/Records/ConditionalFieldVisibilities/IRecordConditionalFieldVisibilityHandler.cs:18', 55),
+    '.../IRecordConditionalFieldVisibilityHandler.cs:18'
+  );
+  assert.equal(
+    compactFilePath('src/Controllers/OrdersController.cs:25', 55),
+    'src/Controllers/OrdersController.cs:25'
+  );
 
   // Test formatSymbolDescription
   const methodSym = {
@@ -508,7 +523,7 @@ test('compactDirectoryPath, formatSymbolDescription and formatSymbolDetail forma
 
   // Test formatSymbolDetail - should not contain project name or Workspace
   const detail = formatSymbolDetail(methodSym);
-  assert.ok(detail.includes('.../CustomAppShared/Cleeksy.CustomApp.SharedService/Mappers/FormSubmissions'));
+  assert.ok(detail.includes('.../Mappers/FormSubmissions'));
   assert.ok(!detail.includes('$(project)'));
   assert.ok(!detail.includes('Workspace'));
 

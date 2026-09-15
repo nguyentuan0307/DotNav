@@ -15,6 +15,7 @@ import {
 } from './searchEngine';
 import {
   compactDirectoryPath,
+  compactFilePath,
   formatSymbolDescription,
   formatSymbolDetail,
   formatSymbolTooltip,
@@ -144,6 +145,7 @@ export function formatSymbolLabel(symbol: UniversalSymbol): string {
 
 export {
   compactDirectoryPath,
+  compactFilePath,
   formatSymbolDescription,
   formatSymbolDetail,
   formatSymbolTooltip
@@ -1104,7 +1106,8 @@ export async function searchEverywhereInteractive(
     const item = activeItems[0];
     if (item?.symbol) {
       const loc = formatSymbolTooltip(item.symbol);
-      quickPick.title = loc ? `DotNav: ${loc}` : defaultTitle;
+      const displayLoc = loc ? compactFilePath(loc, 55) : '';
+      quickPick.title = displayLoc ? `DotNav: ${displayLoc}` : defaultTitle;
     } else {
       quickPick.title = defaultTitle;
     }
@@ -1386,7 +1389,7 @@ export async function traceCqrsFlowInteractive(
     if (item?.symbol) {
       const loc = formatSymbolTooltip(item.symbol);
       if (loc) {
-        quickPick.title = `DotNav: CQRS Flow ➔ ${loc}`;
+        quickPick.title = `DotNav: CQRS Flow ➔ ${compactFilePath(loc, 50)}`;
         return;
       }
     }

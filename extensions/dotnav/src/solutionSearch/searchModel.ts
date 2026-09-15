@@ -142,7 +142,11 @@ export interface SearchIndexSnapshot {
   readonly coldSymbolsByFile?: Record<string, CompactDiskSymbol[]>;
 }
 
-export function compactDirectoryPath(filePath: string, maxSegments = 4): string {
+export function compactDirectoryPath(
+  filePath: string,
+  maxSegments = 4,
+  maxChars = 48
+): string {
   if (!filePath) return '.';
   const normalized = filePath.replace(/\\/g, '/');
   const dir = path.dirname(normalized);
@@ -150,10 +154,63 @@ export function compactDirectoryPath(filePath: string, maxSegments = 4): string 
     return '.';
   }
   const parts = dir.split('/').filter(Boolean);
-  if (parts.length <= maxSegments) {
+  if (parts.length === 0) {
+    return '.';
+  }
+  if (parts.length <= maxSegments && dir.length <= maxChars) {
     return parts.join('/');
   }
-  return `.../${parts.slice(-maxSegments).join('/')}`;
+
+  const selected: string[] = [];
+  let currentLen = 0;
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const seg = parts[i];
+    const needed = (selected.length === 0 ? 0 : 1) + seg.length;
+    const prefixLen = selected.length + 1 < parts.length ? 4 : 0;
+
+    if (selected.length > 0 && (currentLen + needed + prefixLen > maxChars || selected.length >= maxSegments)) {
+      break;
+    }
+    selected.unshift(seg);
+    currentLen += needed;
+  }
+
+  if (selected.length < parts.length) {
+    return `.../${selected.join('/')}`;
+  }
+  return selected.join('/');
+}
+
+export function compactFilePath(filePathWithLine: string, maxChars = 55): string {
+  if (!filePathWithLine || filePathWithLine.length <= maxChars) {
+    return filePathWithLine;
+  }
+  const normalized = filePathWithLine.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 1) {
+    return normalized;
+  }
+
+  const selected: string[] = [];
+  let currentLen = 0;
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const seg = parts[i];
+    const needed = (selected.length === 0 ? 0 : 1) + seg.length;
+    const prefixLen = selected.length + 1 < parts.length ? 4 : 0;
+
+    if (selected.length > 0 && currentLen + needed + prefixLen > maxChars) {
+      break;
+    }
+    selected.unshift(seg);
+    currentLen += needed;
+  }
+
+  if (selected.length < parts.length) {
+    return `.../${selected.join('/')}`;
+  }
+  return selected.join('/');
 }
 
 export function formatSymbolDescription(
