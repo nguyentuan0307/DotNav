@@ -149,7 +149,7 @@ export async function populateEndpointIndexFromSolution(
   const projects = solution?.projects;
   const files = await vscode.workspace.findFiles(
     '**/*.cs',
-    '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**}'
+    '{**/obj/**,**/bin/**,**/node_modules/**,**/.git/**,**/.vs/**,**/*.Designer.cs,**/*.g.cs,**/*.generated.cs,**/*ModelSnapshot.cs}'
   );
 
   const chunkSize = 32;

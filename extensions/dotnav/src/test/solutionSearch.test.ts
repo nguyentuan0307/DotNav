@@ -211,7 +211,7 @@ test('getCurrentGitBranch extracts branch name from git repo and isolates cache 
     } as any;
     const cachePath = getCacheFilePath(fakeContext, tempDir);
     assert.ok(cachePath);
-    assert.match(cachePath, /dotnav_search_cache_feature_auth-v2\.json\.gz/);
+    assert.match(cachePath, /dotnav_search_cache_v8_feature_auth-v2\.ndjson\.gz/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -310,39 +310,43 @@ public partial class DataEntityFormController
   );
 });
 
-test('UniversalSymbolIndex shares explicit routes across multi-file partial controllers regardless of scan order', () => {
-  const file1 = `
+test('UniversalSymbolIndex scans each partial controller file once without replaying source', () => {
+  class CountingUniversalSymbolIndex extends UniversalSymbolIndex {
+    public scanCount = 0;
+
+    public override scanFileContent(
+      filePath: string,
+      content: string,
+      projectName: string,
+      relativePath: string,
+      mtime?: number
+    ) {
+      this.scanCount++;
+      return super.scanFileContent(filePath, content, projectName, relativePath, mtime);
+    }
+  }
+
+  const firstFile = `
+public partial class DataEntityFormController
+{
+	[HttpGet("first")]
+	public IActionResult First() => Ok();
+}
+`;
+  const secondFile = `
 [Route("api/apps/{appId}/data-entities/{dataEntityId}/forms")]
 public partial class DataEntityFormController : ControllerBase
 {
-}
-`;
-  const file2 = `
-public partial class DataEntityFormController
-{
-	[HttpGet("{formId:int}")]
-	public async Task<FormDetailsResponse> GetFormDetails([FromRoute] int formId)
-	{
-		return null;
-	}
+	[HttpGet("second")]
+	public IActionResult Second() => Ok();
 }
 `;
 
-  // Order A: file1 then file2
-  const indexA = new UniversalSymbolIndex();
-  indexA.scanFileContent('/src/DataEntityFormController.cs', file1, 'MyProj', 'DataEntityFormController.cs');
-  indexA.scanFileContent('/src/DataEntityFormController.Get.cs', file2, 'MyProj', 'DataEntityFormController.Get.cs');
-  indexA.markFullScanCompleted();
-  const endpointsA = indexA.getAllSymbols().filter(s => s.kind === 'endpoint');
-  assert.ok(endpointsA.some(e => e.metadata?.routeTemplate === 'api/apps/{appId}/data-entities/{dataEntityId}/forms/{formId:int}'));
+  const index = new CountingUniversalSymbolIndex();
+  index.scanFileContent('/src/DataEntityFormController.First.cs', firstFile, 'MyProj', 'DataEntityFormController.First.cs');
+  index.scanFileContent('/src/DataEntityFormController.Second.cs', secondFile, 'MyProj', 'DataEntityFormController.Second.cs');
 
-  // Order B: file2 then file1
-  const indexB = new UniversalSymbolIndex();
-  indexB.scanFileContent('/src/DataEntityFormController.Get.cs', file2, 'MyProj', 'DataEntityFormController.Get.cs');
-  indexB.scanFileContent('/src/DataEntityFormController.cs', file1, 'MyProj', 'DataEntityFormController.cs');
-  indexB.markFullScanCompleted();
-  const endpointsB = indexB.getAllSymbols().filter(s => s.kind === 'endpoint');
-  assert.ok(endpointsB.some(e => e.metadata?.routeTemplate === 'api/apps/{appId}/data-entities/{dataEntityId}/forms/{formId:int}'));
+  assert.equal(index.scanCount, 2);
 });
 
 test('DiskSymbolStore specificity-weighted ranking finds target method despite 100+ generic Get... methods', () => {

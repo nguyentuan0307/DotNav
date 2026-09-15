@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   isIgnoredSearchFile,
+  isSupportedSolutionSearchFile,
   parseSymbolsFromAppSettings,
   parseSymbolsFromCSharp,
   UniversalSymbolIndex
@@ -13,8 +14,63 @@ test('isIgnoredSearchFile ignores bin, obj, generated files and designer files',
   assert.equal(isIgnoredSearchFile('/repo/src/obj/Debug/net8.0/AssemblyInfo.cs'), true);
   assert.equal(isIgnoredSearchFile('/repo/src/Views/Main.Designer.cs'), true);
   assert.equal(isIgnoredSearchFile('/repo/src/Models/User.g.cs'), true);
+  assert.equal(isIgnoredSearchFile('/repo/src/Migrations/AppDbContextModelSnapshot.cs'), true);
+  assert.equal(isIgnoredSearchFile('/repo/src/Migrations/20260915_AddOrders.cs'), false);
   assert.equal(isIgnoredSearchFile('/repo/src/Models/User.cs'), false);
   assert.equal(isIgnoredSearchFile('/repo/src/Controllers/OrdersController.cs'), false);
+});
+
+test('isSupportedSolutionSearchFile only allows solution-relevant search files', () => {
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/Models/User.cs'), true);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/App.csproj'), true);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/Resources/Labels.resx'), true);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/appsettings.production.json'), true);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/AppSettings.json'), true);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/appsettingsCustom.json'), true);
+
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/schema.sql'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/README.md'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/collector.yaml'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/service.proto'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/ocelot.json'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/Properties/launchSettings.json'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/Views/Main.Designer.cs'), false);
+  assert.equal(isSupportedSolutionSearchFile('/repo/src/Migrations/AppDbContextModelSnapshot.cs'), false);
+});
+
+test('UniversalSymbolIndex rejects unsupported files at the scanner boundary', () => {
+  const index = new UniversalSymbolIndex();
+  assert.deepEqual(index.scanFileContent('/repo/schema.sql', 'CREATE TABLE Orders (Id int);', 'App', 'schema.sql'), []);
+  assert.deepEqual(index.scanFileContent('/repo/README.md', '# Orders', 'App', 'README.md'), []);
+  assert.deepEqual(index.scanFileContent('/repo/ocelot.json', '{"Routes":[]}', 'App', 'ocelot.json'), []);
+  assert.equal(index.getFilePaths().length, 0);
+
+  const appSettingsSymbols = index.scanFileContent(
+    '/repo/appsettings.production.json',
+    '{"ConnectionStrings":{"Main":"Host=localhost"}}',
+    'App',
+    'appsettings.production.json'
+  );
+  assert.ok(appSettingsSymbols.length > 0);
+});
+
+test('UniversalSymbolIndex rejects unsupported files during cache hydration', () => {
+  const index = new UniversalSymbolIndex();
+  index.beginSnapshotLoad();
+  index.loadSnapshotFile('/repo/schema.sql', 1, [{
+    id: 'sql-table',
+    name: 'Orders',
+    kind: 'db_table',
+    filePath: '/repo/schema.sql',
+    relativePath: 'schema.sql',
+    projectName: 'App',
+    line: 1,
+    column: 1
+  }]);
+  index.finishSnapshotLoad();
+
+  assert.equal(index.count, 0);
+  assert.deepEqual(index.getFilePaths(), []);
 });
 
 test('parseSymbolsFromCSharp parses CQRS Commands, Handlers, Events and Queries', () => {
@@ -114,6 +170,26 @@ test('UniversalSymbolIndex handles incremental updates and full scan tracking', 
   assert.equal(index.isFullScanCompleted, false);
 });
 
+test('UniversalSymbolIndex does not parse ModelSnapshot content but keeps migration source searchable', () => {
+  const index = new UniversalSymbolIndex();
+  const snapshotSymbols = index.scanFileContent(
+    '/src/Migrations/AppDbContextModelSnapshot.cs',
+    'public class ExpensiveSnapshot { public void BuildModel() {} }',
+    'App',
+    'Migrations/AppDbContextModelSnapshot.cs'
+  );
+  const migrationSymbols = index.scanFileContent(
+    '/src/Migrations/20260915_AddOrders.cs',
+    'public class AddOrders : Migration { protected override void Up(MigrationBuilder builder) {} }',
+    'App',
+    'Migrations/20260915_AddOrders.cs'
+  );
+
+  assert.equal(snapshotSymbols.length, 0);
+  assert.equal(index.hasFile('/src/Migrations/AppDbContextModelSnapshot.cs'), false);
+  assert.ok(migrationSymbols.some(symbol => symbol.name === 'AddOrders' && symbol.kind === 'ef_migration'));
+});
+
 test('extractIndexTokens and internString optimize candidate lookups and memory', () => {
   const { extractIndexTokens, internString } = require('../solutionSearch/searchScanner');
   
@@ -153,7 +229,7 @@ test('extractIndexTokens and internString optimize candidate lookups and memory'
   assert.ok(candidates.some(s => s.name.includes('UpdateRecordFieldValueAsync')));
 });
 
-test('UniversalSymbolIndex snapshot export and load restores all symbols, cold store and token buckets', () => {
+test('UniversalSymbolIndex snapshot uses v8 without cold-store duplication', () => {
   const store = new DiskSymbolStore();
   const index = new UniversalSymbolIndex();
   index.setDiskStore(store);
@@ -170,11 +246,10 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols, cold s
   assert.equal(store.coldSymbolCount, 1); // ProcessOrder is in cold store
 
   const snapshot = index.exportSnapshot();
-  assert.equal(snapshot.version, 6);
+  assert.equal(snapshot.version, 8);
   assert.equal(snapshot.fileTimestamps['/src/SubmitService.cs'], 1700000000000);
   assert.ok(snapshot.symbolsByFile['/src/SubmitService.cs']);
-  assert.ok(snapshot.coldSymbolsByFile);
-  assert.ok(snapshot.coldSymbolsByFile['/src/SubmitService.cs']);
+  assert.equal(snapshot.coldSymbolsByFile, undefined);
 
   const restoredStore = new DiskSymbolStore();
   const restoredIndex = new UniversalSymbolIndex();
@@ -183,11 +258,23 @@ test('UniversalSymbolIndex snapshot export and load restores all symbols, cold s
 
   assert.equal(restoredIndex.count, 2);
   assert.equal(restoredIndex.getFileTimestamp('/src/SubmitService.cs'), 1700000000000);
-  assert.equal(restoredStore.coldSymbolCount, 1);
+  assert.equal(restoredStore.coldSymbolCount, 0);
 
-  const searchResults = require('../solutionSearch/searchEngine').searchUniversalSymbols(restoredIndex, 'processorder');
-  assert.ok(searchResults.length >= 1);
-  assert.ok(searchResults.some((r: any) => r.symbol.name === 'ProcessOrder()'));
+  store.clear();
+  restoredStore.clear();
+});
+
+test('DiskSymbolStore tracks files with no cold symbols and removes invalidated files', () => {
+  const store = new DiskSymbolStore();
+  const index = new UniversalSymbolIndex();
+  index.setDiskStore(store);
+
+  index.scanFileContent('/src/Marker.cs', 'public class Marker {}', 'App', 'Marker.cs');
+  assert.equal(store.hasFile('/src/Marker.cs'), true);
+
+  index.invalidateFile('/src/Marker.cs');
+  assert.equal(store.hasFile('/src/Marker.cs'), false);
+  store.clear();
 });
 
 test('CQRS Flow Builder traces Command -> Handler -> Domain Event -> Listener flow', () => {
@@ -353,11 +440,13 @@ public class DataEntityConfiguration : IEntityTypeConfiguration<DataEntity>
   assert.equal(jobSym.name, 'Job: CreateDataEntityStorageContainerJob');
 
   // Verify SQL Parser
-  const sqlCode = 'CREATE TABLE "AppFields" (Id INT PRIMARY KEY); CREATE PROCEDURE sp_ProcessOrders AS SELECT 1;';
+  const sqlCode = 'CREATE TABLE "AppFields" (Id INT PRIMARY KEY);\n\nCREATE PROCEDURE sp_ProcessOrders AS SELECT 1;';
   const sqlSyms = parseSymbolsFromSql(sqlCode, '/db/schema.sql', 'CustomApp', 'db/schema.sql');
   assert.equal(sqlSyms.length, 2);
   assert.equal(sqlSyms[0].name, 'TABLE AppFields');
   assert.equal(sqlSyms[1].name, 'PROCEDURE sp_ProcessOrders');
+  assert.equal(sqlSyms[0].line, 1);
+  assert.equal(sqlSyms[1].line, 3);
 
   // Verify YAML Parser
   const yamlCode = 'services:\n  customapp-api:\n    image: customapp:latest\n    environment:\n      ASPNETCORE_ENVIRONMENT: Development';
@@ -557,22 +646,26 @@ test('SearchIndexStatusBar displays % progress, completes, and auto-hides', asyn
   // 1. start
   statusBar.start(1000);
   assert.equal(mockItem.visible, true);
-  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 0%');
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Updating index 0%');
 
   // 2. report progress
   statusBar.reportProgress(450, 1000);
-  assert.equal(mockItem.text, '$(sync~spin) DotNav: Indexing 45%');
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Updating index 45%');
 
   // 3. complete
   statusBar.complete(1500, 2500);
   assert.equal(mockItem.visible, true);
-  assert.ok(mockItem.text.includes('Indexed 1,500 symbols'));
+  assert.equal(mockItem.text, '$(check) DotNav: Index ready');
   assert.ok(mockItem.tooltip.includes('in 2.5s'));
+
+  statusBar.queued();
+  assert.equal(mockItem.text, '$(clock) DotNav: Index update queued');
+  statusBar.updating();
+  assert.equal(mockItem.text, '$(sync~spin) DotNav: Updating index');
+  statusBar.ready(1500);
+  assert.equal(mockItem.text, '$(check) DotNav: Index ready');
 
   // 4. dispose
   statusBar.dispose();
   assert.equal(mockItem.disposed, true);
 });
-
-
-

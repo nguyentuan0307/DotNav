@@ -231,6 +231,8 @@ test('isIgnoredEndpointFile detects bin, obj, generated, and designer files', ()
   assert.equal(isIgnoredEndpointFile('C:\\repo\\src\\bin\\Release\\net8.0\\App.g.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/MyView.Designer.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/User.generated.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Migrations/AppDbContextModelSnapshot.cs'), true);
+  assert.equal(isIgnoredEndpointFile('/repo/src/Migrations/20260915_AddOrders.cs'), false);
   assert.equal(isIgnoredEndpointFile('/repo/.git/HEAD'), true);
   assert.equal(isIgnoredEndpointFile('/repo/node_modules/pkg/index.cs'), true);
   assert.equal(isIgnoredEndpointFile('/repo/src/Controllers/UsersController.cs'), false);
@@ -294,6 +296,53 @@ public class UsersController : ControllerBase {
   assert.equal(index.getAllEndpoints().length, 0);
 });
 
+test('EndpointIndex rejects ModelSnapshot content at the index boundary', () => {
+  const { EndpointIndex } = require('../endpoints/endpointScanner');
+  const index = new EndpointIndex();
+  const endpoints = index.scanFileContent(
+    '/src/Migrations/AppDbContextModelSnapshot.cs',
+    '[Route("api/fake")] public class FakeController { [HttpGet] public void Get() {} }',
+    'App',
+    'Migrations/AppDbContextModelSnapshot.cs'
+  );
+
+  assert.equal(endpoints.length, 0);
+  assert.equal(index.hasFile('/src/Migrations/AppDbContextModelSnapshot.cs'), false);
+});
+
+test('EndpointIndex does not replay previously scanned partial controller source', () => {
+  const { EndpointIndex } = require('../endpoints/endpointScanner');
+  const index = new EndpointIndex();
+  const firstFile = `
+public partial class OrdersController : ControllerBase {
+    [HttpGet("first")]
+    public IActionResult First() => Ok();
+}
+`;
+  const secondFile = `
+[Route("api/orders")]
+public partial class OrdersController : ControllerBase {
+    [HttpGet("second")]
+    public IActionResult Second() => Ok();
+}
+`;
+
+  index.scanFileContent('/src/OrdersController.First.cs', firstFile, 'MyProject', 'OrdersController.First.cs');
+  const routesBefore = index.getAllEndpoints()
+    .filter((endpoint: any) => endpoint.filePath.endsWith('First.cs'))
+    .map((endpoint: any) => endpoint.routeTemplate)
+    .sort();
+  assert.ok(routesBefore.length > 0);
+
+  index.scanFileContent('/src/OrdersController.Second.cs', secondFile, 'MyProject', 'OrdersController.Second.cs');
+  const routesAfter = index.getAllEndpoints()
+    .filter((endpoint: any) => endpoint.filePath.endsWith('First.cs'))
+    .map((endpoint: any) => endpoint.routeTemplate)
+    .sort();
+
+  assert.deepEqual(routesAfter, routesBefore);
+});
+
 test('parseEndpointsFromCSharp fast-paths and ignores non-endpoint C# files', () => {
   const modelCode = `
 namespace MyProject.Models;
@@ -330,4 +379,3 @@ public class ProjectController : ControllerBase
   assert.ok(endpoints.some(e => e.httpMethod === 'GET' && e.routeTemplate.includes('{projectId:guid}/members')));
   assert.ok(endpoints.some(e => e.httpMethod === 'POST' && e.routeTemplate.includes('{projectId:int}/confirm')));
 });
-
