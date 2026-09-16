@@ -127,13 +127,21 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.cancelReads();
     this.requests.invalidate(root);
     const read = this.beginRead('refresh', root);
-    const activeFilter = this.activeFilters.get(root, {});
+    let activeFilter = this.activeFilters.get(root, {});
     try {
       const [state, log] = await Promise.all([
         this.service.repositoryState(root, read.source.token),
         this.service.log(root, 0, 200, activeFilter, read.source.token)
       ]);
       const { repository, uncommitted } = state;
+      if (activeFilter.refs?.length) {
+        const existingRefs = new Set(repository.refs.map(item => item.name));
+        const validRefs = activeFilter.refs.filter(r => existingRefs.has(r));
+        if (validRefs.length !== activeFilter.refs.length) {
+          activeFilter = { ...activeFilter, refs: validRefs.length ? validRefs : undefined };
+          this.activeFilters.set(root, activeFilter);
+        }
+      }
       if (this.requests.isCurrent('refresh', read.identity, this.root)) {
         const protectedBranches = vscode.workspace.getConfiguration('gitnav')
           .get<string[]>('protectedBranches', ['main', 'master', 'develop', 'release/*']);
@@ -484,6 +492,17 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       applied = await this.mutations.run(root, request);
       recoveryMessage = this.mutations.consumeRecoveryMessage(root);
       succeeded = true;
+      if (request.action === 'deleteBranch' || request.action === 'deleteRemote' || request.action === 'deleteTag') {
+        const deletedRefs = new Set(request.refs?.length ? request.refs : (request.ref ? [request.ref] : []));
+        if (request.options?.remote) {
+          for (const ref of [...deletedRefs]) deletedRefs.add(`${request.options.remote}/${ref}`);
+        }
+        const active = this.activeFilters.get(root, {});
+        if (active.refs?.length) {
+          const remaining = active.refs.filter(r => !deletedRefs.has(r));
+          this.activeFilters.set(root, { ...active, refs: remaining.length ? remaining : undefined });
+        }
+      }
     } finally {
       this.logDiagnostic(`Mutation completed: ${request.action} in ${Date.now() - startedAt} ms (succeeded=${succeeded}, applied=${applied}).`);
       this.activeMutations.leave(mutationKey);

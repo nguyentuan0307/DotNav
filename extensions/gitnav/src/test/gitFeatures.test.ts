@@ -678,3 +678,20 @@ test('runGit terminates process and marks timedOut when command exceeds timeout 
   assert.equal(result.cancelled, false);
   assert.equal(result.timedOut, false);
 });
+
+test('cleans up deleted branch filters and safely recovers log from non-existent ref errors', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
+  const client = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  assert.match(provider, /deleteBranch.*deleteRemote.*deleteTag/);
+  assert.match(provider, /this\.activeFilters\.set\(root, \{ \.\.\.active, refs: remaining\.length \? remaining : undefined \}\)/);
+  assert.match(provider, /existingRefs\.has\(r\)/);
+
+  assert.match(service, /fatal:\\s\*ambiguous argument\|unknown revision/);
+  assert.match(service, /revisions = \['--all'\]/);
+
+  assert.match(client, /cleanupDeletedRef/);
+  assert.match(client, /state\.selectedRef=undefined;state\.selectedBranches\.clear\(\)/);
+});
+

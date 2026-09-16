@@ -138,11 +138,24 @@ export class GitRepositoryService {
       }
     }
     const shared = buildFilterArgs(effectiveFilter);
-    const tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
+    let tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
     const cacheKey = `${root}\0${offset}\0${limit}\0${JSON.stringify(effectiveFilter)}\0${revisions.join('\0')}`;
     const cached = this.logCache.get(cacheKey);
     if (cached) return cached;
-    const records = await this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit + 1}`, ...shared, ...tail], token);
+    let records: { stdout: string; stderr: string };
+    try {
+      records = await this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit + 1}`, ...shared, ...tail], token);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (filter.refs?.length && /fatal:\s*ambiguous argument|unknown revision/i.test(message)) {
+        revisions = ['--all'];
+        effectiveFilter = { ...effectiveFilter, refs: undefined };
+        tail = [...revisions, ...(filter.path ? ['--', filter.path] : [])];
+        records = await this.git(root, ['log', `--format=${logPrettyFormat}`, '--decorate=full', `--skip=${offset}`, `--max-count=${limit + 1}`, ...shared, ...tail], token);
+      } else {
+        throw error;
+      }
+    }
     const parsedWithLookahead = parseLog(records.stdout);
     const hasMore = parsedWithLookahead.length > limit;
     const parsed = parsedWithLookahead.slice(0, limit);
