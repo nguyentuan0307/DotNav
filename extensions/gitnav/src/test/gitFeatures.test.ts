@@ -494,9 +494,6 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /recovery\.actions\.slice\(0,2\)/);
   assert.match(source, /id="recoveryModal" role="dialog" aria-modal="true"/);
   assert.match(source, /function showRecoveryModal\(/);
-  assert.match(source, /if\(recovery\.actions\.length\)return showRecoveryModal\(message\)/);
-  assert.match(source, /is behind \$\{remoteRef\}\.`, \{ modal: true \}/);
-  assert.match(source, /function renderOperationBanner\(/);
   assert.match(source, /Resetting will permanently drop them/);
   assert.match(source, /action: 'checkoutRemoteReset'/);
   assert.match(source, /Branch .* already exists/);
@@ -693,5 +690,27 @@ test('cleans up deleted branch filters and safely recovers log from non-existent
 
   assert.match(client, /cleanupDeletedRef/);
   assert.match(client, /state\.selectedRef=undefined;state\.selectedBranches\.clear\(\)/);
+});
+
+test('streamlines merge, tag, and smart checkout flows without redundant prompts', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const runner = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+
+  // Merge defaults to direct merge, with specialized merge actions in more menu
+  assert.match(provider, /contextAction\('mergeNoFf', 'Merge \(No Fast-Forward\)…', 'more'\)/);
+  assert.match(provider, /contextAction\('mergeSquash', 'Squash Merge…', 'more'\)/);
+  assert.match(provider, /if \(action === 'merge' \|\| action === 'mergeNoFf' \|\| action === 'mergeSquash'\)/);
+
+  // Tag creation streamlines to single input box, with annotated tag in more menu
+  assert.match(provider, /contextAction\('tagAnnotated', 'Create Annotated Tag…', 'more'\)/);
+  assert.match(provider, /isAnnotated \? 'New Annotated Tag' : 'New Tag'/);
+
+  // Smart checkout tests clean merge before prompting
+  assert.match(runner, /\['switch', '--merge'/);
+  assert.match(runner, /conflicts with working tree changes/);
+
+  // Rebase checks gitnav confirmations configuration
+  assert.match(provider, /getConfiguration\('gitnav'\)\.get.*'confirmations'/);
+  assert.match(provider, /confirmRebase/);
 });
 

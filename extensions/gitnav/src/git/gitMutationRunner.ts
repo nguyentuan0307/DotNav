@@ -298,19 +298,26 @@ export class GitMutationRunner {
       return undefined;
     }
     if (!snapshot.changedCount) return base;
-    const choice = await vscode.window.showWarningMessage(
-      `Checkout ${ref} while ${snapshot.changedCount} working tree file(s) have changes. Discarding may permanently lose work.`,
-      { modal: true }, 'Stash & Checkout', 'Move Changes to New Branch', 'Discard Changes & Checkout'
-    );
-    if (choice === 'Stash & Checkout') {
-      await this.service.git(root, ['stash', 'push', '--include-untracked', '-m', `Auto stash before checkout ${ref}`]);
-      return base;
+    try {
+      // Test if Git can switch cleanly with working tree changes (without overwriting modified files)
+      await this.service.git(root, ['switch', '--merge', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref]);
+      return ['status', '--short'];
+    } catch {
+      // Git cannot switch cleanly due to conflicting changes; prompt user for resolution
+      const choice = await vscode.window.showWarningMessage(
+        `Checkout ${ref} conflicts with working tree changes. How would you like to proceed?`,
+        { modal: true }, 'Stash & Checkout', 'Move Changes to New Branch', 'Discard Changes & Checkout'
+      );
+      if (choice === 'Stash & Checkout') {
+        await this.service.git(root, ['stash', 'push', '--include-untracked', '-m', `Auto stash before checkout ${ref}`]);
+        return base;
+      }
+      if (choice === 'Move Changes to New Branch') {
+        const name = await vscode.window.showInputBox({ title: 'Move Changes to New Branch', prompt: 'New branch name', validateInput: validateBranchName });
+        return name ? ['switch', '-c', name] : undefined;
+      }
+      return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref] : undefined;
     }
-    if (choice === 'Move Changes to New Branch') {
-      const name = await vscode.window.showInputBox({ title: 'Move Changes to New Branch', prompt: 'New branch name', validateInput: validateBranchName });
-      return name ? ['switch', '-c', name] : undefined;
-    }
-    return choice === 'Discard Changes & Checkout' ? ['switch', '--discard-changes', ...(detached ? ['--detach'] : []), ...(track ? ['--track'] : []), ref] : undefined;
   }
 
   private async remoteCheckoutArgs(context: GitMutationExecutionContext, ref: string): Promise<string[] | undefined> {

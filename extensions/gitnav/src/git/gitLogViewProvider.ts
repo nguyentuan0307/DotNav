@@ -717,25 +717,15 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const localBranch = snapshot.refs.find(item => item.kind === 'local' && item.name === local);
       if (!localBranch) return { action, ref: remoteRef };
       const counts = await this.service.git(this.root!, ['rev-list', '--left-right', '--count', `${local}...${remoteRef}`]);
-      const [ahead, behind] = counts.stdout.trim().split(/\s+/).map(Number);
-      if ((ahead || 0) > 0 || snapshot.changedCount > 0) {
-        const consequences = [
-          ahead ? `${ahead} unpublished commit(s)` : '',
-          snapshot.changedCount ? `${snapshot.changedCount} working tree change(s)` : ''
-        ].filter(Boolean).join(' and ');
+      const [ahead] = counts.stdout.trim().split(/\s+/).map(Number);
+      if ((ahead || 0) > 0 && snapshot.changedCount > 0) {
+        const consequences = `${ahead} unpublished commit(s) and ${snapshot.changedCount} working tree change(s)`;
         const choice = await vscode.window.showWarningMessage(
           `${local} has ${consequences}. Resetting will permanently drop them.`,
           { modal: true }, 'Keep Local', 'Reset to Origin'
         );
-        if (choice === 'Reset to Origin') return { action: 'checkoutRemoteReset', options: { local, remoteRef, clean: snapshot.changedCount > 0, confirmed: true } };
+        if (choice === 'Reset to Origin') return { action: 'checkoutRemoteReset', options: { local, remoteRef, clean: true, confirmed: true } };
         return choice === 'Keep Local' ? { action: 'checkout', ref: local } : undefined;
-      }
-      if ((behind || 0) > 0) {
-        const choice = await vscode.window.showInformationMessage(
-          `${local} is behind ${remoteRef}.`, { modal: true }, 'Update & Checkout', 'Keep Local'
-        );
-        if (!choice) return undefined;
-        return choice === 'Update & Checkout' ? { action: 'checkoutRemoteReset', options: { local, remoteRef } } : { action: 'checkout', ref: local };
       }
       return { action: 'checkout', ref: local };
     }
@@ -777,20 +767,20 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (!forceLease) return undefined;
       return { action: 'push', options: { forceLease: forceLease.value, tags: false } };
     }
-    if (action === 'merge') {
-      const mode = await vscode.window.showQuickPick([
-        { label: 'Merge', noFf: false, squash: false }, { label: 'No Fast-Forward', noFf: true, squash: false },
-        { label: 'Squash', noFf: false, squash: true }
-      ], { title: `Merge ${message.ref} into Current` });
-      return mode ? { action, ref: message.ref, options: { noFf: mode.noFf, squash: mode.squash } } : undefined;
+    if (action === 'merge' || action === 'mergeNoFf' || action === 'mergeSquash') {
+      const noFf = action === 'mergeNoFf';
+      const squash = action === 'mergeSquash';
+      return { action: 'merge', ref: message.ref, options: { noFf, squash } };
     }
     if (action === 'rebase' && message.ref) {
       const snapshot = await this.service.snapshot(this.root!);
       const commits = await this.service.commitsInRange(this.root!, `${message.ref}..HEAD`, 200);
       const published = await this.service.publishedCommits(this.root!, commits.map(commit => commit.hash));
       const patterns = vscode.workspace.getConfiguration('gitnav').get<string[]>('protectedBranches', []);
+      const confirmations = vscode.workspace.getConfiguration('gitnav').get<Record<string, boolean>>('confirmations', {});
+      const confirmRebase = confirmations.rebasePublished !== false;
       const protectedPattern = matchingProtectedBranchPattern(snapshot.head, patterns);
-      if (!published.length && !protectedPattern) return { action, ref: message.ref };
+      if ((!published.length && !protectedPattern) || (!confirmRebase && !protectedPattern)) return { action, ref: message.ref };
       const details = [published.length ? `${published.length} commit(s) exist upstream and may require a force-with-lease push.` : '', protectedPattern ? `Current branch matches protected pattern "${protectedPattern}".` : ''].filter(Boolean).join(' ');
       const choice = await vscode.window.showWarningMessage(
         `Rebase ${snapshot.head} onto ${message.ref}? ${details} GitNav will not force-push automatically.`,
@@ -860,8 +850,13 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       ], { title: `Reset Current Branch to ${message.hash?.slice(0, 8)}` });
       return mode ? { action, ref: message.hash, options: { mode: mode.value } } : undefined;
     }
-    if (action === 'tag') {
-      const name = await vscode.window.showInputBox({ title: 'New Tag', prompt: 'Tag name', validateInput: validateRefName });
+    if (action === 'tag' || action === 'tagAnnotated') {
+      const isAnnotated = action === 'tagAnnotated';
+      const name = await vscode.window.showInputBox({
+        title: isAnnotated ? 'New Annotated Tag' : 'New Tag',
+        prompt: 'Tag name',
+        validateInput: validateRefName
+      });
       if (!name) return undefined;
       const snapshot = await this.service.snapshot(this.root!);
       if (snapshot.refs.some(item => item.kind === 'tag' && item.name === name)) {
@@ -869,8 +864,11 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (choice) this.post({ type: 'selectRef', ref: name });
         return undefined;
       }
-      const tagMessage = await vscode.window.showInputBox({ title: `Tag ${name}`, prompt: 'Annotation message (leave empty for lightweight tag)' });
-      return tagMessage === undefined ? undefined : { action, ref: message.hash, options: { name, message: tagMessage } };
+      if (isAnnotated) {
+        const tagMessage = await vscode.window.showInputBox({ title: `Tag ${name}`, prompt: 'Annotation message' });
+        return tagMessage === undefined ? undefined : { action: 'tag', ref: message.hash, options: { name, message: tagMessage } };
+      }
+      return { action: 'tag', ref: message.hash, options: { name } };
     }
     if (action === 'undoCommit') {
       const head = (await this.service.git(this.root!, ['rev-parse', 'HEAD'])).stdout.trim();
@@ -1106,7 +1104,7 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
       contextAction('worktreeAdd', 'Create Worktree…', 'more'), contextAction('copy', 'Copy Branch Name', 'more')
     ] : [
       contextAction('checkout'), contextAction('compareCurrent', 'Compare with Current'), contextAction('merge'), contextAction('rebase'), contextAction('pushBranch'),
-      contextAction('updateBranchFromOrigin', 'Update from Origin'), contextAction('checkoutUpdate', undefined, 'more'),
+      contextAction('updateBranchFromOrigin', 'Update from Origin'), contextAction('mergeNoFf', 'Merge (No Fast-Forward)…', 'more'), contextAction('mergeSquash', 'Squash Merge…', 'more'), contextAction('checkoutUpdate', undefined, 'more'),
       contextAction('createBranch', 'Create Branch from Here…', 'more'), contextAction('renameBranch', 'Rename Branch…', 'more'),
       contextAction('workingDiff', 'Compare with Working Tree', 'more'), contextAction('checkoutRebase', undefined, 'more'),
       contextAction('worktreeAdd', 'Create Worktree…', 'more'), contextAction('copy', 'Copy Branch Name', 'more'),
@@ -1115,6 +1113,7 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
   ];
   if (kind === 'remote') return [
     contextAction('checkoutRemote'), contextAction('compareCurrent', 'Compare with Current'), contextAction('merge'), contextAction('rebase'),
+    contextAction('mergeNoFf', 'Merge (No Fast-Forward)…', 'more'), contextAction('mergeSquash', 'Squash Merge…', 'more'),
     contextAction('checkoutUpdate', undefined, 'more'), contextAction('createBranch', 'Create Branch from Here…', 'more'),
     contextAction('workingDiff', 'Compare with Working Tree', 'more'), contextAction('pullInto', 'Pull into Current', 'more'),
     contextAction('copy', 'Copy Branch Name', 'more'), contextAction('deleteRemote', 'Delete Remote Branch', 'danger')
@@ -1124,7 +1123,7 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
   if (kind === 'commit') return [
     contextAction('workingDiff', 'Compare with Working Tree'), contextAction('cherryPick', 'Cherry-pick'), contextAction('revert', 'Revert Commit'), contextAction('createBranch', 'Create Branch Here…'),
     contextAction('editCommitMessage', 'Edit Commit Message…'), contextAction('amendCommit', 'Amend Changes to HEAD…'),
-    contextAction('checkout', 'Checkout Revision', 'more'), contextAction('tag', 'Create Tag Here…', 'more'), contextAction('showRepository', 'Browse Repository at Revision', 'more'),
+    contextAction('checkout', 'Checkout Revision', 'more'), contextAction('tag', 'Create Tag Here…', 'more'), contextAction('tagAnnotated', 'Create Annotated Tag…', 'more'), contextAction('showRepository', 'Browse Repository at Revision', 'more'),
     contextAction('openWeb', 'Open on GitHub/GitLab', 'more'), contextAction('copy', 'Copy Commit Hash', 'more'), contextAction('copyShort', 'Copy Short Hash', 'more'), contextAction('copyMessage', 'Copy Commit Message', 'more'), contextAction('copyFormatted', 'Copy Full Commit Info', 'more'),
     contextAction('undoCommit', 'Undo HEAD Commit', 'more'), contextAction('reset', 'Reset Current Branch Here…', 'danger'), contextAction('dropCommit', 'Drop Commit', 'danger')
   ];

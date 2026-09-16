@@ -266,6 +266,13 @@
           "default": 20,
           "minimum": 1,
           "description": "Interval in minutes between automatic fetch operations."
+        },
+        "gitnav.confirmations": {
+          "type": "object",
+          "default": {
+            "rebasePublished": true
+          },
+          "description": "Configure optional confirmation prompts for Git actions."
         }
       }
     }
