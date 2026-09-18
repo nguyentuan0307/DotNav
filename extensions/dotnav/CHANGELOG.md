@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.1...dotnav-v0.32.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **dotnav:** manage buildBeforeLaunch at user level and clean workspace settings ([96ae7a9](https://github.com/nguyentuan0307/DotNav/commit/96ae7a92908a67e5fe6332104516ca3dd21dd7b6))
+
+
 ## [0.32.1](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.0...dotnav-v0.32.1) (2026-09-15)
 
 
