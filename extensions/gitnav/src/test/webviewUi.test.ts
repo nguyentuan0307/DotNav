@@ -196,3 +196,49 @@ test('diff and history views separate sign markers with user-select none to prev
   assert.match(gitLogJs, /class="diff-sign"/);
   assert.match(gitLogCss, /\.diff-sign\s*\{[^}]*user-select:\s*none;/);
 });
+
+test('supports accessible modals, keyboard navigation, text selection, and picker limits', () => {
+  const gitLogJs = read('media', 'webview', 'git-log.js');
+  const gitLogCss = read('media', 'webview', 'git-log.css');
+
+  assert.match(gitLogJs, /function openModal\(modal,initialFocus\)/);
+  assert.match(gitLogJs, /function closeModal\(modal\)/);
+  assert.match(gitLogJs, /function trapModalTab\(modal,e\)/);
+
+  assert.match(gitLogCss, /\.row\s*>\s*\[data-col="subject"\]/);
+  assert.match(gitLogCss, /\.file-name,\s*\.file-path\s*\{[^}]*user-select:\s*text;/s);
+
+  assert.match(gitLogJs, /e\.key==='Home'/);
+  assert.match(gitLogJs, /e\.key==='End'/);
+  assert.match(gitLogJs, /e\.key==='PageDown'\|\|e\.key==='PageUp'/);
+  assert.match(gitLogJs, /\(e\.ctrlKey\|\|e\.metaKey\)&&\s*\(e\.key==='c'\|\|e\.key==='C'\)/);
+
+  assert.match(gitLogJs, /state\.selectedHashes\.size\+' commits selected'/);
+
+  assert.match(gitLogJs, /BRANCH_PICKER_LIMIT=100;/);
+  assert.match(gitLogJs, /Showing '\+refs\.length\+' of '\+allMatching\.length/);
+});
+
+test('detail actions and column menu use professional SVG icons and structured headers', () => {
+  const gitLogJs = read('media', 'webview', 'git-log.js');
+  const gitLogCss = read('media', 'webview', 'git-log.css');
+
+  assert.match(gitLogJs, /class="ui-icon-button quiet" data-copy-detail/);
+  assert.match(gitLogJs, /class="ui-icon-button quiet" data-edit-message/);
+  assert.doesNotMatch(gitLogJs, /✏️/);
+  assert.doesNotMatch(gitLogJs, /data-copy-detail="[^"]*" title="Copy hash">⧉/);
+  assert.doesNotMatch(gitLogJs, /data-copy-detail="[^"]*" title="Copy commit message">≡/);
+  assert.match(gitLogCss, /\.detail-icon-actions button\s*\{[^}]*background:\s*transparent;/s);
+
+  assert.match(gitLogJs, /class="menu-group-header"/);
+  assert.match(gitLogJs, /class="menu-action-icon"/);
+  assert.match(gitLogCss, /\.menu-group-header\s*\{[^}]*text-transform:\s*uppercase;/s);
+  assert.match(gitLogCss, /\.menu-action-icon/);
+  assert.match(gitLogCss, /#viewOptions\[aria-expanded="true"\]/);
+
+  // Parent commit syncs graph and detail actions omits dots button
+  assert.match(gitLogJs, /if\(state\.commits\.some\(c=>c\?\.hash===ph\)\)focusCommit\(ph\)/);
+  assert.doesNotMatch(gitLogJs, /data-detail-menu/);
+  assert.match(gitLogJs, /tableHeader\.oncontextmenu/);
+  assert.match(gitLogCss, /\.detail-icon-actions button\s*\{[^}]*width:\s*28px;/s);
+});

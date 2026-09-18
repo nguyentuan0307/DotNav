@@ -13,8 +13,8 @@ export class ReSharperBuildRequest {
 }
 
 interface StoredBuildBeforeLaunchSetting {
-  readonly hasWorkspaceValue: boolean;
-  readonly workspaceValue?: boolean;
+  readonly hasGlobalValue: boolean;
+  readonly globalValue?: boolean;
 }
 
 const buildBeforeLaunchSetting = 'buildBeforeLaunch';
@@ -161,35 +161,38 @@ export class ReSharperIntegration implements vscode.Disposable {
 
   private async takeBuildOwnership(): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('resharper.runAndDebug.dotnet');
-    const stored = this.context.workspaceState.get<StoredBuildBeforeLaunchSetting>(ownershipStateKey);
+    if (configuration.inspect<boolean>(buildBeforeLaunchSetting)?.workspaceValue !== undefined) {
+      await configuration.update(buildBeforeLaunchSetting, undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    const stored = this.context.globalState.get<StoredBuildBeforeLaunchSetting>(ownershipStateKey);
     if (!stored) {
       const inspected = configuration.inspect<boolean>(buildBeforeLaunchSetting);
-      await this.context.workspaceState.update(ownershipStateKey, {
-        hasWorkspaceValue: inspected?.workspaceValue !== undefined,
-        workspaceValue: inspected?.workspaceValue
+      await this.context.globalState.update(ownershipStateKey, {
+        hasGlobalValue: inspected?.globalValue !== undefined,
+        globalValue: inspected?.globalValue
       } satisfies StoredBuildBeforeLaunchSetting);
     }
-    if (configuration.inspect<boolean>(buildBeforeLaunchSetting)?.workspaceValue !== false) {
-      await configuration.update(buildBeforeLaunchSetting, false, vscode.ConfigurationTarget.Workspace);
+    if (configuration.inspect<boolean>(buildBeforeLaunchSetting)?.globalValue !== false) {
+      await configuration.update(buildBeforeLaunchSetting, false, vscode.ConfigurationTarget.Global);
     }
   }
 
   private async restoreBuildOwnershipCore(): Promise<void> {
-    const stored = this.context.workspaceState.get<StoredBuildBeforeLaunchSetting>(ownershipStateKey);
+    const stored = this.context.globalState.get<StoredBuildBeforeLaunchSetting>(ownershipStateKey);
     if (!stored) {
       return;
     }
 
     const configuration = vscode.workspace.getConfiguration('resharper.runAndDebug.dotnet');
-    const currentWorkspaceValue = configuration.inspect<boolean>(buildBeforeLaunchSetting)?.workspaceValue;
-    if (currentWorkspaceValue === false) {
+    const currentGlobalValue = configuration.inspect<boolean>(buildBeforeLaunchSetting)?.globalValue;
+    if (currentGlobalValue === false) {
       await configuration.update(
         buildBeforeLaunchSetting,
-        stored.hasWorkspaceValue ? stored.workspaceValue : undefined,
-        vscode.ConfigurationTarget.Workspace
+        stored.hasGlobalValue ? stored.globalValue : undefined,
+        vscode.ConfigurationTarget.Global
       );
     }
-    await this.context.workspaceState.update(ownershipStateKey, undefined);
+    await this.context.globalState.update(ownershipStateKey, undefined);
   }
 
   private queueOwnership(action: () => Promise<void>): Promise<void> {

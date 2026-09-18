@@ -13,6 +13,14 @@ textarea,
   user-select: text;
 }
 
+.row > [data-col="subject"],
+.row > [data-col="author"],
+.row > [data-col="date"],
+.file-name,
+.file-path {
+  user-select: text;
+}
+
 .toolbar {
   display: flex;
   height: 50px;
@@ -48,6 +56,21 @@ textarea,
 .toolbar-action.running {
   color: var(--gn-focus);
   background: color-mix(in srgb, var(--gn-focus) 12%, transparent);
+}
+
+#viewOptions {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+#viewOptions[aria-expanded="true"] {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+  color: var(--vscode-foreground);
 }
 
 .toolbar-icon,
@@ -851,10 +874,35 @@ textarea,
 }
 
 .header {
+  position: relative;
   height: 37px;
   color: var(--gn-muted);
   border-bottom: 1px solid var(--vscode-panel-border);
   font-size: 11px;
+}
+
+.header-columns-trigger {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.75;
+}
+
+.header-columns-trigger:hover,
+.header-columns-trigger[aria-expanded="true"] {
+  opacity: 1;
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.header-columns-trigger .ui-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .header > span {
@@ -1109,16 +1157,49 @@ mark.search-match {
 .detail-icon-actions {
   display: flex;
   gap: 6px;
-  margin-top: 13px;
+  margin-top: 12px;
+  align-items: center;
 }
 
 .detail-icon-actions button {
   width: 28px;
   height: 28px;
   padding: 0;
-  background: var(--gn-surface);
-  border: 1px solid var(--gn-border);
-  border-radius: var(--gn-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.detail-icon-actions button:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+  border-color: var(--vscode-toolbar-hoverOutline, transparent);
+}
+
+.detail-icon-actions button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.detail-icon-actions button .ui-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.detail-icon-actions button .ui-icon.dots {
+  fill: currentColor;
+  stroke: none;
 }
 
 .right-split {
@@ -1569,8 +1650,19 @@ mark.search-match {
   font-size: 10px;
 }
 
+.more-actions-menu,
 .column-menu {
-  min-width: 210px;
+  min-width: 220px;
+  padding: 4px;
+}
+
+.menu-group-header {
+  padding: 6px 8px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
 }
 
 .context-menu {
@@ -1578,17 +1670,20 @@ mark.search-match {
   max-width: 360px;
 }
 
+.more-actions-menu button,
 .column-menu button,
 .context-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  min-height: 29px;
-  padding: 4px 8px;
+  min-height: 28px;
+  padding: 3px 8px;
   color: inherit;
   background: transparent;
   border: 0;
   border-radius: 3px;
   text-align: left;
+  font-size: 12px;
 }
 
 .column-menu button:hover,
@@ -1606,11 +1701,37 @@ mark.search-match {
   color: var(--gn-muted);
 }
 
+.column-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-action-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+.menu-action-icon .ui-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.8;
+}
+
+.column-menu button:hover .menu-action-icon {
+  color: inherit;
+}
+
 .column-menu button.column-toggle {
   display: flex;
-  min-height: 30px;
+  min-height: 28px;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
 }
 
 .column-toggle-icon {
