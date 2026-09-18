@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.21.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.20.1...gitnav-v0.21.0) (2026-09-18)
+
+
+### Features
+
+* **gitnav:** separate toolbar actions and header columns menu, fix branch deletion log recovery ([59ac4d9](https://github.com/nguyentuan0307/DotNav/commit/59ac4d93db7c2af5aae869dae6d554164783a665))
+* **gitnav:** streamline action flows and eliminate redundant confirmation prompts ([e20820f](https://github.com/nguyentuan0307/DotNav/commit/e20820f97ee3ebf4166b35aa49f5c86afaece842))
+
+### Bug Fixes
+
+* **gitnav:** prevent repository picker popup and improve worktree detection ([a3aa855](https://github.com/nguyentuan0307/DotNav/commit/a3aa8551b001d12316e272b2a9103528f27a8a33))
+
+
 ## [0.20.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.20.0...gitnav-v0.20.1) (2026-09-15)
 
 

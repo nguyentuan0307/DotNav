@@ -42,6 +42,8 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   forceDeleteBranch: new GitActionPresentation('Force Delete Branch', 'Force Delete Branch', 'danger', 'toast'),
   deleteRemote: new GitActionPresentation('Delete Remote Branch', 'Delete Remote Branch', 'danger', 'toast'),
   merge: new GitActionPresentation('Merge into Current', 'Merge', 'normal', 'status'),
+  mergeNoFf: new GitActionPresentation('Merge (No Fast-Forward)', 'Merge', 'normal', 'status'),
+  mergeSquash: new GitActionPresentation('Squash Merge into Current', 'Squash Merge', 'normal', 'status'),
   rebase: new GitActionPresentation('Rebase Current onto This Branch', 'Rebase', 'normal', 'status'),
   interactiveRebase: new GitActionPresentation('Interactive Rebase', 'Run Rebase', 'danger', 'toast'),
   cherryPick: new GitActionPresentation('Cherry-pick', 'Cherry-pick', 'normal', 'status'),
@@ -55,6 +57,7 @@ const presentations: Readonly<Record<string, GitActionPresentation>> = {
   stashDrop: new GitActionPresentation('Drop Stash', 'Drop Stash', 'danger', 'toast'),
   stashBranch: new GitActionPresentation('Create Branch from Stash', 'Create Branch', 'normal', 'status'),
   tag: new GitActionPresentation('Create Tag', 'Create Tag', 'normal', 'status'),
+  tagAnnotated: new GitActionPresentation('Create Annotated Tag', 'Create Tag', 'normal', 'status'),
   deleteTag: new GitActionPresentation('Delete Tag', 'Delete Tag', 'danger', 'toast'),
   rollbackFile: new GitActionPresentation('Discard File Changes', 'Discard Changes', 'danger', 'toast'),
   getFile: new GitActionPresentation('Restore File from Revision', 'Overwrite File', 'danger', 'toast'),
@@ -117,7 +120,7 @@ export function isDangerousAction(action: string): boolean {
 }
 
 const longRunningActions = new Set([
-  'fetch', 'pull', 'update', 'push', 'pushBranch', 'merge', 'rebase', 'interactiveRebase',
+  'fetch', 'pull', 'update', 'push', 'pushBranch', 'merge', 'mergeNoFf', 'mergeSquash', 'rebase', 'interactiveRebase',
   'cherryPick', 'revert', 'checkoutUpdate', 'checkoutRebase', 'editCommitMessage', 'amendCommit'
 ]);
 

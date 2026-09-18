@@ -21,13 +21,15 @@ let fetchCount = 0;
 let executedTasks: any[] = [];
 let executedCommands: string[] = [];
 let startListeners: Array<(event: any) => void> = [];
+let globalValue: boolean | undefined;
 let workspaceValue: boolean | undefined;
+const globalState = new Map<string, unknown>();
 const workspaceState = new Map<string, unknown>();
 
 const vscodeMock = {
   Task: MockTask,
   TaskScope: { Workspace: 1 },
-  ConfigurationTarget: { Workspace: 2 },
+  ConfigurationTarget: { Global: 1, Workspace: 2 },
   extensions: {
     getExtension: () => extension
   },
@@ -63,8 +65,14 @@ const vscodeMock = {
   },
   workspace: {
     getConfiguration: () => ({
-      inspect: () => ({ workspaceValue }),
-      update: async (_key: string, value: boolean | undefined) => { workspaceValue = value; }
+      inspect: () => ({ globalValue, workspaceValue }),
+      update: async (_key: string, value: boolean | undefined, target?: number) => {
+        if (target === 1) {
+          globalValue = value;
+        } else {
+          workspaceValue = value;
+        }
+      }
     })
   },
   window: {
@@ -94,7 +102,9 @@ function reset(): void {
   executedTasks = [];
   executedCommands = [];
   startListeners = [];
+  globalValue = undefined;
   workspaceValue = undefined;
+  globalState.clear();
   workspaceState.clear();
   vscodeMock.tasks.fetchTasks = async () => {
     fetchCount++;
@@ -109,6 +119,13 @@ function createIntegration(timeout = 50, poll = 1): import('../resharperIntegrat
       update: async (key: string, value: unknown) => {
         if (value === undefined) workspaceState.delete(key);
         else workspaceState.set(key, value);
+      }
+    },
+    globalState: {
+      get: <T>(key: string) => globalState.get(key) as T | undefined,
+      update: async (key: string, value: unknown) => {
+        if (value === undefined) globalState.delete(key);
+        else globalState.set(key, value);
       }
     }
   } as any;
@@ -168,17 +185,19 @@ test('ReSharperIntegration reports an unavailable provider without creating a do
   integration.dispose();
 });
 
-test('ReSharperIntegration restores buildBeforeLaunch only while DotNav still owns the value', async () => {
+test('ReSharperIntegration sets buildBeforeLaunch at Global level and cleans workspace value', async () => {
   reset();
+  workspaceValue = false; // simulates a previous workspace-level value
   const integration = createIntegration();
   await integration.syncBuildOwnership(true);
-  assert.equal(workspaceValue, false);
+  assert.equal(globalValue, false);
+  assert.equal(workspaceValue, undefined); // cleaned from workspace
   await integration.restoreBuildOwnership();
-  assert.equal(workspaceValue, undefined);
+  assert.equal(globalValue, undefined);
 
   await integration.syncBuildOwnership(true);
-  workspaceValue = true;
+  globalValue = true;
   await integration.restoreBuildOwnership();
-  assert.equal(workspaceValue, true);
+  assert.equal(globalValue, true);
   integration.dispose();
 });

@@ -494,9 +494,6 @@ test('renders advanced Git Log UX and interactive rebase preview', () => {
   assert.match(source, /recovery\.actions\.slice\(0,2\)/);
   assert.match(source, /id="recoveryModal" role="dialog" aria-modal="true"/);
   assert.match(source, /function showRecoveryModal\(/);
-  assert.match(source, /if\(recovery\.actions\.length\)return showRecoveryModal\(message\)/);
-  assert.match(source, /is behind \$\{remoteRef\}\.`, \{ modal: true \}/);
-  assert.match(source, /function renderOperationBanner\(/);
   assert.match(source, /Resetting will permanently drop them/);
   assert.match(source, /action: 'checkoutRemoteReset'/);
   assert.match(source, /Branch .* already exists/);
@@ -678,3 +675,61 @@ test('runGit terminates process and marks timedOut when command exceeds timeout 
   assert.equal(result.cancelled, false);
   assert.equal(result.timedOut, false);
 });
+
+test('cleans up deleted branch filters and safely recovers log from non-existent ref errors', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const service = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitRepositoryService.ts'), 'utf8');
+  const client = readFileSync(path.join(__dirname, '..', '..', 'media', 'webview', 'git-log.js'), 'utf8');
+
+  assert.match(provider, /deleteBranch.*deleteRemote.*deleteTag/);
+  assert.match(provider, /this\.activeFilters\.set\(root, \{ \.\.\.active, refs: remaining\.length \? remaining : undefined \}\)/);
+  assert.match(provider, /existingRefs\.has\(r\)/);
+
+  assert.match(service, /fatal:\\s\*ambiguous argument\|unknown revision/);
+  assert.match(service, /revisions = \['--all'\]/);
+
+  assert.match(client, /cleanupDeletedRef/);
+  assert.match(client, /state\.selectedRef=undefined;state\.selectedBranches\.clear\(\)/);
+});
+
+test('streamlines merge, tag, and smart checkout flows without redundant prompts', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const runner = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+
+  // Merge defaults to direct merge, with specialized merge actions in more menu
+  assert.match(provider, /contextAction\('mergeNoFf', 'Merge \(No Fast-Forward\)…', 'more'\)/);
+  assert.match(provider, /contextAction\('mergeSquash', 'Squash Merge…', 'more'\)/);
+  assert.match(provider, /if \(action === 'merge' \|\| action === 'mergeNoFf' \|\| action === 'mergeSquash'\)/);
+
+  // Tag creation streamlines to single input box, with annotated tag in more menu
+  assert.match(provider, /contextAction\('tagAnnotated', 'Create Annotated Tag…', 'more'\)/);
+  assert.match(provider, /isAnnotated \? 'New Annotated Tag' : 'New Tag'/);
+
+  // Smart checkout tests clean merge before prompting
+  assert.match(runner, /\['switch', '--merge'/);
+  assert.match(runner, /conflicts with working tree changes/);
+
+  // Rebase checks gitnav confirmations configuration
+  assert.match(provider, /getConfiguration\('gitnav'\)\.get.*'confirmations'/);
+  assert.match(provider, /confirmRebase/);
+});
+
+test('git.refresh passes repository Uri to prevent repository chooser popup in worktree setups', () => {
+  const runner = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const extension = readFileSync(path.join(__dirname, '..', '..', 'src', 'extension.ts'), 'utf8');
+
+  // Must pass root Uri to git.refresh to avoid VS Code's pickRepository popup
+  assert.match(runner, /vscode\.commands\.executeCommand\('git\.refresh', vscode\.Uri\.file\(root\)\)/);
+  assert.doesNotMatch(runner, /vscode\.commands\.executeCommand\('git\.refresh'\)/);
+
+  // Provider must detect initial root from active editor and saved state, and persist selection
+  assert.match(provider, /detectInitialRoot/);
+  assert.match(provider, /gitnav\.activeRepositoryRoot/);
+  assert.match(provider, /getRoot\(\): string \| undefined/);
+
+  // Extension resolveTargetRoot must check activeRoot and savedRoot before showing QuickPick
+  assert.match(extension, /gitLogProvider\.getRoot\(\)/);
+  assert.match(extension, /gitnav\.activeRepositoryRoot/);
+});
+
