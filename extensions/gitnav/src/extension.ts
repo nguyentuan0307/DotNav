@@ -30,15 +30,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (root) return root;
     }
     const repos = await repositoryService.discoverRepositories();
-    if (repos.length === 1) return repos[0];
-    if (repos.length > 1) {
-      const pick = await vscode.window.showQuickPick(
-        repos.map(r => ({ label: path.basename(r), description: r, root: r })),
-        { placeHolder: 'Select a Git repository' }
-      );
-      return pick?.root;
+    if (repos.length === 0) {
+      vscode.window.showInformationMessage('No Git repository found in the current workspace.');
+      return undefined;
     }
-    vscode.window.showInformationMessage('No Git repository found in the current workspace.');
+    if (repos.length === 1) return repos[0];
+
+    const activeRoot = gitLogProvider.getRoot();
+    if (activeRoot && repos.includes(activeRoot)) return activeRoot;
+
+    const savedRoot = context.workspaceState.get<string>('gitnav.activeRepositoryRoot');
+    if (savedRoot && repos.includes(savedRoot)) return savedRoot;
+
+    const pick = await vscode.window.showQuickPick(
+      repos.map(r => ({ label: path.basename(r), description: r, root: r })),
+      { placeHolder: 'Select a Git repository' }
+    );
+    if (pick?.root) {
+      void context.workspaceState.update('gitnav.activeRepositoryRoot', pick.root);
+      return pick.root;
+    }
     return undefined;
   };
 

@@ -43,7 +43,7 @@ export class GitMutationRunner {
     await this.fetchRemote(root, { kind: 'all' });
     this.service.markFetched(root);
     this.service.invalidateCaches(root);
-    void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
+    void vscode.commands.executeCommand('git.refresh', vscode.Uri.file(root)).then(undefined, error => console.error('VS Code Git refresh failed', error));
   }
 
   private async runExclusive(root: string, request: GitMutationRequest): Promise<boolean> {
@@ -88,7 +88,7 @@ export class GitMutationRunner {
       }
       if (request.action === 'fetch' || request.action === 'update') this.service.markFetched(root);
       this.service.invalidateCaches(root);
-      void vscode.commands.executeCommand('git.refresh').then(undefined, error => console.error('VS Code Git refresh failed', error));
+      void vscode.commands.executeCommand('git.refresh', vscode.Uri.file(root)).then(undefined, error => console.error('VS Code Git refresh failed', error));
       return true;
     });
   }

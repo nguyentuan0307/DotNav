@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { GitRepositoryService } from './gitRepositoryService';
 import { findRepoRoot } from './gitCli';
@@ -48,17 +49,21 @@ export class WorktreeStatusBarController implements vscode.Disposable {
     this.isUpdating = true;
 
     try {
-      let root = repoRoot || this.currentRepoRoot;
+      let root = repoRoot;
+      const editor = vscode.window.activeTextEditor;
+      let activeFilePath: string | undefined;
+
+      if (!root && editor && editor.document.uri.scheme === 'file') {
+        activeFilePath = editor.document.uri.fsPath;
+        root = (await findRepoRoot(activeFilePath)) || undefined;
+      }
       if (!root) {
-        const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.uri.scheme === 'file') {
-          root = (await findRepoRoot(editor.document.uri.fsPath)) || undefined;
-        }
-        if (!root) {
-          const repos = await this.repositoryService.discoverRepositories();
-          if (repos.length > 0) {
-            root = repos[0];
-          }
+        root = this.currentRepoRoot;
+      }
+      if (!root) {
+        const repos = await this.repositoryService.discoverRepositories();
+        if (repos.length > 0) {
+          root = repos[0];
         }
       }
 
@@ -77,10 +82,28 @@ export class WorktreeStatusBarController implements vscode.Disposable {
         return;
       }
 
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      const currentWorkspacePath = workspaceFolders && workspaceFolders.length > 0
-        ? workspaceFolders[0].uri.fsPath
-        : root;
+      let currentWorkspacePath = root;
+      if (activeFilePath) {
+        const normActive = path.normalize(activeFilePath).toLowerCase();
+        const matchedWt = worktrees.find(w => {
+          const normWt = path.normalize(w.path).toLowerCase();
+          return normActive === normWt || normActive.startsWith(normWt + path.sep);
+        });
+        if (matchedWt) {
+          currentWorkspacePath = matchedWt.path;
+        }
+      } else {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const matchedFolder = workspaceFolders.find(f => {
+            const normF = path.normalize(f.uri.fsPath).toLowerCase();
+            return worktrees.some(w => path.normalize(w.path).toLowerCase() === normF);
+          });
+          if (matchedFolder) {
+            currentWorkspacePath = matchedFolder.uri.fsPath;
+          }
+        }
+      }
 
       const text = formatWorktreeStatusBarText(worktrees, currentWorkspacePath, root);
       if (!text) {

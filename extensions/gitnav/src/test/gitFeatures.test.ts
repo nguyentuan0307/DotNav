@@ -714,3 +714,22 @@ test('streamlines merge, tag, and smart checkout flows without redundant prompts
   assert.match(provider, /confirmRebase/);
 });
 
+test('git.refresh passes repository Uri to prevent repository chooser popup in worktree setups', () => {
+  const runner = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitMutationRunner.ts'), 'utf8');
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+  const extension = readFileSync(path.join(__dirname, '..', '..', 'src', 'extension.ts'), 'utf8');
+
+  // Must pass root Uri to git.refresh to avoid VS Code's pickRepository popup
+  assert.match(runner, /vscode\.commands\.executeCommand\('git\.refresh', vscode\.Uri\.file\(root\)\)/);
+  assert.doesNotMatch(runner, /vscode\.commands\.executeCommand\('git\.refresh'\)/);
+
+  // Provider must detect initial root from active editor and saved state, and persist selection
+  assert.match(provider, /detectInitialRoot/);
+  assert.match(provider, /gitnav\.activeRepositoryRoot/);
+  assert.match(provider, /getRoot\(\): string \| undefined/);
+
+  // Extension resolveTargetRoot must check activeRoot and savedRoot before showing QuickPick
+  assert.match(extension, /gitLogProvider\.getRoot\(\)/);
+  assert.match(extension, /gitnav\.activeRepositoryRoot/);
+});
+

@@ -16,6 +16,7 @@ import { mapRevisionLineToWorktree } from './lineMapping';
 import { GitWebviewMessage, GitWebviewMessageRouter } from './gitWebviewProtocol';
 import { renderGitLogWebviewHtml } from './gitLogWebviewHtml';
 import { formatFullCommitInfo, revisionPathsForChange } from './gitPanelParsers';
+import { findRepoRoot } from './gitCli';
 
 async function mapWithConcurrency<T, TResult>(
   items: readonly T[],
@@ -59,7 +60,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private readonly pushRecoveryPreferences: GitPushRecoveryPreferences;
   private readonly messageRouter: GitWebviewMessageRouter;
 
-  constructor(private readonly service: GitRepositoryService, private readonly extensionUri: vscode.Uri, state: vscode.Memento) {
+  constructor(private readonly service: GitRepositoryService, private readonly extensionUri: vscode.Uri, private readonly state: vscode.Memento) {
     this.mutations = new GitMutationRunner(service);
     this.service.setDiagnosticLogger(message => this.logDiagnostic(message));
     this.pushRecoveryPreferences = new GitPushRecoveryPreferences(state);
@@ -70,6 +71,10 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.localRefreshScheduler = new LocalRepositoryRefreshScheduler((root, kind) => {
       void this.refreshFromLocalChange(root, kind);
     });
+  }
+
+  getRoot(): string | undefined {
+    return this.root;
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -101,6 +106,7 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.repositories = discovered.includes(root) ? discovered : [root, ...discovered];
     this.cancelReads();
     this.root = root;
+    void this.state.update('gitnav.activeRepositoryRoot', root);
     this.activeFilters.set(root, { text: hash });
     await this.refreshRepositoryContent(this.repositories, root);
     this.post({ type: 'focusCommit', hash });
@@ -113,12 +119,29 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
     const repositories = await this.service.discoverRepositories();
     this.repositories = repositories;
     this.logDiagnostic(`Repository discovery completed (${repositories.length}) in ${Date.now() - startedAt} ms.`);
-    if (!this.root || !repositories.includes(this.root)) this.root = repositories[0];
+    if (!this.root || !repositories.includes(this.root)) {
+      this.root = (await this.detectInitialRoot(repositories)) ?? repositories[0];
+    }
     if (!this.root) {
       this.logDiagnostic('No Git repository found; posting empty state.');
       return this.post({ type: 'state', repositories });
     }
     await this.refreshRepositoryContent(repositories, this.root, startedAt);
+  }
+
+  private async detectInitialRoot(repositories: string[]): Promise<string | undefined> {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document.uri.scheme === 'file') {
+      const activeRepo = await findRepoRoot(editor.document.uri.fsPath);
+      if (activeRepo && repositories.includes(activeRepo)) {
+        return activeRepo;
+      }
+    }
+    const savedRoot = this.state.get<string>('gitnav.activeRepositoryRoot');
+    if (savedRoot && repositories.includes(savedRoot)) {
+      return savedRoot;
+    }
+    return undefined;
   }
 
   private async refreshRepositoryContent(repositories: string[], root: string, startedAt = Date.now()): Promise<void> {
@@ -295,7 +318,12 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
         try { return await this.refresh(); }
         finally { this.post({ type: 'pending', pending: false }); }
       }
-      if (message.type === 'selectRepo' && message.root) { this.cancelReads(); this.root = message.root; return await this.refresh(); }
+      if (message.type === 'selectRepo' && message.root) {
+        this.cancelReads();
+        this.root = message.root;
+        void this.state.update('gitnav.activeRepositoryRoot', message.root);
+        return await this.refresh();
+      }
       if (!this.root) return;
       if (message.type === 'loadLog') {
         const startedAt = Date.now();
