@@ -3,9 +3,13 @@ export class BoundedCache<T> {
 
   constructor(private readonly capacity: number) {}
 
+  has(key: string): boolean {
+    return this.values.has(key);
+  }
+
   get(key: string): T | undefined {
-    const value = this.values.get(key);
-    if (value === undefined) return undefined;
+    if (!this.values.has(key)) return undefined;
+    const value = this.values.get(key) as T;
     this.values.delete(key);
     this.values.set(key, value);
     return value;
@@ -19,6 +23,10 @@ export class BoundedCache<T> {
 
   deletePrefix(prefix: string): void {
     for (const key of this.values.keys()) if (key.startsWith(prefix)) this.values.delete(key);
+  }
+
+  clear(): void {
+    this.values.clear();
   }
 
   get size(): number { return this.values.size; }

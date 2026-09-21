@@ -17,3 +17,17 @@ test('invalidates only entries matching a repository prefix', () => {
   assert.equal(cache.size, 1);
   assert.equal(cache.get('/b\0one'), 3);
 });
+
+test('supports has, clear, and undefined cached values', () => {
+  const cache = new BoundedCache<string | undefined>(3);
+  cache.set('key1', undefined);
+  cache.set('key2', 'value2');
+
+  assert.equal(cache.has('key1'), true);
+  assert.equal(cache.get('key1'), undefined);
+  assert.equal(cache.has('missing'), false);
+
+  cache.clear();
+  assert.equal(cache.size, 0);
+  assert.equal(cache.has('key1'), false);
+});

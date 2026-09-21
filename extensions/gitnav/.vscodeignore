@@ -4,8 +4,9 @@
 .vscode-test/**
 node_modules/**
 src/**
-out/test/**
-out/**/*.map
+out/**
+!out/extension.js
+!out/extension.js.map
 media/*.svg
 *.vsix
 tsconfig.json

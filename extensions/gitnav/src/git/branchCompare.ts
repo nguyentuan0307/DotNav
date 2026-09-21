@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { BoundedCache } from './boundedCache';
 import { findRepoRoot, runGit, toGitRelativePath } from './gitCli';
 import { readFileRevision } from './fileRevision';
 import { pickFileRevision } from './fileRevisionPicker';
@@ -14,8 +15,8 @@ interface CompareDocument {
 
 const scheme = 'gitnav-compare';
 
-export class BranchCompareDocumentProvider implements vscode.TextDocumentContentProvider {
-  private readonly documents = new Map<string, string>();
+export class BranchCompareDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
+  private readonly documents = new BoundedCache<string>(50);
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
 
@@ -32,6 +33,10 @@ export class BranchCompareDocumentProvider implements vscode.TextDocumentContent
     this.documents.set(uri.toString(), content);
     this.onDidChangeEmitter.fire(uri);
     return uri;
+  }
+
+  dispose(): void {
+    this.onDidChangeEmitter.dispose();
   }
 }
 
