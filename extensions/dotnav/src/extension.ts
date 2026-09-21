@@ -187,6 +187,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
     vscode.commands.registerCommand('dotnav.traceCqrsFlow', (symbolOrQuery?: any) => traceCqrsFlowInteractive(provider, symbolIndex, symbolOrQuery, context)),
     vscode.commands.registerCommand('dotnav.rescanSolutionSymbols', () => rescanUniversalSearchIndex(provider, symbolIndex, context, true)),
+    vscode.commands.registerCommand('dotnav.refreshApiEndpoints', () => rescanUniversalSearchIndex(provider, symbolIndex, context, true)),
     vscode.commands.registerCommand('dotnav.showSearchDiagnostics', () => showSearchDiagnosticsCommand(symbolIndex, context)),
     vscode.commands.registerCommand('dotnav.resetSearchLearning', () => resetSearchLearningCommand(context)),
     vscode.commands.registerCommand('dotnav.openEndpointActions', openActiveSymbolActions),

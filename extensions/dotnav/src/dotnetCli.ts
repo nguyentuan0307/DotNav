@@ -66,6 +66,7 @@ export async function runDotnetPackageCommand(
     });
     const exitCode = await completion;
     cancellation.dispose();
+    terminal?.dispose();
 
     const result = {
       exitCode,
@@ -82,20 +83,43 @@ export async function runDotnetPackageCommand(
   });
 }
 
-class CapturingDotnetTerminal implements vscode.Pseudoterminal {
+class CapturingDotnetTerminal implements vscode.Pseudoterminal, vscode.Disposable {
   private readonly writeEmitter = new vscode.EventEmitter<string>();
   readonly onDidWrite = this.writeEmitter.event;
   private readonly closeEmitter = new vscode.EventEmitter<number>();
   readonly onDidClose = this.closeEmitter.event;
   private process?: ChildProcessWithoutNullStreams;
   private didClose = false;
+  private disposed = false;
+  private watchdogTimer?: NodeJS.Timeout;
   stdout = '';
   stderr = '';
 
   constructor(private readonly cwd: string, private readonly args: string[]) {}
 
   open(): void {
-    this.process = spawn('dotnet', this.args, { cwd: this.cwd, windowsHide: true });
+    const env = {
+      ...process.env,
+      DOTNET_CLI_UI_LANGUAGE: 'en',
+      DOTNET_INTERACTIVE: '0',
+      NUGET_INTERACTIVE: 'false'
+    };
+    this.process = spawn('dotnet', this.args, { cwd: this.cwd, windowsHide: true, env });
+    this.watchdogTimer = setTimeout(() => {
+      if (!this.didClose && this.process && !this.process.killed) {
+        const timeoutMessage = `\nDotNav: Command timed out after 120 seconds: dotnet ${this.args.join(' ')}\n`;
+        this.stderr += timeoutMessage;
+        this.writeEmitter.fire(toTerminalText(timeoutMessage));
+        this.process.kill('SIGTERM');
+        setTimeout(() => {
+          if (!this.didClose && this.process && !this.process.killed) {
+            this.process.kill('SIGKILL');
+          }
+        }, 1500);
+      }
+    }, 120_000);
+    this.watchdogTimer.unref?.();
+
     this.process.stdout.on('data', chunk => {
       const text = chunk.toString();
       this.stdout += text;
@@ -118,12 +142,32 @@ class CapturingDotnetTerminal implements vscode.Pseudoterminal {
   }
 
   close(): void {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
     if (this.process && !this.process.killed) {
       this.process.kill();
     }
+    this.dispose();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
+    this.writeEmitter.dispose();
+    this.closeEmitter.dispose();
   }
 
   private finish(exitCode: number): void {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
     if (!this.didClose) {
       this.didClose = true;
       this.closeEmitter.fire(exitCode);
