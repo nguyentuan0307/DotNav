@@ -1,15 +1,18 @@
 import { getEfDiagramCss } from './efDiagramStyles';
 import { getEfDiagramClientScript } from './efDiagramClient';
 
-export function renderEfDiagramHtml(): string {
+export function renderEfDiagramHtml(cspSource = '', nonce = ''): string {
   const css = getEfDiagramCss();
   const script = getEfDiagramClientScript();
+  const cspMeta = cspSource && nonce
+    ? `\n  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${cspSource} data: blob:;" />`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">${cspMeta}
   <title>DotNav: EF Core Entity Relationship Diagram</title>
   <style>
     ${css}
@@ -320,7 +323,7 @@ export function renderEfDiagramHtml(): string {
     </div>
   </div>
 
-  <script>
+  <script${nonce ? ` nonce="${nonce}"` : ''}>
     ${script}
   </script>
 </body>

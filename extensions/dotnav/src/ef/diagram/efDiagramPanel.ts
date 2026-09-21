@@ -122,6 +122,55 @@ export async function scanWorkspaceDbContextsAndEntities(forceRefresh = false): 
   return res;
 }
 
+interface EfDiagramIncomingMessage {
+  type: string;
+  name?: string;
+  dbContext?: string;
+  positions?: Record<string, { x: number; y: number }>;
+  notes?: any[];
+  content?: string;
+  fileType?: string;
+  filename?: string;
+  filters?: Record<string, string[]>;
+  dataUrl?: string;
+  filePath?: string;
+  line?: number;
+  entityName?: string;
+  propName?: string;
+}
+
+const allowedEfDiagramMessageTypes = new Set([
+  'ready',
+  'rescan',
+  'loadDiagram',
+  'createDiagram',
+  'deleteDiagram',
+  'exportFile',
+  'copyMermaid',
+  'saveDiagram',
+  'openFile',
+  'openEntitySource',
+  'openPropertySource'
+]);
+
+function parseEfDiagramMessage(msg: unknown): EfDiagramIncomingMessage | undefined {
+  if (!msg || typeof msg !== 'object') return undefined;
+  const raw = msg as Record<string, unknown>;
+  if (typeof raw.type !== 'string' || !allowedEfDiagramMessageTypes.has(raw.type)) {
+    return undefined;
+  }
+  return raw as unknown as EfDiagramIncomingMessage;
+}
+
+function createNonce(): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  for (let index = 0; index < 32; index += 1) {
+    nonce += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return nonce;
+}
+
 export async function openEfDiagramPanel(
   context: vscode.ExtensionContext,
   initialEntityName?: string,
@@ -169,16 +218,20 @@ export async function openEfDiagramPanel(
   );
 
   currentDiagramPanel = panel;
+  context.subscriptions.push(panel);
 
   panel.onDidDispose(() => {
     currentDiagramPanel = undefined;
   });
 
-  panel.webview.html = renderEfDiagramHtml();
+  const nonce = createNonce();
+  panel.webview.html = renderEfDiagramHtml(panel.webview.cspSource, nonce);
 
   const storageRoot = context.storageUri?.fsPath || context.globalStorageUri?.fsPath;
 
-  panel.webview.onDidReceiveMessage(async msg => {
+  panel.webview.onDidReceiveMessage(async rawMsg => {
+    const msg = parseEfDiagramMessage(rawMsg);
+    if (!msg) return;
     switch (msg.type) {
       case 'ready':
       case 'rescan': {
@@ -237,26 +290,28 @@ export async function openEfDiagramPanel(
       }
 
       case 'loadDiagram': {
+        const diagramName = msg.name?.trim();
+        if (!diagramName) break;
         try {
           panel.webview.postMessage({
             type: 'loading',
-            message: `Loading diagram "${msg.name}"...`
+            message: `Loading diagram "${diagramName}"...`
           });
           const model = await scanWorkspaceDbContextsAndEntities();
           const activeCtx = msg.dbContext || model.availableDbContexts[0] || 'Default';
           const entities = model.entitiesByContext[activeCtx] || [];
-          const saved = await loadDiagramFromFile(msg.name, storageRoot, workspaceRoot);
+          const saved = await loadDiagramFromFile(diagramName, storageRoot, workspaceRoot);
           const synced = liveSyncDiagramWithCode(saved, entities);
           panel.webview.postMessage({
             type: 'diagramLoaded',
-            diagramName: msg.name,
+            diagramName,
             activePositions: synced,
             notes: saved?.notes || []
           });
         } catch (err: any) {
           panel.webview.postMessage({
             type: 'error',
-            message: err?.message || `Failed to load diagram "${msg.name}".`
+            message: err?.message || `Failed to load diagram "${diagramName}".`
           });
         }
         break;
@@ -320,8 +375,12 @@ export async function openEfDiagramPanel(
 
           if (!targetUri) break;
 
-          if (msg.fileType === 'png' && msg.dataUrl) {
-            const base64Data = msg.dataUrl.replace(/^data:image\/png;base64,/, '');
+          if (msg.fileType === 'png' && typeof msg.dataUrl === 'string' && msg.dataUrl.startsWith('data:image/png;base64,')) {
+            const base64Data = msg.dataUrl.substring('data:image/png;base64,'.length);
+            if (base64Data.length > 70_000_000) {
+              vscode.window.showErrorMessage('Diagram image data is too large to export.');
+              break;
+            }
             const buffer = Buffer.from(base64Data, 'base64');
             await fs.promises.writeFile(targetUri.fsPath, buffer);
             vscode.window.showInformationMessage(`📸 Diagram exported successfully to ${path.basename(targetUri.fsPath)}!`);
@@ -344,16 +403,20 @@ export async function openEfDiagramPanel(
       }
 
       case 'saveDiagram': {
-        const success = await saveDiagramToFile(msg.name, msg.positions, storageRoot, workspaceRoot, msg.notes);
+        const diagramName = msg.name?.trim();
+        if (!diagramName || !msg.positions) {
+          break;
+        }
+        const success = await saveDiagramToFile(diagramName, msg.positions, storageRoot, workspaceRoot, msg.notes);
         if (success) {
-          vscode.window.showInformationMessage(`Diagram "${msg.name}" saved successfully!`);
+          vscode.window.showInformationMessage(`Diagram "${diagramName}" saved successfully!`);
           const savedDiagrams = await listSavedDiagrams(storageRoot, workspaceRoot);
           panel.webview.postMessage({
             type: 'diagramListUpdated',
             savedDiagramNames: savedDiagrams
           });
         } else {
-          vscode.window.showErrorMessage(`Failed to save diagram "${msg.name}".`);
+          vscode.window.showErrorMessage(`Failed to save diagram "${diagramName}".`);
         }
         break;
       }
@@ -388,12 +451,16 @@ export async function openEfDiagramPanel(
               filePath = files[0].fsPath;
             } else {
               const matches = await vscode.workspace.findFiles('**/*.cs', '{**/bin/**,**/obj/**,**/node_modules/**,**/Migrations/**}', 300);
+              const classRegex = new RegExp(`\\bclass\\s+${entityName}\\b`);
               for (const f of matches) {
-                const content = fs.readFileSync(f.fsPath, 'utf-8');
-                const classRegex = new RegExp(`\\bclass\\s+${entityName}\\b`);
-                if (classRegex.test(content)) {
-                  filePath = f.fsPath;
-                  break;
+                try {
+                  const content = await fs.promises.readFile(f.fsPath, 'utf-8');
+                  if (classRegex.test(content)) {
+                    filePath = f.fsPath;
+                    break;
+                  }
+                } catch {
+                  // ignore unreadable file
                 }
               }
             }
@@ -430,6 +497,9 @@ export async function openEfDiagramPanel(
       case 'openPropertySource': {
         const entityName = msg.entityName;
         const propName = msg.propName;
+        if (!entityName || !propName) {
+          break;
+        }
         let filePath = msg.filePath;
 
         try {

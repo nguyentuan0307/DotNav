@@ -150,8 +150,8 @@ export class GitMutationRunner {
       }
       case 'checkoutRemote': return this.remoteCheckoutArgs(context, ref);
       case 'checkoutRemoteReset': {
-        const local = String(request.options?.local);
-        const remoteRef = String(request.options?.remoteRef);
+        const local = String(request.options?.local ?? ref.split('/').slice(1).join('/'));
+        const remoteRef = String(request.options?.remoteRef ?? ref);
         const commands = resetLocalBranchToRemoteCommands(snapshot.head, local, remoteRef, request.options?.clean === true);
         for (const command of commands.slice(0, -1)) await this.service.git(root, command);
         return commands.at(-1)!;
