@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.22.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.21.0...gitnav-v0.22.0) (2026-09-21)
+
+
+### Features
+
+* **gitnav:** support reset to origin on remote checkout and context menu ([2e14409](https://github.com/nguyentuan0307/DotNav/commit/2e1440979d093645598dd6196ebe037e1010e551))
+
+### Bug Fixes
+
+* **gitnav:** resolve memory leaks with bounded cache and bundle with esbuild ([829879b](https://github.com/nguyentuan0307/DotNav/commit/829879b4fd37d447728026322aac106a97a14c41))
+
+
 ## [0.21.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.20.1...gitnav-v0.21.0) (2026-09-18)
 
 
