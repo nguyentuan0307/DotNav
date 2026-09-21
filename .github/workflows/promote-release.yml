@@ -88,6 +88,8 @@ jobs:
             --head HEAD \
             --repo-url "${{ github.repository }}"
 
+          npm install --package-lock-only
+
           if git diff --quiet; then
             echo "No releasable changes were found."
             exit 0
