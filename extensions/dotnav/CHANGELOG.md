@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.4](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.3...dotnav-v0.32.4) (2026-09-21)
+
+
+### Bug Fixes
+
+* **dotnav:** preserve build-host runtime binaries in packaged extension ([dcb6048](https://github.com/nguyentuan0307/DotNav/commit/dcb604816fd064f91632ec22acb8cde439388edb))
+
+
 ## [0.32.3](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.2...dotnav-v0.32.3) (2026-09-21)
 
 

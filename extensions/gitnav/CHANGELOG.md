@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.22.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.22.0...gitnav-v0.22.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **gitnav:** ensure timer cleanup on git process error events ([1087870](https://github.com/nguyentuan0307/DotNav/commit/1087870336c3f331ce299b4b679797b98cc9fdfb))
+
+
 ## [0.22.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.21.0...gitnav-v0.22.0) (2026-09-21)
 
 
