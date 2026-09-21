@@ -738,16 +738,21 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (!remoteExists) throw new Error(`${remoteBranch} does not exist.`);
       return { action, ref: branch.name };
     }
-    if (action === 'checkoutRemote' && message.ref) {
+    if ((action === 'checkoutRemote' || action === 'checkoutRemoteReset') && message.ref) {
       const snapshot = await this.service.snapshot(this.root!, undefined, true);
       const remoteRef = message.ref;
       const local = remoteRef.split('/').slice(1).join('/');
       const localBranch = snapshot.refs.find(item => item.kind === 'local' && item.name === local);
-      if (!localBranch) return { action, ref: remoteRef };
+      if (!localBranch) return { action: 'checkoutRemote', ref: remoteRef };
       const counts = await this.service.git(this.root!, ['rev-list', '--left-right', '--count', `${local}...${remoteRef}`]);
       const [ahead] = counts.stdout.trim().split(/\s+/).map(Number);
-      if ((ahead || 0) > 0 && snapshot.changedCount > 0) {
-        const consequences = `${ahead} unpublished commit(s) and ${snapshot.changedCount} working tree change(s)`;
+      const hasAhead = (ahead || 0) > 0;
+      const hasChanges = snapshot.changedCount > 0;
+      if (action === 'checkoutRemoteReset' || hasAhead || hasChanges) {
+        const parts: string[] = [];
+        if (hasAhead) parts.push(`${ahead} unpublished commit(s)`);
+        if (hasChanges) parts.push(`${snapshot.changedCount} working tree change(s)`);
+        const consequences = parts.length ? parts.join(' and ') : 'local differences';
         const choice = await vscode.window.showWarningMessage(
           `${local} has ${consequences}. Resetting will permanently drop them.`,
           { modal: true }, 'Keep Local', 'Reset to Origin'
@@ -1144,7 +1149,9 @@ function contextActions(kind?: string, current = false): GitContextAction[] {
     contextAction('mergeNoFf', 'Merge (No Fast-Forward)…', 'more'), contextAction('mergeSquash', 'Squash Merge…', 'more'),
     contextAction('checkoutUpdate', undefined, 'more'), contextAction('createBranch', 'Create Branch from Here…', 'more'),
     contextAction('workingDiff', 'Compare with Working Tree', 'more'), contextAction('pullInto', 'Pull into Current', 'more'),
-    contextAction('copy', 'Copy Branch Name', 'more'), contextAction('deleteRemote', 'Delete Remote Branch', 'danger')
+    contextAction('copy', 'Copy Branch Name', 'more'),
+    contextAction('checkoutRemoteReset', 'Reset Local Branch to This Remote…', 'danger'),
+    contextAction('deleteRemote', 'Delete Remote Branch', 'danger')
   ];
   if (kind === 'tag') return [contextAction('showInLog', 'Show in Log'), contextAction('checkout', 'Checkout Revision'), contextAction('createBranch', 'Create Branch from Tag…'), contextAction('copy', 'Copy Tag Name', 'more'), contextAction('deleteTag', 'Delete Tag', 'danger')];
   if (kind === 'stash') return [contextAction('stashApply', 'Apply Stash'), contextAction('stashPop', 'Pop Stash'), contextAction('stashDiff', 'Show Diff'), contextAction('stashBranch', 'Create Branch from Stash', 'more'), contextAction('stashDrop', 'Drop Stash', 'danger')];

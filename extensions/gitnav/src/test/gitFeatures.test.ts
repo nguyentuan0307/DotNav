@@ -733,3 +733,11 @@ test('git.refresh passes repository Uri to prevent repository chooser popup in w
   assert.match(extension, /gitnav\.activeRepositoryRoot/);
 });
 
+test('remote branch checkout and context actions support reset to origin when ahead or dirty', () => {
+  const provider = readFileSync(path.join(__dirname, '..', '..', 'src', 'git', 'gitLogViewProvider.ts'), 'utf8');
+
+  // Must prompt when hasAhead or hasChanges
+  assert.match(provider, /if \(action === 'checkoutRemoteReset' \|\| hasAhead \|\| hasChanges\)/);
+  assert.match(provider, /contextAction\('checkoutRemoteReset', 'Reset Local Branch to This Remote…', 'danger'\)/);
+});
+
