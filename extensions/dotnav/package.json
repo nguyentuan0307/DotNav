@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.32.2",
+  "version": "0.32.3",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -43,7 +43,7 @@
     "tuna-ex.gitnav-workflows"
   ],
   "activationEvents": [
-    "onStartupFinished",
+    "workspaceContains:**/*.{sln,slnx,csproj,fsproj}",
     "onLanguage:csharp",
     "onView:dotnav",
     "onView:dotnav.runConfigurations",
@@ -179,15 +179,6 @@
         "command": "dotnav.localHistory.showSelection",
         "title": "Show Local History for Selection",
         "icon": "$(history)"
-      },
-      {
-        "command": "dotnav.searchEverywhere",
-        "title": "Search Everywhere (Global Search)",
-        "icon": "$(search-fuzzy)"
-      },
-      {
-        "command": "dotnav.searchApiEndpoints",
-        "title": "Search ASP.NET Core Endpoints"
       },
       {
         "command": "dotnav.traceCqrsFlow",
@@ -1693,7 +1684,8 @@
     "test:formatter-corpus": "npm run compile && node --test out/test/formatterCorpus.test.js",
     "formatter:corpus:list": "npm run compile && node out/test/formatterCorpusReport.js",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap --allow-overwrite",
+    "vscode:prepublish": "npm run compile && npm run bundle",
     "package:vsix": "vsce package --no-dependencies",
     "publish:marketplace": "vsce publish --no-dependencies"
   }

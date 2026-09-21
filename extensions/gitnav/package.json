@@ -2,7 +2,7 @@
   "name": "gitnav-workflows",
   "displayName": "GitNav: Visual Git History & Workflows",
   "description": "Explore visual Git history, compare branches and code, and run guarded Git workflows directly in Visual Studio Code.",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -281,7 +281,8 @@
     "compile": "tsc -p .",
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "watch": "tsc -watch -p .",
-    "vscode:prepublish": "npm run compile",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap --allow-overwrite",
+    "vscode:prepublish": "npm run compile && npm run bundle",
     "package:vsix": "vsce package --no-dependencies",
     "publish:marketplace": "vsce publish --no-dependencies"
   }

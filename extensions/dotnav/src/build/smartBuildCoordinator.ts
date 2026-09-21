@@ -1,3 +1,11 @@
+/**
+ * [TEMPORARILY DISABLED]
+ * SmartBuildCoordinator is temporarily commented out per project roadmap preferences.
+ * This module provides MSBuild graph-based incremental evaluation and build coordination,
+ * reserved for future release activation.
+ */
+
+/*
 import { createHash } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -463,3 +471,6 @@ function combineExecutionResults(
     binaryLogPath
   };
 }
+*/
+
+export {};

@@ -54,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    branchCompareProvider,
     vscode.workspace.registerTextDocumentContentProvider('gitnav-compare', branchCompareProvider),
     vscode.workspace.registerTextDocumentContentProvider(gitRevisionScheme, new GitRevisionProvider(repositoryService)),
     vscode.window.registerWebviewViewProvider(GitLogViewProvider.viewId, gitLogProvider, {

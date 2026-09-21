@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.3](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.2...dotnav-v0.32.3) (2026-09-21)
+
+
+### Bug Fixes
+
+* **dotnav:** harden webview CSP, add terminal watchdog, and bundle with esbuild ([d556e08](https://github.com/nguyentuan0307/DotNav/commit/d556e081c2008b8b8c5f4d02047b3d16707c30bc))
+
+
 ## [0.32.2](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.1...dotnav-v0.32.2) (2026-09-18)
 
 

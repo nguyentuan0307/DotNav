@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { BoundedCache } from './boundedCache';
+
 export interface GitResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -12,7 +14,7 @@ export interface GitResult {
 
 export const DEFAULT_GIT_TIMEOUT_MS = 25_000;
 
-const repoRootCache = new Map<string, string | undefined>();
+const repoRootCache = new BoundedCache<string | undefined>(200);
 
 export async function runGit(
   cwd: string,
