@@ -54,6 +54,8 @@ export async function runGit(
 
     const cancellation = token?.onCancellationRequested(() => {
       cancelled = true;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
       if (!child.killed) {
         child.kill();
       }
