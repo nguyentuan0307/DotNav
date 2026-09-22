@@ -65,6 +65,14 @@ const KNOWN_BASE_ENTITY_NAMES = new Set([
   'entitybase', 'iauditentitybase', 'auditentity', 'fullauditentity'
 ]);
 
+export const INVALID_PROPERTY_TYPES = new Set([
+  'return', 'yield', 'throw', 'var', 'await', 'case', 'default', 'goto', 'break', 'continue',
+  'if', 'else', 'while', 'do', 'for', 'foreach', 'switch', 'try', 'catch', 'finally',
+  'lock', 'using', 'fixed', 'sizeof', 'typeof', 'nameof', 'class', 'struct', 'record',
+  'interface', 'enum', 'delegate', 'event', 'void', 'null', 'true', 'false', 'base', 'this',
+  'checked', 'unchecked', 'stackalloc', 'async', 'get', 'set', 'init', 'value', 'const'
+]);
+
 /**
  * Infers SQL standard column type from C# data type and property attributes.
  */
@@ -248,7 +256,10 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
     // 4. Extract Relationships & Explicit Foreign Keys:
     // b.HasOne("...Application", "Application").WithMany(...).HasForeignKey("AppId")
     // or b.HasOne("...Form", "RecordEditForm").WithMany(...).HasForeignKey("RecordEditFormId")
-    const hasOneRegex = new RegExp(`${builderVar}\\.HasOne\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*["']([^"']+)["'])?\\s*\\)`, 'g');
+    const hasOneRegex = new RegExp(
+      `${builderVar}\\.HasOne\\s*\\(\\s*["']([^"']+)["'](?:\\s*,\\s*(?:["']([^"']+)["']|null))?\\s*\\)`,
+      'g'
+    );
     let hasOneMatch: RegExpExecArray | null;
 
     while ((hasOneMatch = hasOneRegex.exec(entityBody)) !== null) {
@@ -282,6 +293,7 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
         const withOneMatch = chainSegment.match(/\.WithOne\s*\(\s*(?:["']([^"']+)["'])?\s*\)/);
         const isOneToOne = !!withOneMatch;
         const inverseNav = withManyMatch ? withManyMatch[1] : withOneMatch ? withOneMatch[1] : undefined;
+        const constraintMatch = chainSegment.match(/\.HasConstraintName\s*\(\s*["']([^"']+)["']\s*\)/);
 
         const relId = `${principalShort}->${shortName}:${fkName}`;
         if (!entityInfo.relationships.some(r => r.id === relId)) {
@@ -292,7 +304,7 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
             toEntity: shortName,
             toProperty: fkName,
             cardinality: isOneToOne ? 'one-to-one' : 'one-to-many',
-            foreignKeyName: `FK_${shortName}_${principalShort}_${fkName}`,
+            foreignKeyName: constraintMatch?.[1] || `FK_${shortName}_${principalShort}_${fkName}`,
             deleteBehavior,
             isRequired,
             navigationName: navName,
@@ -309,6 +321,18 @@ export function parseModelSnapshotFromCSharp(code: string, filePath: string): Sn
       if (entity.primaryKeys.includes(prop.name)) {
         (prop as any).isPrimaryKey = true;
       }
+    }
+  }
+
+  // Resolve the actual principal key instead of assuming every entity uses "Id".
+  const entityByShortName = new Map<string, SnapshotEntityInfo>();
+  for (const entity of entityMap.values()) {
+    entityByShortName.set(entity.shortName.toLowerCase(), entity);
+  }
+  for (const entity of entityMap.values()) {
+    for (const relationship of entity.relationships) {
+      const principal = entityByShortName.get(relationship.fromEntity.toLowerCase());
+      (relationship as any).fromProperty = principal?.primaryKeys[0] || 'Id';
     }
   }
 
@@ -408,7 +432,7 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
   }> = [];
 
   // 1. First Pass: Collect all properties and attributes
-  const propRegex = /(?:\[([^\]]+)\]\s*)*(?:public|protected|internal|private)?\s*([A-Za-z0-9_<>?,. ]+?)\s+([A-Za-z0-9_]+)\s*\{/g;
+  const propRegex = /((?:\[[^\]]+\]\s*)*)(?:public|protected|internal|private)?\s*([A-Za-z0-9_<>?,. ]+?)\s+([A-Za-z0-9_]+)\s*\{/g;
   let match: RegExpExecArray | null;
 
   while ((match = propRegex.exec(body)) !== null) {
@@ -425,12 +449,37 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
       .trim();
     const propName = match[3].trim();
 
+    // CS0542: Member names cannot be the same as their enclosing type (e.g. constructors or object initializers)
+    if (propName.toLowerCase() === className.toLowerCase()) {
+      continue;
+    }
+
+    if (INVALID_PROPERTY_TYPES.has(propName.toLowerCase())) {
+      continue;
+    }
+
     if (rawType.startsWith('class ') || rawType.startsWith('void ') || rawType === 'event' || !rawType) {
+      continue;
+    }
+
+    if (/\b(return|yield|throw|var|await|new|goto|case)\b/i.test(rawType)) {
       continue;
     }
 
     let isNullable = rawType.endsWith('?') || rawType.startsWith('Nullable<');
     let cleanType = rawType.replace(/\?$/, '').replace(/^Nullable<([^>]+)>$/, '$1').trim();
+
+    if (INVALID_PROPERTY_TYPES.has(cleanType.toLowerCase())) {
+      continue;
+    }
+
+    // Check that '{' opens a real property accessor block (get/set/init) rather than an object initializer
+    const remainder = body.slice(match.index + match[0].length, match.index + match[0].length + 250);
+    const cleanRemainder = remainder.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '').trimStart();
+    const hasAccessor = /^(?:(?:public|protected|internal|private)\s+)?(?:get|set|init)\s*(?:;|=>|\{)/.test(cleanRemainder);
+    if (!hasAccessor) {
+      continue;
+    }
 
     rawProps.push({
       name: propName,
@@ -458,6 +507,31 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
     }
   }
 
+  // [ForeignKey] is authoritative only when it can be resolved to a reference navigation.
+  const explicitForeignKeys = new Map<string, string>();
+  for (const p of rawProps) {
+    const fkAttrMatch = p.attrs.match(
+      /ForeignKey\s*\(\s*(?:nameof\s*\(\s*([A-Za-z0-9_]+)\s*\)|["']([^"']+)["'])\s*\)/i
+    );
+    const foreignKeyArgument = fkAttrMatch?.[1] || fkAttrMatch?.[2];
+    if (!foreignKeyArgument) continue;
+
+    const navigation = navigations.find(n => !n.isCollection && n.propName === p.name);
+    if (navigation) {
+      for (const foreignKeyName of foreignKeyArgument.split(',').map(name => name.trim()).filter(Boolean)) {
+        explicitForeignKeys.set(foreignKeyName.toLowerCase(), navigation.targetEntity);
+      }
+      continue;
+    }
+
+    const targetNavigation = navigations.find(
+      n => !n.isCollection && n.propName.toLowerCase() === foreignKeyArgument.toLowerCase()
+    );
+    if (targetNavigation) {
+      explicitForeignKeys.set(p.name.toLowerCase(), targetNavigation.targetEntity);
+    }
+  }
+
   // 3. Second Pass: Determine PK and FK with strict navigation/attribute pairing
   const properties: EntityProperty[] = [];
 
@@ -477,27 +551,8 @@ export function parsePropertiesFromBody(body: string, className: string): Entity
       isCollectionNavigation = nav.isCollection;
       navigationTargetEntity = nav.targetEntity;
     } else if (!isPrimaryKey) {
-      // Check explicit [ForeignKey("...")]
-      const fkAttrMatch = p.attrs.match(/ForeignKey\s*\(\s*["']([^"']+)["']\s*\)/i);
-      if (fkAttrMatch) {
-        isForeignKey = true;
-        foreignKeyTargetEntity = fkAttrMatch[1];
-      } else {
-        const prefix = p.name.length > 2 && p.name.endsWith('Id') ? p.name.slice(0, -2).toLowerCase() : '';
-        const matchingNav = navigations.find(n => !n.isCollection && (
-          p.name.toLowerCase() === `${n.propName.toLowerCase()}id` ||
-          p.name.toLowerCase() === `${n.targetEntity.toLowerCase()}id` ||
-          (prefix.length >= 3 && (n.propName.toLowerCase().startsWith(prefix) || n.targetEntity.toLowerCase().startsWith(prefix)))
-        ));
-
-        if (matchingNav) {
-          isForeignKey = true;
-          foreignKeyTargetEntity = matchingNav.targetEntity;
-        } else if (p.name === 'TenantId') {
-          isForeignKey = true;
-          foreignKeyTargetEntity = 'Tenant';
-        }
-      }
+      foreignKeyTargetEntity = explicitForeignKeys.get(p.name.toLowerCase());
+      isForeignKey = !!foreignKeyTargetEntity;
     }
 
     // Check explicit [Column(...)]
@@ -672,9 +727,47 @@ export function buildDbContextScopedModel(
   entitiesByContext: Record<string, EntityModel[]>;
   relationshipsByContext: Record<string, EntityRelationship[]>;
 } {
-  const classMap = new Map<string, RawClassInfo>();
+  const classGroups = new Map<string, RawClassInfo[]>();
   for (const c of rawClasses) {
-    classMap.set(c.name.toLowerCase(), c);
+    const key = c.name.toLowerCase();
+    const group = classGroups.get(key) || [];
+    group.push(c);
+    classGroups.set(key, group);
+  }
+
+  const classMap = new Map<string, RawClassInfo>();
+  for (const [key, group] of classGroups) {
+    const ordered = [...group].sort((a, b) =>
+      a.filePath.localeCompare(b.filePath) || a.line - b.line
+    );
+    const primary = [...ordered].sort((a, b) => {
+      const aScore = (a.hasTableAttribute ? 10000 : 0) + (a.baseTypes.length * 1000) + a.properties.length;
+      const bScore = (b.hasTableAttribute ? 10000 : 0) + (b.baseTypes.length * 1000) + b.properties.length;
+      return bScore - aScore || a.filePath.localeCompare(b.filePath) || a.line - b.line;
+    })[0];
+    const tableSource = ordered.find(c => c.hasTableAttribute) || primary;
+    const properties: EntityProperty[] = [];
+    const propertyNames = new Set<string>();
+    for (const fragment of ordered) {
+      for (const property of fragment.properties) {
+        const propertyName = property.name.toLowerCase();
+        if (!propertyNames.has(propertyName)) {
+          propertyNames.add(propertyName);
+          properties.push(property);
+        }
+      }
+    }
+
+    classMap.set(key, {
+      ...primary,
+      tableName: tableSource.tableName,
+      schemaName: tableSource.schemaName,
+      properties,
+      baseTypes: Array.from(new Set(ordered.flatMap(c => c.baseTypes))),
+      attributes: ordered.map(c => c.attributes).filter(Boolean).join('\n'),
+      hasTableAttribute: ordered.some(c => c.hasTableAttribute),
+      isDbContext: ordered.some(c => c.isDbContext)
+    });
   }
 
   // 1. Gather all unique DbContext names
@@ -692,7 +785,7 @@ export function buildDbContextScopedModel(
 
   // Resolve inheritance between DbContexts (e.g. CustomAppDbContext -> CustomAppSharedDbContext)
   const dbContextChildToParent = new Map<string, string>();
-  for (const c of rawClasses) {
+  for (const c of classMap.values()) {
     if (c.isDbContext) {
       for (const b of c.baseTypes) {
         if (contextNameSet.has(b) && b !== c.name) {
@@ -765,10 +858,20 @@ export function buildDbContextScopedModel(
 
           // 1. Check for newly added C# properties not yet in Snapshot
           for (const lp of liveProps) {
-            if (!seenPropNames.has(lp.name.toLowerCase())) {
-              seenPropNames.add(lp.name.toLowerCase());
+            const lpLower = lp.name.toLowerCase();
+            if (
+              lpLower === shortLower ||
+              INVALID_PROPERTY_TYPES.has(lpLower) ||
+              INVALID_PROPERTY_TYPES.has(lp.type.replace(/\?$/, '').toLowerCase())
+            ) {
+              continue;
+            }
+            if (!seenPropNames.has(lpLower)) {
+              seenPropNames.add(lpLower);
               mergedProperties.push({
                 ...lp,
+                isForeignKey: false,
+                foreignKeyTargetEntity: undefined,
                 isUnmigrated: true
               });
             }
@@ -859,18 +962,26 @@ export function buildDbContextScopedModel(
             filePath: rawClass.filePath,
             line: rawClass.line,
             projectName: rawClass.projectName,
-            properties: resolvedProps.map(p => ({ ...p, isUnmigrated: true })),
+            properties: resolvedProps.map(p => ({
+              ...p,
+              isForeignKey: false,
+              foreignKeyTargetEntity: undefined,
+              isUnmigrated: true
+            })),
             dbContextNames: [contextName],
             isUnmigrated: true
           });
         }
       }
 
-      // 3. Build & Merge Relationships
-      const relationships = buildRelationships(entities);
+      // 3. Snapshot relationships are authoritative. Live navigation properties must not add edges.
+      const relationships: EntityRelationship[] = [];
+      const relationshipKeys = new Set<string>();
       for (const snapEntity of snapshot.entities) {
         for (const rel of snapEntity.relationships) {
-          if (!relationships.some(r => r.fromEntity === rel.fromEntity && r.toEntity === rel.toEntity)) {
+          const key = `${rel.fromEntity}->${rel.toEntity}:${rel.toProperty || ''}`;
+          if (!relationshipKeys.has(key)) {
+            relationshipKeys.add(key);
             relationships.push(rel);
           }
         }
@@ -926,19 +1037,6 @@ export function buildDbContextScopedModel(
         }
       }
 
-      // Apply Fluent relationship FK markings
-      if (rule?.relationships) {
-        for (const rel of rule.relationships) {
-          if (rel.foreignKeyName) {
-            const prop = resolvedProps.find(p => p.name.toLowerCase() === rel.foreignKeyName?.toLowerCase());
-            if (prop && rel.principalEntity) {
-              (prop as any).isForeignKey = true;
-              (prop as any).foreignKeyTargetEntity = rel.principalEntity;
-            }
-          }
-        }
-      }
-
       entities.push({
         id: `${rawClass.filePath}:${rawClass.line}:${rawClass.name}`,
         name: rawClass.name,
@@ -950,6 +1048,45 @@ export function buildDbContextScopedModel(
         properties: resolvedProps,
         dbContextNames: [contextName]
       });
+    }
+
+    // Resolve only explicit Fluent API relationships. Convention and collection-only inference are intentionally excluded.
+    const entityMap = new Map(entities.map(entity => [entity.name.toLowerCase(), entity]));
+    for (const rule of fluentRules) {
+      const configuredEntity = entityMap.get(rule.entityName.toLowerCase());
+      if (!configuredEntity) continue;
+
+      for (const relationship of rule.relationships) {
+        if (!relationship.foreignKeyName || !relationship.navigationName) continue;
+
+        let principal: EntityModel | undefined;
+        let dependent: EntityModel | undefined;
+        if (relationship.dependentEntity) {
+          dependent = configuredEntity;
+          const navigation = dependent.properties.find(
+            property => property.name === relationship.navigationName && !property.isCollectionNavigation
+          );
+          if (navigation?.navigationTargetEntity) {
+            principal = entityMap.get(navigation.navigationTargetEntity.toLowerCase());
+          }
+        } else if (relationship.principalEntity) {
+          principal = configuredEntity;
+          const navigation = principal.properties.find(
+            property => property.name === relationship.navigationName && property.isCollectionNavigation
+          );
+          if (navigation?.navigationTargetEntity) {
+            dependent = entityMap.get(navigation.navigationTargetEntity.toLowerCase());
+          }
+        }
+
+        const foreignKey = dependent?.properties.find(
+          property => property.name.toLowerCase() === relationship.foreignKeyName?.toLowerCase()
+        );
+        if (principal && dependent && foreignKey) {
+          (foreignKey as any).isForeignKey = true;
+          (foreignKey as any).foreignKeyTargetEntity = principal.name;
+        }
+      }
     }
 
     const rels = buildRelationships(entities);
@@ -989,7 +1126,7 @@ export function buildRelationships(entities: readonly EntityModel[]): EntityRela
             relationships.push({
               id: key,
               fromEntity: targetEntity.name,
-              fromProperty: 'Id',
+              fromProperty: targetEntity.properties.find(p => p.isPrimaryKey)?.name || 'Id',
               toEntity: entity.name,
               toProperty: prop.name,
               cardinality: 'one-to-many',
@@ -1000,29 +1137,6 @@ export function buildRelationships(entities: readonly EntityModel[]): EntityRela
       }
     }
 
-    // 2. Check collection navigation properties (e.g. Application.ActionCommands -> ActionCommandSetting)
-    for (const prop of entity.properties) {
-      if (prop.isNavigation && prop.navigationTargetEntity) {
-        const target = entityMap.get(prop.navigationTargetEntity.toLowerCase());
-        if (target) {
-          if (prop.isCollectionNavigation) {
-            const key = `${entity.name}->${target.name}:${prop.name}`;
-            if (!seenRelKeys.has(key)) {
-              seenRelKeys.add(key);
-              relationships.push({
-                id: key,
-                fromEntity: entity.name,
-                fromProperty: 'Id',
-                toEntity: target.name,
-                toProperty: `${entity.name}Id`,
-                cardinality: 'one-to-many',
-                foreignKeyName: `FK_${target.name}_${entity.name}`
-              });
-            }
-          }
-        }
-      }
-    }
   }
 
   return relationships;
