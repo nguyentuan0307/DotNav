@@ -1,3 +1,31 @@
+# DotNav ERD — Authoritative Foreign Key Detection
+
+**Trạng thái:** Đã triển khai, kiểm thử, đóng gói và cài local ngày 2026-09-21.
+
+## Nguyên nhân đã xác minh
+
+- `CustomAppSharedDbContext` có 845 `HasForeignKey` trong snapshot nhưng ERD tạo 1.493 đường; collection navigation tạo lại các FK đã có.
+- `HasOne(..., null)` bị bỏ sót, tên constraint bị tự dựng và đầu principal luôn trỏ vào `Id`.
+- Class map ghi đè 567 tên class có nhiều fragment/`partial`, khiến kết quả phụ thuộc thứ tự đọc file.
+
+## Thay đổi đã duyệt
+
+1. Context có snapshot chỉ lấy relationship từ snapshot; source chưa migrate không sinh hoặc đánh dấu FK.
+2. Parse `HasOne(..., null)`, constraint name thật và principal PK thật; identity giữ riêng từng FK property.
+3. Gộp partial class ổn định, không phụ thuộc thứ tự input.
+4. Context không snapshot chỉ nhận `[ForeignKey]` và Fluent `HasForeignKey`; bỏ convention/collection inference.
+5. Thêm regression tests, smoke test Backend, chạy compile/test/package/install và shutdown build server.
+
+## Kết quả xác minh
+
+- Focused ERD: 14/14 tests pass.
+- Full suite: 834 tests, 833 pass, 1 skip, 0 fail.
+- Backend smoke: 845 `HasForeignKey`, 845 relationship, 0 canonical duplicate, 0 relationship ngoài snapshot và 0 principal anchor sai PK.
+- `Form -> BusinessWorkflowNode:FormId` còn đúng 1 đường; constraint names đều lấy từ snapshot.
+- `npm run compile`, `npm test`, `npm run package:all`, `git diff --check` và cài `dist/dotnav.vsix --force` đều thành công.
+
+---
+
 # DotNav Hotfix Phase 2.1 — Solution-Relevant Search Whitelist
 
 **Trạng thái:** Đã triển khai, full test pass, đóng gói và cài local ngày 2026-09-15.

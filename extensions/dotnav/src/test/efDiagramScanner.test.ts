@@ -113,7 +113,7 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     assert.equal(rel?.inverseNavigationName, 'ActionCommandSettings');
   });
 
-  it('parsePropertiesFromBody pairs FK with navigation property and leaves scalar ManagerId as non-FK', () => {
+  it('parsePropertiesFromBody does not infer FK from naming conventions', () => {
     const classBody = `
       [Key]
       public int Id { get; set; }
@@ -127,8 +127,8 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     assert.equal(idProp?.isPrimaryKey, true);
 
     const appIdProp = props.find(p => p.name === 'AppId');
-    assert.equal(appIdProp?.isForeignKey, true);
-    assert.equal(appIdProp?.foreignKeyTargetEntity, 'Application');
+    assert.equal(appIdProp?.isForeignKey, false);
+    assert.equal(appIdProp?.foreignKeyTargetEntity, undefined);
 
     const managerIdProp = props.find(p => p.name === 'ManagerId');
     assert.equal(managerIdProp?.isForeignKey, false, 'ManagerId without matching navigation must NOT be an FK');
@@ -402,5 +402,237 @@ describe('EF Core Diagram Scanner & Storage (Precise PK/FK Detection Engine)', (
     assert.ok(entities.some(e => e.name === 'ActionCommandMappingSetting'), 'ActionCommandMappingSetting MUST be preserved from snapshot');
     assert.ok(entities.some(e => e.name === 'Application'), 'Application (unmigrated) MUST be included');
     assert.equal(entities.length, 3);
+  });
+
+  it('buildRelationships correctly produces self-referencing relationship when entity links to itself', () => {
+    const formEntity: EntityModel = {
+      id: 'Form',
+      name: 'Form',
+      tableName: 'forms',
+      filePath: '/src/Form.cs',
+      line: 1,
+      projectName: 'Domain',
+      properties: [
+        { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false },
+        { name: 'Name', type: 'string', isPrimaryKey: false, isForeignKey: false, isNullable: false, isNavigation: false },
+        {
+          name: 'ParentId',
+          type: 'int?',
+          isPrimaryKey: false,
+          isForeignKey: true,
+          isNullable: true,
+          foreignKeyTargetEntity: 'Form',
+          isNavigation: false
+        }
+      ]
+    };
+
+    const rels = buildRelationships([formEntity]);
+    assert.equal(rels.length, 1);
+    assert.equal(rels[0].fromEntity, 'Form');
+    assert.equal(rels[0].toEntity, 'Form');
+    assert.equal(rels[0].fromProperty, 'Id');
+    assert.equal(rels[0].toProperty, 'ParentId');
+  });
+
+  it('uses snapshot relationships exactly once and preserves distinct FKs between the same entities', () => {
+    const snapshotCode = `
+      [DbContext(typeof(AppDbContext))]
+      partial class AppDbContextModelSnapshot : ModelSnapshot
+      {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+          modelBuilder.Entity("App.Parent", b =>
+          {
+            b.Property<int>("Code");
+            b.HasKey("Code");
+            b.ToTable("parents");
+          });
+
+          modelBuilder.Entity("App.Child", b =>
+          {
+            b.Property<int>("Id");
+            b.Property<int>("ParentCode");
+            b.Property<int>("AlternateParentCode");
+            b.HasKey("Id");
+            b.ToTable("children");
+          });
+
+          modelBuilder.Entity("App.Child", b =>
+          {
+            b.HasOne("App.Parent", null)
+              .WithMany("Children")
+              .HasForeignKey("ParentCode")
+              .HasConstraintName("fk_child_parent");
+
+            b.HasOne("App.Parent", "AlternateParent")
+              .WithMany()
+              .HasForeignKey("AlternateParentCode")
+              .HasConstraintName("fk_child_alternate_parent");
+          });
+        }
+      }
+    `;
+    const snapshot = parseModelSnapshotFromCSharp(snapshotCode, '/src/AppDbContextModelSnapshot.cs');
+    assert.ok(snapshot);
+
+    const rawClasses = [
+      ...parseRawClassesFromCSharp(
+        `public class Parent { public int Code { get; set; } public ICollection<Child> Children { get; set; } }`,
+        '/src/Parent.cs',
+        'App'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class Child {
+          public int Id { get; set; }
+          public int ParentCode { get; set; }
+          public int AlternateParentCode { get; set; }
+          [ForeignKey("Parent")] public int PendingParentCode { get; set; }
+          public Parent Parent { get; set; }
+          public Parent AlternateParent { get; set; }
+        }`,
+        '/src/Child.cs',
+        'App'
+      )
+    ];
+
+    const model = buildDbContextScopedModel(
+      rawClasses,
+      [],
+      [{ dbContextName: 'AppDbContext', entityTypes: ['Parent', 'Child'] }],
+      [snapshot!]
+    );
+    const relationships = model.relationshipsByContext.AppDbContext;
+    assert.equal(relationships.length, 2);
+    assert.deepEqual(relationships.map(r => r.toProperty).sort(), ['AlternateParentCode', 'ParentCode']);
+
+    const parentRelationship = relationships.find(r => r.toProperty === 'ParentCode');
+    assert.equal(parentRelationship?.fromProperty, 'Code');
+    assert.equal(parentRelationship?.foreignKeyName, 'fk_child_parent');
+
+    const pendingProperty = model.entitiesByContext.AppDbContext
+      .find(e => e.name === 'Child')?.properties.find(p => p.name === 'PendingParentCode');
+    assert.equal(pendingProperty?.isUnmigrated, true);
+    assert.equal(pendingProperty?.isForeignKey, false);
+  });
+
+  it('merges partial class fragments deterministically', () => {
+    const first = parseRawClassesFromCSharp(
+      `public partial class Order { public int Id { get; set; } }`,
+      '/src/Order.Main.cs',
+      'App'
+    );
+    const second = parseRawClassesFromCSharp(
+      `public partial class Order { public string Number { get; set; } }`,
+      '/src/Order.Partial.cs',
+      'App'
+    );
+    const snapshot: any = {
+      dbContextName: 'AppDbContext',
+      filePath: '/src/AppDbContextModelSnapshot.cs',
+      entities: [{
+        fullName: 'App.Order',
+        shortName: 'Order',
+        tableName: 'orders',
+        primaryKeys: ['Id'],
+        properties: [
+          { name: 'Id', type: 'int', isPrimaryKey: true, isForeignKey: false, isNullable: false, isNavigation: false }
+        ],
+        relationships: []
+      }]
+    };
+    const dbContextSets = [{ dbContextName: 'AppDbContext', entityTypes: ['Order'] }];
+
+    const forward = buildDbContextScopedModel([...first, ...second], [], dbContextSets, [snapshot]);
+    const reversed = buildDbContextScopedModel([...second, ...first], [], dbContextSets, [snapshot]);
+    assert.deepEqual(forward, reversed);
+    assert.deepEqual(
+      forward.entitiesByContext.AppDbContext[0].properties.map(p => p.name),
+      ['Id', 'Number']
+    );
+  });
+
+  it('uses only explicit Data Annotation or Fluent API FKs without a snapshot', () => {
+    const conventionClasses = [
+      ...parseRawClassesFromCSharp(
+        `public class Parent { public int Id { get; set; } public ICollection<Child> Children { get; set; } }`,
+        '/src/Parent.cs',
+        'App'
+      ),
+      ...parseRawClassesFromCSharp(
+        `public class Child { public int Id { get; set; } public int ParentId { get; set; } public Parent Parent { get; set; } }`,
+        '/src/Child.cs',
+        'App'
+      )
+    ];
+    const dbContextSets = [{ dbContextName: 'AppDbContext', entityTypes: ['Parent', 'Child'] }];
+    const conventionModel = buildDbContextScopedModel(conventionClasses, [], dbContextSets, []);
+    assert.equal(conventionModel.relationshipsByContext.AppDbContext.length, 0);
+
+    const annotatedClasses = [
+      conventionClasses[0],
+      ...parseRawClassesFromCSharp(
+        `public class Child {
+          public int Id { get; set; }
+          public int ParentId { get; set; }
+          [ForeignKey(nameof(ParentId))] public Parent Parent { get; set; }
+        }`,
+        '/src/AnnotatedChild.cs',
+        'App'
+      )
+    ];
+    const annotationModel = buildDbContextScopedModel(annotatedClasses, [], dbContextSets, []);
+    assert.equal(annotationModel.relationshipsByContext.AppDbContext.length, 1);
+    assert.equal(annotationModel.relationshipsByContext.AppDbContext[0].toProperty, 'ParentId');
+
+    const fluentRules = parseFluentConfigurations(`
+      public class ChildConfiguration : IEntityTypeConfiguration<Child>
+      {
+        public void Configure(EntityTypeBuilder<Child> builder)
+        {
+          builder.HasOne(x => x.Parent)
+            .WithMany(x => x.Children)
+            .HasForeignKey(x => x.ParentId);
+        }
+      }
+    `);
+    const fluentModel = buildDbContextScopedModel(conventionClasses, fluentRules, dbContextSets, []);
+    assert.equal(fluentModel.relationshipsByContext.AppDbContext.length, 1);
+    assert.equal(fluentModel.relationshipsByContext.AppDbContext[0].toProperty, 'ParentId');
+  });
+
+  it('parsePropertiesFromBody rejects object initializers and factory return statements', () => {
+    const classBody = `
+      public int Id { get; set; }
+      public bool IsCreateIfNotExist { get; set; }
+
+      public static DbConnectionDynamicDataMappingSetting CreateDefault()
+      {
+          return new DbConnectionDynamicDataMappingSetting
+          {
+              IsCreateIfNotExist = true
+          };
+      }
+
+      public CustomDto ToDto()
+      {
+          return new CustomDto
+          {
+              Code = "test"
+          };
+      }
+    `;
+
+    const props = parsePropertiesFromBody(classBody, 'DbConnectionDynamicDataMappingSetting');
+    assert.equal(props.length, 2);
+    assert.equal(props[0].name, 'Id');
+    assert.equal(props[0].type, 'int');
+    assert.equal(props[1].name, 'IsCreateIfNotExist');
+    assert.equal(props[1].type, 'bool');
+
+    // Confirm ghost property with type 'return' or matching class name was rejected
+    assert.ok(!props.some(p => p.name === 'DbConnectionDynamicDataMappingSetting'));
+    assert.ok(!props.some(p => p.type === 'return'));
+    assert.ok(!props.some(p => p.name === 'CustomDto'));
   });
 });
