@@ -1,3 +1,29 @@
+# DotNav ERD — Self-Referencing Relationship UI
+
+**Trạng thái:** Đã triển khai, kiểm thử, đóng gói và cài local ngày 2026-09-22.
+
+## Nguyên nhân đã xác minh
+
+- Self-FK đi qua nhánh routing dành cho hai card chồng tọa độ, nên loop có thể vòng quá xa hoặc suy biến.
+- Row anchor dùng `offsetTop` nhưng không trừ `card-body.scrollTop`, khiến endpoint có thể nằm ngoài card.
+
+## Thay đổi đã duyệt
+
+1. Route self-FK riêng ở cạnh phải, hỗ trợ Curved và Orthogonal, giữ loop gọn và không suy biến.
+2. Tính anchor theo viewport của card, ghim field ngoài vùng scroll vào mép trên/dưới và cập nhật SVG khi scroll.
+3. Chỉ đăng ký self-relationship một lần trong adjacency index.
+4. Thêm focused tests, Chrome Headless E2E, smoke test Backend và chạy toàn bộ verification gates.
+
+## Kết quả xác minh
+
+- Focused self-loop tests: 5/5 pass; Curved, Orthogonal, minimized, non-self và scroll/clamp đều có regression proof.
+- Chrome Headless E2E pass: path cập nhật sau scroll và cả hai endpoint luôn nằm trong biên card.
+- Backend smoke: 14 self-FK; `Form -> Form:PublishFormId` đúng một quan hệ.
+- Full suite: 839 tests, 838 pass, 1 skip, 0 fail.
+- `npm run compile`, `npm test`, `npm run package:all`, `git diff --check` và cài `dist/dotnav.vsix --force` đều thành công.
+
+---
+
 # DotNav ERD — Authoritative Foreign Key Detection
 
 **Trạng thái:** Đã triển khai, kiểm thử, đóng gói và cài local ngày 2026-09-21.

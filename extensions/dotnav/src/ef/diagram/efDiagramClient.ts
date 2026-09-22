@@ -916,13 +916,19 @@ export function getEfDiagramClientScript(): string {
       let firstPkOffset = 42;
       let firstFkOffset = 42;
 
+      const cardBody = card.querySelector('.card-body');
+      const scrollTop = cardBody ? cardBody.scrollTop : 0;
+      const minOffset = 40;
+      const maxOffset = Math.max(minOffset, height - 12);
+
       card.querySelectorAll('.prop-row:not(.hidden-prop)').forEach(row => {
         const propName = row.dataset.propName;
-        const midY = row.offsetTop + row.offsetHeight / 2;
-        offsets[propName] = midY;
+        const midY = (row.offsetTop - scrollTop) + row.offsetHeight / 2;
+        const clampedY = Math.max(minOffset, Math.min(maxOffset, midY));
+        offsets[propName] = clampedY;
 
-        if (row.classList.contains('pk') && firstPkOffset === 42) firstPkOffset = midY;
-        if (row.classList.contains('fk') && firstFkOffset === 42) firstFkOffset = midY;
+        if (row.classList.contains('pk') && firstPkOffset === 42) firstPkOffset = clampedY;
+        if (row.classList.contains('fk') && firstFkOffset === 42) firstFkOffset = clampedY;
       });
 
       offsets['__pkDefault'] = firstPkOffset;
@@ -1086,6 +1092,15 @@ export function getEfDiagramClientScript(): string {
         e.stopPropagation();
         removeEntityFromCanvas(entity.name);
       });
+
+      // Card body scroll listener for 60FPS link pin tracking
+      const cardBody = card.querySelector('.card-body');
+      if (cardBody) {
+        cardBody.addEventListener('scroll', () => {
+          cacheCardLayout(entity.name);
+          scheduleSvgUpdate([entity.name]);
+        }, { passive: true });
+      }
 
       // Right-Click Context Menu on Card
       card.addEventListener('contextmenu', e => {
@@ -1947,15 +1962,71 @@ export function getEfDiagramClientScript(): string {
     const fromRowOffsetY = fromOffsets[fromTargetProp] !== undefined ? fromOffsets[fromTargetProp] : (fromOffsets['__pkDefault'] || 20);
     const toRowOffsetY = toOffsets[toTargetProp] !== undefined ? toOffsets[toTargetProp] : (toOffsets['__fkDefault'] || 20);
 
+    const isFromMin = cardSizeCache[rel.fromEntity]?.height <= 45 || minimizedCards.has(rel.fromEntity);
+    const isToMin = cardSizeCache[rel.toEntity]?.height <= 45 || minimizedCards.has(rel.toEntity);
+    const fromMinY = isFromMin ? 18 : 38;
+    const fromMaxY = Math.max(fromMinY, fromSize.height - 10);
+    const toMinY = isToMin ? 18 : 38;
+    const toMaxY = Math.max(toMinY, toSize.height - 10);
+
+    let safeFromOffsetY = Math.max(fromMinY, Math.min(fromMaxY, fromRowOffsetY));
+    let safeToOffsetY = Math.max(toMinY, Math.min(toMaxY, toRowOffsetY));
+
     const fromLeft = fromPos.x;
     const fromRight = fromPos.x + fromSize.width;
-    const fromCenterY = fromPos.y + fromRowOffsetY;
-
     const toLeft = toPos.x;
     const toRight = toPos.x + toSize.width;
-    const toCenterY = toPos.y + toRowOffsetY;
 
     let x1, y1, x2, y2, cx1, cy1, cx2, cy2;
+
+    // Special Case: Self-Referencing Relationship (same entity linking to itself)
+    if (rel.fromEntity === rel.toEntity) {
+      if (Math.abs(safeToOffsetY - safeFromOffsetY) < 24) {
+        if (safeToOffsetY >= safeFromOffsetY) {
+          safeToOffsetY = Math.min(fromMaxY, safeFromOffsetY + 24);
+          if (safeToOffsetY - safeFromOffsetY < 24) {
+            safeFromOffsetY = Math.max(fromMinY, safeToOffsetY - 24);
+          }
+        } else {
+          safeFromOffsetY = Math.min(fromMaxY, safeToOffsetY + 24);
+          if (safeFromOffsetY - safeToOffsetY < 24) {
+            safeToOffsetY = Math.max(fromMinY, safeFromOffsetY - 24);
+          }
+        }
+      }
+
+      x1 = fromRight;
+      y1 = fromPos.y + safeFromOffsetY;
+      x2 = fromRight;
+      y2 = toPos.y + safeToOffsetY;
+
+      const dy = Math.abs(y2 - y1);
+      const loopWidth = Math.max(40, Math.min(85, 28 + dy * 0.25));
+
+      let pathData;
+      if (lineStyle === 'orthogonal') {
+        const loopX = Math.round(fromRight + loopWidth);
+        pathData = \`M \${x1} \${y1} L \${loopX} \${y1} L \${loopX} \${y2} L \${x2} \${y2}\`;
+        cx1 = loopX;
+        cy1 = y1;
+        cx2 = loopX;
+        cy2 = y2;
+      } else {
+        cx1 = x1 + loopWidth;
+        cy1 = y1;
+        cx2 = x2 + loopWidth;
+        cy2 = y2;
+        pathData = \`M \${x1} \${y1} C \${cx1} \${cy1}, \${cx2} \${cy2}, \${x2} \${y2}\`;
+      }
+
+      return {
+        pathData,
+        x1, y1, x2, y2, cx1, cy1, cx2, cy2
+      };
+    }
+
+    const fromCenterY = fromPos.y + safeFromOffsetY;
+    const toCenterY = toPos.y + safeToOffsetY;
 
     y1 = fromCenterY;
     y2 = toCenterY;
@@ -2047,8 +2118,10 @@ export function getEfDiagramClientScript(): string {
         // Build adjacency index for selective 60FPS updates
         if (!relsByEntity[rel.fromEntity]) relsByEntity[rel.fromEntity] = [];
         relsByEntity[rel.fromEntity].push(rel);
-        if (!relsByEntity[rel.toEntity]) relsByEntity[rel.toEntity] = [];
-        relsByEntity[rel.toEntity].push(rel);
+        if (rel.fromEntity !== rel.toEntity) {
+          if (!relsByEntity[rel.toEntity]) relsByEntity[rel.toEntity] = [];
+          relsByEntity[rel.toEntity].push(rel);
+        }
 
         const geom = computeRelGeometry(rel);
         if (!geom) continue;
