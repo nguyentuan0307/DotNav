@@ -4,6 +4,14 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.5](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.4...dotnav-v0.32.5) (2026-09-22)
+
+
+### Bug Fixes
+
+* **erd:** make snapshot foreign keys authoritative ([c6758eb](https://github.com/nguyentuan0307/DotNav/commit/c6758eb82e4dadcad884e5b9f4c420c471a19e9c))
+
+
 ## [0.32.4](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.3...dotnav-v0.32.4) (2026-09-21)
 
 
