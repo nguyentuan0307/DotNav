@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EF_ACTION_HELP, actionHelpFor } from '../ef/efActionHelp';
 import { hasVietnameseTranslation, localizeEfText } from '../ef/efDialogI18n';
+import { efActionDefinitions } from '../ef/efActionRegistry';
 
 const actionIds = [
   'dotnav.ef.addMigration',
+  'dotnav.ef.createEmptyMigration',
   'dotnav.ef.removeLastMigration',
   'dotnav.ef.listMigrations',
   'dotnav.ef.updateDatabase',
@@ -18,6 +20,7 @@ const actionIds = [
 
 test('provides complete bilingual guidance for every EF Core Center action', () => {
   assert.deepEqual(Object.keys(EF_ACTION_HELP).sort(), [...actionIds].sort());
+  assert.deepEqual(Object.keys(EF_ACTION_HELP).sort(), efActionDefinitions.map(action => action.id).sort());
 
   for (const actionId of actionIds) {
     const help = actionHelpFor(actionId);
@@ -26,6 +29,10 @@ test('provides complete bilingual guidance for every EF Core Center action', () 
     assert.ok(help.purpose.vi.length > 20, `${actionId} needs a Vietnamese purpose`);
     assert.ok(help.whenToUse.length > 0, `${actionId} needs a usage scenario`);
     assert.ok(help.prerequisites.length > 0, `${actionId} needs prerequisites`);
+    assert.ok(help.steps.length >= 2 && help.steps.length <= 5, `${actionId} needs a short actionable sequence`);
+    for (const step of help.steps) {
+      assert.ok(step.en && step.vi, `${actionId} steps need both languages`);
+    }
     assert.ok(help.result.en.length > 20, `${actionId} needs an expected result`);
     assert.ok(help.result.vi.length > 20, `${actionId} needs a Vietnamese result`);
     assert.ok(Object.keys(help.fields).length > 0, `${actionId} needs field guidance`);

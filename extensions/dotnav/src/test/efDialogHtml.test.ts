@@ -293,13 +293,17 @@ test('renders bilingual guidance in an on-demand drawer without changing form va
 
   assert.ok(html.includes('class="help-open"'));
   assert.ok(html.includes('aria-expanded="false"'));
-  assert.ok(html.includes('class="help-backdrop"'));
+  assert.ok(!html.includes('help-backdrop'));
   assert.ok(html.includes('class="help-drawer"'));
-  assert.ok(html.includes('role="dialog" aria-modal="true"'));
+  assert.ok(html.includes('role="complementary"'));
+  assert.ok(!html.includes('aria-modal="true"'));
   assert.ok(html.includes('aria-hidden="true" inert'));
   assert.ok(html.includes('data-help-action="dotnav.ef.addMigration"'));
   assert.ok(html.includes('Hướng dẫn sử dụng'));
-  assert.ok(html.includes('Hướng dẫn các field'));
+  assert.ok(html.includes('Giải thích các ô nhập'));
+  assert.ok(html.includes('Cách thực hiện'));
+  assert.ok(html.includes('class="guide-steps"'));
+  assert.ok(html.includes('data-guide-field="name"'));
   assert.ok(html.includes('Tên migration'));
   assert.ok(html.includes('data-locale="en"'));
   assert.ok(html.includes('data-locale="vi"'));
@@ -310,20 +314,22 @@ test('renders bilingual guidance in an on-demand drawer without changing form va
   assert.ok(html.includes('value="Data"'), 'changing locale must not replace submitted values');
 });
 
-test('guide drawer supports close controls, Escape, F1, focus restoration, and focus trapping', () => {
+test('side guide keeps focus and form keyboard behavior independent', () => {
   const html = renderDialogHtml(
     { ...spec, actionId: 'dotnav.ef.addMigration' },
     'n',
     'c'
   );
 
-  assert.ok(html.includes("helpOpenButton.addEventListener('click', openHelp)"));
+  assert.ok(html.includes("helpOpenButton.addEventListener('click'"));
   assert.ok(html.includes("helpCloseButton.addEventListener('click'"));
-  assert.ok(html.includes("helpBackdrop.addEventListener('click'"));
+  assert.ok(!html.includes('helpBackdrop'));
   assert.ok(html.includes("event.key === 'Escape' && isHelpOpen()"));
   assert.ok(html.includes("event.key === 'F1' && helpDrawer"));
-  assert.ok(html.includes('helpPreviouslyFocused'));
-  assert.ok(html.includes("event.key !== 'Tab'"));
+  assert.ok(html.includes('focusInGuide'));
+  assert.ok(!html.includes("event.key !== 'Tab'"));
+  assert.ok(html.includes("form.contains(event.target) && event.target.tagName === 'INPUT'"));
+  assert.ok(html.includes("form.addEventListener('focusin'"));
   assert.ok(html.includes("helpDrawer.setAttribute('inert', '')"));
 });
 

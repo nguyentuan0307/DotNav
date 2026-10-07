@@ -7,6 +7,7 @@ export interface EfFieldHelp {
 
 export interface EfActionHelp {
   readonly purpose: LocalizedText;
+  readonly steps: readonly LocalizedText[];
   readonly whenToUse: readonly LocalizedText[];
   readonly prerequisites: readonly LocalizedText[];
   readonly fields: Readonly<Record<string, EfFieldHelp>>;
@@ -17,29 +18,29 @@ export interface EfActionHelp {
 const commonFields: Readonly<Record<string, EfFieldHelp>> = {
   project: {
     description: localized(
-      'The class library that owns the DbContext, migration files, and model snapshot.',
-      'Class library chứa DbContext, các file migration và model snapshot.'
+      'Choose the project where EF reads or writes migration/model files. This can be your app or a separate library; it does not have to be the startup project.',
+      'Chọn project chứa các file migration/model cần đọc hoặc tạo. Có thể là ứng dụng hoặc thư viện riêng, không nhất thiết trùng project khởi động.'
     ),
     example: localized('MyApp.Infrastructure', 'MyApp.Infrastructure')
   },
   startup: {
     description: localized(
-      'The executable project EF Core builds to load configuration, dependency injection, and design-time services.',
-      'Project thực thi mà EF Core build để tải cấu hình, dependency injection và design-time services.'
+      'Choose the project EF starts to load configuration and create the DbContext, usually your API or console app. It can be the same as the migrations project.',
+      'Chọn project EF chạy để đọc cấu hình và tạo DbContext, thường là API hoặc console app. Có thể chọn cùng project chứa migration.'
     ),
     example: localized('MyApp.Api', 'MyApp.Api')
   },
   context: {
     description: localized(
-      'The DbContext this operation targets. Always verify it in solutions with more than one context.',
-      'DbContext mà thao tác sẽ sử dụng. Luôn kiểm tra kỹ khi solution có nhiều DbContext.'
+      'DbContext is the C# class that defines which entities and database settings EF uses. Choose the one whose migrations you want to work with.',
+      'DbContext là lớp C# xác định các entity và cấu hình database mà EF dùng. Chọn đúng DbContext có migration bạn muốn thao tác.'
     ),
     example: localized('ApplicationDbContext', 'ApplicationDbContext')
   },
   connection: {
     description: localized(
-      'Optional one-time connection override. It is kept only while the Center is open and is never saved by DotNav.',
-      'Chuỗi kết nối ghi đè dùng một lần. DotNav chỉ giữ khi Center đang mở và không lưu lại.'
+      'Leave empty to use the app connection; fill this to target another database. DotNav does not save it to project/settings files. Test Connection checks reachability, not login permissions or applied migrations.',
+      'Để trống để dùng kết nối ứng dụng; nhập để chọn database khác. DotNav không ghi vào project/settings. Thử kết nối (Test Connection) chỉ kiểm tra khả năng truy cập, không xác minh đăng nhập hay migration đã áp dụng.'
     ),
     example: localized(
       'Name=ConnectionStrings:Default or Server=...;Database=...',
@@ -48,8 +49,8 @@ const commonFields: Readonly<Record<string, EfFieldHelp>> = {
   },
   configuration: {
     description: localized(
-      'The MSBuild configuration used by dotnet ef.',
-      'Cấu hình MSBuild được dotnet ef sử dụng.'
+      'Choose how to build the project, usually Debug for local work. Debug/Release is a build configuration, not the ASP.NET Core environment or database selection.',
+      'Chọn cấu hình build, thường dùng Debug khi làm việc local. Debug/Release không phải môi trường ASP.NET Core và không tự chọn database.'
     ),
     example: localized('Debug or Release', 'Debug hoặc Release')
   },
@@ -61,10 +62,10 @@ const commonFields: Readonly<Record<string, EfFieldHelp>> = {
   },
   extraArgs: {
     description: localized(
-      'Optional arguments not already managed by this form. Shell operators and duplicate managed options are rejected.',
-      'Các tham số bổ sung chưa được form quản lý. Shell operator và option trùng sẽ bị từ chối.'
+      'Leave empty for normal use. Add supported dotnet ef options only when needed; use the form for project, context and connection instead of repeating those options.',
+      'Thường để trống. Chỉ thêm option của dotnet ef khi cần; project, context và connection phải chọn bằng form, không nhập lại ở đây.'
     ),
-    example: localized('--namespace MyApp.Data.Migrations', '--namespace MyApp.Data.Migrations')
+    example: localized('--verbose', '--verbose')
   }
 };
 
@@ -77,8 +78,8 @@ function withCommon(
 export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
   'dotnav.ef.addMigration': {
     purpose: localized(
-      'Creates migration source files that describe the difference between the current EF model and the latest model snapshot.',
-      'Tạo các file migration mô tả khác biệt giữa EF model hiện tại và model snapshot mới nhất.'
+      'A migration records a database-structure change in C# files. This action compares your entity mappings with the saved model snapshot and creates the next migration; it does not apply it.',
+      'Migration ghi lại thay đổi cấu trúc database bằng file C#. Thao tác này so sánh cấu hình entity với bản model đã lưu (snapshot) để tạo migration mới, chưa cập nhật database.'
     ),
     whenToUse: [
       localized(
@@ -100,6 +101,20 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Startup project phải khởi tạo được DbContext đã chọn ở design time.'
       )
     ],
+    steps: [
+      localized(
+        "Choose the migrations project, startup project and DbContext. Keep Skip build off after editing entities.",
+        "Chọn project chứa migration, project khởi động và DbContext. Để tắt Skip build nếu vừa sửa entity."
+      ),
+      localized(
+        "Enter a new descriptive name, such as AddOrderStatus. Click Create Migration.",
+        "Nhập tên mới mô tả thay đổi, ví dụ AddOrderStatus. Bấm Tạo migration (Create Migration)."
+      ),
+      localized(
+        "Read the generated Up (apply) and Down (undo) methods. Use Update Database later when you are ready to apply them.",
+        "Đọc hàm Up (áp dụng) và Down (hoàn tác) được tạo. Khi đã kiểm tra xong, dùng Cập nhật cơ sở dữ liệu (Update Database) để áp dụng."
+      )
+    ],
     fields: withCommon({
       name: {
         description: localized(
@@ -118,6 +133,30 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       'Hãy kiểm tra kỹ các hàm Up và Down trước khi apply migration lên database.'
     )
   },
+  'dotnav.ef.createEmptyMigration': {
+    purpose: localized(
+      'Creates empty migration files for changes you will write yourself, such as custom SQL or data updates. It does not discover entity changes or run dotnet ef.',
+      'Tạo file migration rỗng để bạn tự viết thay đổi, như SQL riêng hoặc cập nhật dữ liệu. Thao tác này không tự tìm thay đổi entity và không chạy dotnet ef.'
+    ),
+    whenToUse: [localized('For a manual migration; use Add Migration for automatic entity/schema changes.', 'Dùng khi cần viết migration thủ công; dùng Add Migration nếu muốn tự sinh thay đổi từ entity.')],
+    prerequisites: [localized('Know what code to write in Up and how to undo it in Down.', 'Biết nội dung cần viết trong Up và cách hoàn tác trong Down.')],
+    steps: [
+      localized('Choose project and DbContext, then enter a new migration name.', 'Chọn project và DbContext, rồi nhập tên migration mới.'),
+      localized('Click Create. Write the required operations in Up and the reverse operations in Down.', 'Bấm Tạo (Create). Viết các thao tác trong Up và thao tác ngược lại trong Down.'),
+      localized('Review and test your code before using Update Database to apply it.', 'Kiểm tra và thử code trước khi dùng Update Database để áp dụng.')
+    ],
+    fields: {
+      project: commonFields.project,
+      context: commonFields.context,
+      name: { description: localized('A unique name for this manual change, without spaces or a timestamp.', 'Tên duy nhất mô tả thay đổi thủ công, không có khoảng trắng hoặc timestamp.'), example: localized('SeedMasterData', 'SeedMasterData') },
+      startup: { description: localized('Not used by this source-only action; it does not build or start your application.', 'Thao tác chỉ tạo file này không dùng project khởi động, không build hoặc chạy ứng dụng.') },
+      configuration: { description: localized('Not used; this action does not build.', 'Không dùng; thao tác này không build.') },
+      noBuild: { description: localized('Not used; no build is performed regardless of this switch.', 'Không dùng; thao tác này không build dù bật hay tắt.') },
+      extraArgs: { description: localized('Not used; this action does not run dotnet ef.', 'Không dùng; thao tác này không chạy dotnet ef.') }
+    },
+    result: localized('Empty migration and designer files are created and the migration opens for editing. The database is unchanged.', 'File migration rỗng và designer được tạo; migration mở để bạn sửa. Database chưa thay đổi.'),
+    caution: localized('An empty migration does nothing until you fill it in. It is not a replacement for automatically capturing entity changes.', 'Migration rỗng chưa làm gì cho tới khi bạn điền code. Nó không thay thế việc tự sinh migration từ thay đổi entity.')
+  },
   'dotnav.ef.removeLastMigration': {
     purpose: localized(
       'Removes the newest migration files and restores the model snapshot to its previous state.',
@@ -135,11 +174,25 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Nếu migration đã được apply, hãy rollback database về migration trước đó trước.'
       )
     ],
+    steps: [
+      localized(
+        "Choose the project and DbContext. Read the status to confirm exactly which last migration will be removed.",
+        "Chọn project và DbContext. Đọc trạng thái để xác nhận chính xác migration cuối sẽ bị xóa."
+      ),
+      localized(
+        "Normally keep Force and Offline off. If the migration was applied, roll the database back to the previous migration first.",
+        "Thường để tắt Force và Offline. Nếu migration đã áp dụng, rollback database về migration trước đó trước."
+      ),
+      localized(
+        "Click Remove. Inspect the changed migration files and snapshot in source control.",
+        "Bấm Xóa (Remove). Kiểm tra các file migration và snapshot thay đổi trong Git."
+      )
+    ],
     fields: withCommon({
       force: {
         description: localized(
-          'Forces removal when EF Core believes the migration may already be applied. Use only after verifying the database state.',
-          'Buộc xóa khi EF Core cho rằng migration có thể đã được apply. Chỉ dùng sau khi xác minh trạng thái database.'
+          'Can roll back the latest migration on the database as well as remove its files. If the database connection fails, EF may still remove only the files. Leave off unless you understand both effects.',
+          'Có thể rollback migration cuối trên database rồi xóa file. Nếu kết nối database lỗi, EF vẫn có thể chỉ xóa file. Để tắt nếu bạn chưa hiểu rõ cả hai tác động.'
         )
       },
       offline: {
@@ -175,19 +228,33 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Project đã chọn phải có các file migration.'
       )
     ],
+    steps: [
+      localized(
+        "Choose the project and DbContext whose migration history you want to read.",
+        "Chọn project và DbContext có lịch sử migration cần xem."
+      ),
+      localized(
+        "Click Open Migration Browser, then search by migration name.",
+        "Bấm Mở danh sách migration (Open Migration Browser), rồi tìm theo tên."
+      ),
+      localized(
+        "Select a row to choose an action. When opening Update Database or Generate SQL, check the target in that form before running.",
+        "Chọn một dòng để chọn thao tác. Nếu mở Update Database hoặc Generate SQL, kiểm tra lại migration đích trong form trước khi chạy."
+      )
+    ],
     fields: {
       project: commonFields.project,
       context: commonFields.context
     },
     result: localized(
-      'DotNav opens a searchable migration picker. Select an item to open its source file or use its copy button.',
-      'DotNav mở danh sách migration có tìm kiếm. Chọn một item để mở source hoặc dùng nút sao chép tên.'
+      'A searchable list opens. Select a migration to choose an action, or use its row buttons to open the file or copy its name. Browsing alone does not update the database.',
+      'Danh sách có ô tìm kiếm sẽ mở. Chọn migration để xem các thao tác, hoặc dùng nút trên dòng để mở file/sao chép tên. Chỉ duyệt danh sách không cập nhật database.'
     )
   },
   'dotnav.ef.updateDatabase': {
     purpose: localized(
-      'Applies pending migrations or rolls the target database backward to a selected migration.',
-      'Apply các migration đang chờ hoặc rollback database đích về migration đã chọn.'
+      'Changes the database structure to match a migration: applies missing changes or undoes later changes when you choose an older target.',
+      'Đưa cấu trúc database tới một migration: áp dụng thay đổi còn thiếu, hoặc hoàn tác các thay đổi sau nó khi chọn đích cũ hơn.'
     ),
     whenToUse: [
       localized(
@@ -209,18 +276,36 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Sao lưu dữ liệu quan trọng trước mọi thao tác rollback.'
       )
     ],
+    steps: [
+      localized(
+        "Choose project, startup project and DbContext. Leave Connection string empty to use app settings, or enter the intended database connection.",
+        "Chọn project, project khởi động và DbContext. Để trống Chuỗi kết nối để dùng cấu hình ứng dụng, hoặc nhập kết nối tới database cần thao tác."
+      ),
+      localized(
+        "For existing migrations, keep --add off if shown. Leave Target migration empty for latest, or select a target deliberately.",
+        "Khi dùng migration đã có, để tắt --add nếu thấy tùy chọn này. Để trống Migration đích để tới bản mới nhất, hoặc chủ động chọn một bản đích."
+      ),
+      localized(
+        "Click Check database. This reads applied migrations without applying them. Up to Date means no change is needed for the chosen target.",
+        "Bấm Kiểm tra database (Check database). Nút này chỉ đọc migration đã áp dụng, chưa cập nhật. Up to Date nghĩa là không cần thay đổi để tới đích đã chọn."
+      ),
+      localized(
+        "Review the Update/Apply/Revert label before clicking. If Check fails or cannot determine the state, inspect Output and the connection before deciding to run Update.",
+        "Đọc nhãn Cập nhật/Apply/Revert trước khi bấm. Nếu Check lỗi hoặc chưa xác định được trạng thái, xem Output và kết nối trước khi quyết định chạy Update."
+      )
+    ],
     fields: withCommon({
       target: {
         description: localized(
-          'Leave empty to apply through the latest migration. Select an older migration to roll back, or enter 0 to remove every migration.',
-          'Để trống để apply tới migration mới nhất. Chọn migration cũ để rollback, hoặc nhập 0 để gỡ toàn bộ migration.'
+          'Normally leave empty to apply all pending migrations. Choosing an earlier migration reverts every later applied migration; 0 reverts all. With --add enabled, enter a new migration name instead.',
+          'Thường để trống để áp dụng các migration còn thiếu. Chọn migration cũ sẽ rollback các migration đã áp dụng sau nó; 0 rollback tất cả. Khi bật --add, ô này là tên migration mới.'
         ),
-        example: localized('20260724090000_AddOrders or 0', '20260724090000_AddOrders hoặc 0')
+        example: localized('AddOrders or 0', 'AddOrders hoặc 0')
       },
       add: {
         description: localized(
-          'EF Core 11+: creates a migration from pending model changes and applies it in one operation.',
-          'EF Core 11+: tạo migration từ các thay đổi model đang chờ và apply trong một thao tác.'
+          'EF Core 11+: creates and applies a new migration in one run. You must enter a unique new name in Target migration; turn this off to apply existing migrations.',
+          'EF Core 11+: tạo và áp dụng migration mới trong một lần chạy. Phải nhập tên mới, không trùng, vào Target migration; tắt để áp dụng migration đã có.'
         )
       },
       outputDir: {
@@ -243,8 +328,8 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       'Schema database được đưa tới migration yêu cầu và output hiển thị từng bước apply hoặc rollback.'
     ),
     caution: localized(
-      'This operation changes the database. Rolling back can drop tables, columns, and data.',
-      'Thao tác này thay đổi database. Rollback có thể xóa bảng, cột và dữ liệu.'
+      'This changes the database. Rollback can drop tables, columns and data. Cancel stops the command but does not undo completed changes; run Check database again afterwards.',
+      'Thao tác này thay đổi database. Rollback có thể xóa bảng, cột và dữ liệu. Hủy chỉ dừng lệnh, không hoàn tác phần đã chạy; hãy dùng Check database để kiểm tra lại.'
     )
   },
   'dotnav.ef.pendingModelChanges': {
@@ -264,14 +349,28 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Yêu cầu EF Core 8 trở lên và project build thành công.'
       )
     ],
+    steps: [
+      localized(
+        "Choose the migrations project, startup project and DbContext after saving your entity changes.",
+        "Lưu các thay đổi entity, rồi chọn project chứa migration, project khởi động và DbContext."
+      ),
+      localized(
+        "Click Check Model and read the result or Output.",
+        "Bấm Kiểm tra model (Check Model) và đọc kết quả hoặc Output."
+      ),
+      localized(
+        "If changes are pending, use Add Migration. If the model is synchronized, this check alone does not mean the database is up to date.",
+        "Nếu còn thay đổi, dùng Thêm migration (Add Migration). Nếu model đã đồng bộ, kết quả này chưa khẳng định database đã được cập nhật."
+      )
+    ],
     fields: withCommon({}),
     result: localized(
       'DotNav reports either that the model is synchronized or that pending changes require a new migration.',
       'DotNav báo model đã đồng bộ hoặc còn thay đổi cần tạo migration mới.'
     ),
     caution: localized(
-      'This builds the project but does not connect to or modify a database.',
-      'Thao tác này build project nhưng không kết nối hoặc thay đổi database.'
+      'This compares model definitions, not the migrations applied to a database. Use Check database in Update Database to inspect applied migrations. It does not apply schema changes.',
+      'Đây là kiểm tra định nghĩa model, không phải migration đã áp dụng trên database. Muốn kiểm tra migration đã áp dụng, dùng Check database trong Update Database. Thao tác này không áp dụng thay đổi schema.'
     )
   },
   'dotnav.ef.dbContextInfo': {
@@ -289,6 +388,20 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       localized(
         'The startup project configuration must allow the DbContext to be created at design time.',
         'Cấu hình startup project phải cho phép tạo DbContext ở design time.'
+      )
+    ],
+    steps: [
+      localized(
+        "Choose the project, startup project and DbContext to inspect.",
+        "Chọn project, project khởi động và DbContext cần xem."
+      ),
+      localized(
+        "Click Read Info. Read the provider (for example SQL Server), database name and server/data source.",
+        "Bấm Đọc thông tin (Read Info). Xem provider (ví dụ SQL Server), tên database và server/data source."
+      ),
+      localized(
+        "Use these details to check app configuration; this action does not test login permissions or list applied migrations.",
+        "Dùng thông tin này để đối chiếu cấu hình ứng dụng; thao tác này không kiểm tra quyền đăng nhập hoặc liệt kê migration đã áp dụng."
       )
     ],
     fields: withCommon({}),
@@ -314,25 +427,39 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Project và DbContext đã chọn phải chứa các migration trong khoảng yêu cầu.'
       )
     ],
+    steps: [
+      localized(
+        "Choose the project, startup project and DbContext.",
+        "Chọn project, project khởi động và DbContext."
+      ),
+      localized(
+        "Choose From as the current database state and To as the desired state. Empty From means before the first migration; empty To means latest. A newer From than To generates rollback SQL.",
+        "Chọn From là trạng thái database hiện tại, To là trạng thái muốn đạt tới. From trống là trước migration đầu; To trống là mới nhất. From mới hơn To sẽ tạo SQL rollback."
+      ),
+      localized(
+        "Optionally choose an output file, then click Generate. Review the SQL before anyone runs it on a database.",
+        "Có thể chọn file lưu, rồi bấm Tạo SQL (Generate). Kiểm tra SQL trước khi chạy lên database."
+      )
+    ],
     fields: withCommon({
       from: {
         description: localized(
-          'The starting migration is exclusive: its SQL is not included. Leave empty to start from an empty database.',
-          'Migration bắt đầu không được bao gồm trong SQL. Để trống để bắt đầu từ database rỗng.'
+          'The last migration already applied before running the script. Leave empty for a database with no migrations applied. For example, From AddOrders to Init undoes AddOrders using its Down method.',
+          'Migration cuối đã áp dụng trước khi chạy script. Để trống nếu database chưa áp dụng migration nào. Ví dụ From AddOrders tới Init sẽ hoàn tác AddOrders bằng hàm Down của nó.'
         ),
         example: localized('InitialCreate', 'InitialCreate')
       },
       to: {
         description: localized(
-          'The ending migration is inclusive. Leave empty to generate through the latest migration.',
-          'Migration kết thúc được bao gồm. Để trống để tạo SQL tới migration mới nhất.'
+          'The migration that should remain applied after the script. Leave empty for the latest. Init to AddOrders applies AddOrders.Up; AddOrders to Init keeps Init and reverts later migrations.',
+          'Migration cần được giữ ở trạng thái đã áp dụng sau script. Để trống để tới mới nhất. Init tới AddOrders chạy AddOrders.Up; AddOrders tới Init giữ Init và rollback các migration sau nó.'
         ),
         example: localized('AddOrderStatus', 'AddOrderStatus')
       },
       idempotent: {
         description: localized(
-          'Adds migration-history checks so one script can safely target databases currently at different migrations.',
-          'Thêm kiểm tra lịch sử migration để một script có thể chạy an toàn trên các database đang ở migration khác nhau.'
+          'Checks migration history before each change and skips migrations already applied. Provider support varies; review the SQL, target database and backup before executing it.',
+          'Kiểm tra lịch sử trước mỗi thay đổi và bỏ qua migration đã áp dụng. Khả năng hỗ trợ tùy provider; vẫn cần kiểm tra SQL, database đích và bản sao lưu trước khi chạy.'
         )
       },
       output: {
@@ -367,6 +494,20 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       localized(
         'Requires an EF Core version that supports migration bundles and a successful Release-compatible build.',
         'Yêu cầu phiên bản EF Core hỗ trợ migration bundle và project có thể build thành công.'
+      )
+    ],
+    steps: [
+      localized(
+        "Choose the project, startup project and DbContext that contain the reviewed migrations.",
+        "Chọn project, project khởi động và DbContext có các migration đã kiểm tra."
+      ),
+      localized(
+        "Enter an output path. Choose a runtime such as linux-x64 if targeting another platform; enable Self-contained if that machine lacks .NET.",
+        "Nhập đường dẫn output. Chọn runtime như linux-x64 nếu máy đích khác nền tảng; bật Self-contained nếu máy đó chưa cài .NET."
+      ),
+      localized(
+        "Click Create Bundle. Building it does not apply migrations; running the resulting executable later can update a database.",
+        "Bấm Tạo bundle (Create Bundle). Việc tạo file chưa áp dụng migration; chạy file thực thi đó sau này có thể cập nhật database."
       )
     ],
     fields: withCommon({
@@ -419,6 +560,20 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
         'Chỉ dùng với phiên bản EF Core được hỗ trợ và commit source được tạo cùng ứng dụng.'
       )
     ],
+    steps: [
+      localized(
+        "Choose project, startup project and DbContext. Keep advanced switches off for a basic compiled model.",
+        "Chọn project, project khởi động và DbContext. Để tắt các tùy chọn nâng cao khi tạo compiled model cơ bản."
+      ),
+      localized(
+        "Choose an output directory, such as CompiledModels, then click Generate Optimized Model.",
+        "Chọn thư mục output, ví dụ CompiledModels, rồi bấm Tạo model tối ưu (Generate Optimized Model)."
+      ),
+      localized(
+        "Follow EF output to configure UseModel(...) in your app. Rebuild and measure startup; regenerate whenever entity mappings change.",
+        "Làm theo Output của EF để cấu hình UseModel(...) trong ứng dụng. Build lại và đo thời gian khởi động; tạo lại khi cấu hình entity thay đổi."
+      )
+    ],
     fields: withCommon({
       outputDir: {
         description: localized(
@@ -459,8 +614,8 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       }
     }),
     result: localized(
-      'Compiled model source files are generated in the selected output directory.',
-      'Các file source compiled model được tạo trong thư mục output đã chọn.'
+      'Generated files appear in the output directory. Follow the UseModel(...) setup reported by EF to use the compiled model; creating files alone does not activate it. With --no-scaffold, the existing model is not regenerated.',
+      'Các file được tạo trong thư mục output. Làm theo cấu hình UseModel(...) mà EF hướng dẫn để dùng compiled model; chỉ tạo file chưa kích hoạt nó. Khi bật --no-scaffold, model cũ không được tạo lại.'
     ),
     caution: localized(
       'Regenerate the compiled model whenever entity mappings change.',
@@ -486,6 +641,20 @@ export const EF_ACTION_HELP: Readonly<Record<string, EfActionHelp>> = {
       localized(
         'Create a backup if any data may be needed later.',
         'Tạo backup nếu có bất kỳ dữ liệu nào có thể cần dùng lại.'
+      )
+    ],
+    steps: [
+      localized(
+        "Choose the project, startup project and DbContext. Verify the connection points to a disposable database.",
+        "Chọn project, project khởi động và DbContext. Xác minh kết nối trỏ tới database có thể xóa bỏ."
+      ),
+      localized(
+        "Click Identify database. Check both server and database name, then type the returned database name exactly in the confirmation field.",
+        "Bấm Xác định database (Identify database). Kiểm tra cả server và tên database, rồi nhập đúng tên được trả về vào ô xác nhận."
+      ),
+      localized(
+        "Click Drop Database only after confirming deletion is intended. Every table and all data in that database will be removed.",
+        "Chỉ bấm Xóa cơ sở dữ liệu (Drop Database) sau khi đã xác nhận muốn xóa. Toàn bộ bảng và dữ liệu trong database đó sẽ bị xóa."
       )
     ],
     fields: withCommon({

@@ -219,8 +219,9 @@ function iconSvg(name: IconName): string {
   return `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${paths[name]}"></path></svg>`;
 }
 
-function renderGuideList(items: readonly LocalizedText[], locale: EfLocale): string {
-  return `<ul>${items.map(item => `<li>${localizedCopyHtml(item, locale)}</li>`).join('')}</ul>`;
+function renderGuideList(items: readonly LocalizedText[], locale: EfLocale, ordered = false): string {
+  const tag = ordered ? 'ol' : 'ul';
+  return `<${tag}>${items.map(item => `<li>${localizedCopyHtml(item, locale)}</li>`).join('')}</${tag}>`;
 }
 
 function renderUsageGuide(spec: EfDialogSpec, locale: EfLocale): string {
@@ -235,22 +236,20 @@ function renderUsageGuide(spec: EfDialogSpec, locale: EfLocale): string {
       return '';
     }
 
-    return `<div class="guide-field">
-      <div class="guide-field-heading">
+    return `<details class="guide-field" data-guide-field="${escapeHtml(field.id)}">
+      <summary class="guide-field-heading">
         ${localizedTextHtml(field.label, locale, 'guide-field-name')}
-        ${localizedTextHtml(field.required ? 'Required' : 'Optional', locale,
-          `field-badge ${field.required ? 'required' : 'optional'}`)}
-      </div>
+        ${field.required ? localizedTextHtml('Required', locale, 'field-badge required') : ''}
+      </summary>
       <p>${localizedCopyHtml(fieldHelp.description, locale)}</p>
       ${fieldHelp.example
         ? `<p class="guide-example"><strong>${localizedTextHtml('Example', locale)}:</strong> ` +
           `${localizedCopyHtml(fieldHelp.example, locale)}</p>`
         : ''}
-    </div>`;
+    </details>`;
   }).join('');
 
-  return `<div class="help-backdrop" id="help-backdrop" aria-hidden="true"></div>
-  <aside class="help-drawer" id="help-drawer" role="dialog" aria-modal="true"
+  return `<aside class="help-drawer" id="help-drawer" role="complementary"
     aria-labelledby="help-drawer-title help-action-title" aria-hidden="true" inert
     data-help-action="${escapeHtml(spec.actionId ?? '')}">
     <header class="help-drawer-header">
@@ -274,28 +273,33 @@ function renderUsageGuide(spec: EfDialogSpec, locale: EfLocale): string {
         <h2>${localizedTextHtml('What this does', locale)}</h2>
         <p>${localizedCopyHtml(help.purpose, locale)}</p>
       </section>
-      <div class="guide-columns">
-        <section>
-          <h2>${localizedTextHtml('When to use it', locale)}</h2>
-          ${renderGuideList(help.whenToUse, locale)}
-        </section>
-        <section>
-          <h2>${localizedTextHtml('Before you run', locale)}</h2>
-          ${renderGuideList(help.prerequisites, locale)}
-        </section>
-      </div>
-      ${fieldRows
-        ? `<section class="field-guide"><h2>${localizedTextHtml('Field guide', locale)}</h2>${fieldRows}</section>`
-        : ''}
-      <section class="guide-result">
-        <h2>${localizedTextHtml('Expected result', locale)}</h2>
-        <p>${localizedCopyHtml(help.result, locale)}</p>
+      <section class="guide-steps">
+        <h2>${localizedTextHtml('Steps to follow', locale)}</h2>
+        ${renderGuideList(help.steps, locale, true)}
       </section>
       ${help.caution
         ? `<section class="guide-caution">
           <h2>${localizedTextHtml('Safety note', locale)}</h2>
           <p>${localizedCopyHtml(help.caution, locale)}</p>
         </section>`
+        : ''}
+      <section class="guide-result">
+        <h2>${localizedTextHtml('Expected result', locale)}</h2>
+        <p>${localizedCopyHtml(help.result, locale)}</p>
+      </section>
+      <details class="guide-background">
+        <summary>${localizedTextHtml('Before you run', locale)}</summary>
+        <section>
+          <h2>${localizedTextHtml('When to use it', locale)}</h2>
+          ${renderGuideList(help.whenToUse, locale)}
+        </section>
+        <section>
+          <h2>${localizedTextHtml('What you need', locale)}</h2>
+          ${renderGuideList(help.prerequisites, locale)}
+        </section>
+      </details>
+      ${fieldRows
+        ? `<section class="field-guide"><h2>${localizedTextHtml('Field guide', locale)}</h2>${fieldRows}</section>`
         : ''}
     </div>
   </aside>`;
@@ -474,8 +478,8 @@ export function renderDialogHtml(
     </div>
   </div>
 </main>
-</div>
 ${usageGuide}
+</div>
 <script nonce="${nonce}">
 ${renderEfDialogClientScript(escapeJson(optionMap), escapeJson(initialLocale))}
 </script>

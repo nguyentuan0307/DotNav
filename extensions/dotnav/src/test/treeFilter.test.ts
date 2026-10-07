@@ -4,26 +4,9 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
 import { readFileSync } from 'fs';
-import { readDirectoryNodes, hasMatchingFileDescendant } from '../fileTree';
+import { readDirectoryNodes } from '../fileTree';
 
-test('hasMatchingFileDescendant correctly identifies matching files in subdirectories', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-filter-test-'));
-  try {
-    const subDir = path.join(tmpDir, 'Services', 'CustomApp');
-    await fs.mkdir(subDir, { recursive: true });
-    await fs.writeFile(path.join(subDir, 'RecordAppearanceService.cs'), '// code');
-
-    const hasMatch = await hasMatchingFileDescendant(tmpDir, 'recordappearance');
-    const noMatch = await hasMatchingFileDescendant(tmpDir, 'nonexistentxyz');
-
-    assert.strictEqual(hasMatch, true);
-    assert.strictEqual(noMatch, false);
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  }
-});
-
-test('readDirectoryNodes filters entries when filterText is provided', async () => {
+test('readDirectoryNodes correctly reads entries from directory', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dotnav-readdir-test-'));
   try {
     const subDir1 = path.join(tmpDir, 'Services');
@@ -33,14 +16,12 @@ test('readDirectoryNodes filters entries when filterText is provided', async () 
     await fs.writeFile(path.join(subDir1, 'RecordService.cs'), '// code');
     await fs.writeFile(path.join(subDir2, 'Unrelated.cs'), '// code');
 
-    // Filter for "Record"
-    const filteredNodes = await readDirectoryNodes(tmpDir, tmpDir, undefined, 'record');
-    assert.strictEqual(filteredNodes.length, 1);
-    assert.strictEqual(filteredNodes[0].label, 'Services');
-    assert.strictEqual(filteredNodes[0].collapsibleState, 2); // Expanded
+    const nodes = await readDirectoryNodes(tmpDir, tmpDir, undefined);
+    assert.strictEqual(nodes.length, 2);
+    const labels = nodes.map(n => n.label).sort();
+    assert.deepStrictEqual(labels, ['Other', 'Services']);
 
-    // Filter inside subDir1 for "Record"
-    const fileNodes = await readDirectoryNodes(subDir1, tmpDir, undefined, 'record');
+    const fileNodes = await readDirectoryNodes(subDir1, tmpDir, undefined);
     assert.strictEqual(fileNodes.length, 1);
     assert.strictEqual(fileNodes[0].label, 'RecordService.cs');
   } finally {
@@ -48,27 +29,14 @@ test('readDirectoryNodes filters entries when filterText is provided', async () 
   }
 });
 
-test('package.json contributes filter and clear filter commands with keybindings', () => {
+test('package.json does not contribute obsolete filter commands, preserves standard navigation', () => {
   const manifest = JSON.parse(readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
 
   const searchCmd = manifest.contributes.commands.find((c: any) => c.command === 'dotnav.searchSolutionTree');
   const clearCmd = manifest.contributes.commands.find((c: any) => c.command === 'dotnav.clearSolutionTreeFilter');
 
-  assert.ok(searchCmd, 'dotnav.searchSolutionTree must be contributed');
-  assert.ok(clearCmd, 'dotnav.clearSolutionTreeFilter must be contributed');
-  assert.strictEqual(searchCmd.icon, '$(filter)');
-  assert.strictEqual(clearCmd.icon, '$(clear-all)');
-
-  const clearMenu = manifest.contributes.menus['view/title'].find(
-    (m: any) => m.command === 'dotnav.clearSolutionTreeFilter'
-  );
-  assert.ok(clearMenu, 'dotnav.clearSolutionTreeFilter must be in view/title');
-  assert.strictEqual(clearMenu.when, 'view == dotnav && dotnav.hasTreeFilter');
-
-  const escapeKey = manifest.contributes.keybindings.find(
-    (k: any) => k.command === 'dotnav.clearSolutionTreeFilter'
-  );
-  assert.ok(escapeKey, 'escape keybinding must be contributed for clear filter');
+  assert.strictEqual(searchCmd, undefined, 'dotnav.searchSolutionTree must be removed');
+  assert.strictEqual(clearCmd, undefined, 'dotnav.clearSolutionTreeFilter must be removed');
 
   const selectOpenedCmd = manifest.contributes.commands.find((c: any) => c.command === 'dotnav.selectOpenedFile');
   assert.ok(selectOpenedCmd, 'dotnav.selectOpenedFile must be contributed in commands');

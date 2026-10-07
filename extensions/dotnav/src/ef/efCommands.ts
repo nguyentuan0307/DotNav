@@ -20,9 +20,8 @@ import {
   EfDialogOption,
   EfDialogSpec,
   EfDialogValues,
+  EfDialogHandle,
   EfProgressStepState,
-  setEfCenterProgress,
-  setEfCenterStatus,
   showEfDialog
 } from './efDialog';
 import {
@@ -229,7 +228,11 @@ function databaseTargetKey(values: EfDialogValues): string {
     values[FIELD.project],
     values[FIELD.startup],
     values[FIELD.context],
-    values[FIELD.connection]
+    values[FIELD.connection],
+    values[FIELD.configuration],
+    values[FIELD.extraArgs],
+    values[FIELD.noBuild],
+    values['add']
   ].map(value => String(value ?? '')).join('\u0000');
 }
 
@@ -318,6 +321,7 @@ function commonFields(
 }
 
 class EfTargetCascade {
+  valid: boolean;
   private revision = 0;
   private projectPath: string;
   private contextName: string;
@@ -330,27 +334,34 @@ class EfTargetCascade {
   ) {
     this.projectPath = initial.project.path;
     this.contextName = initial.contextName ?? '';
+    this.valid = initial.model.contexts.length > 0;
   }
 
   async update(values: EfDialogValues, handle: import('./efDialog').EfDialogHandle): Promise<void> {
     const projectPath = String(values[FIELD.project] ?? '');
     const contextName = String(values[FIELD.context] ?? '');
-    if (projectPath === this.projectPath && contextName === this.contextName) {
+    if (projectPath === this.projectPath && contextName === this.contextName && this.valid) {
+      handle.setValid(this.valid);
       return;
     }
 
     const revision = ++this.revision;
     const detection = this.detections.find(candidate => samePath(candidate.project.path, projectPath));
     if (!detection) {
+      this.valid = false;
       handle.setValid(false);
       handle.setStatus('The selected migrations project is no longer available.', true);
       return;
     }
 
     const projectChanged = projectPath !== this.projectPath;
-    this.projectPath = projectPath;
     const model = await this.feature.modelForProjectPath(projectPath);
-    if (!model || revision !== this.revision) {
+    if (revision !== this.revision || handle.isCurrent?.() === false) {
+      return;
+    }
+    if (!model) {
+      this.valid = false;
+      handle.setValid(false);
       return;
     }
 
@@ -361,13 +372,18 @@ class EfTargetCascade {
         ? remembered!
         : model.contexts[0]?.name ?? '';
     }
-    this.contextName = selectedContext;
 
-    if (projectChanged) {
-      const startup = await this.feature.resolveStartupProject(detection) ?? projectPath;
-      if (revision !== this.revision) {
-        return;
-      }
+    const startup = projectChanged
+      ? await this.feature.resolveStartupProject(detection) ?? projectPath
+      : undefined;
+    if (revision !== this.revision || handle.isCurrent?.() === false) {
+      return;
+    }
+    this.projectPath = projectPath;
+    this.contextName = selectedContext;
+    this.valid = model.contexts.length > 0;
+
+    if (startup !== undefined) {
       handle.setOptions(FIELD.startup, startupOptions(detection), startup);
       handle.setOptions(FIELD.context, contextOptions(model), selectedContext);
     }
@@ -376,7 +392,7 @@ class EfTargetCascade {
     for (const field of this.migrationFields) {
       handle.setOptions(field, migrationOptions(migrations), '');
     }
-    handle.setValid(model.contexts.length > 0);
+    handle.setValid(this.valid);
     handle.setStatus(
       model.contexts.length > 0 ? '' : 'No DbContext class was found in the selected project.',
       model.contexts.length === 0
@@ -492,7 +508,8 @@ async function runFromValues(
   values: EfDialogValues,
   request: RunRequest,
   /** The startup project the dialog opened with, so only real edits persist. */
-  defaultStartupProjectPath?: string
+  defaultStartupProjectPath?: string,
+  handle?: EfDialogHandle
 ): Promise<EfCommandResult | undefined> {
   const options = toRunOptions(feature, values, request);
   const stageLabels = [
@@ -508,7 +525,7 @@ async function runFromValues(
     state: 'running' | 'success' | 'error' | 'cancelled',
     detail?: string
   ) => {
-    setEfCenterProgress({
+    handle?.setProgress({
       title: request.title,
       state,
       steps: stageLabels.map((label, index) => {
@@ -526,27 +543,35 @@ async function runFromValues(
   };
 
   reportProgress(0, 'running');
+  if (handle?.signal?.aborted) {
+    reportProgress(0, 'cancelled');
+    return { kind: 'cancelled', stdout: '', stderr: '', durationMs: 0 };
+  }
   if (!options.project) {
     vscode.window.showErrorMessage('The selected migrations project could not be resolved.');
-    setEfCenterStatus('The selected migrations project could not be resolved.', true);
+    handle?.setStatus('The selected migrations project could not be resolved.', true);
     reportProgress(0, 'error', 'The migrations project could not be resolved.');
     return undefined;
   }
   if (options.argumentError) {
     vscode.window.showErrorMessage(options.argumentError);
-    setEfCenterStatus(options.argumentError, true);
+    handle?.setStatus(options.argumentError, true);
     reportProgress(0, 'error', options.argumentError);
     return undefined;
   }
 
   reportProgress(1, 'running');
-  if (!await feature.toolManager.ensureTool(options.project.directory)) {
-    setEfCenterStatus('dotnet-ef is required to run this command.', true);
+  if (!await feature.toolManager.ensureTool(options.project.directory, handle?.signal)) {
+    if (handle?.signal?.aborted) {
+      reportProgress(1, 'cancelled');
+      return { kind: 'cancelled', stdout: '', stderr: '', durationMs: 0 };
+    }
+    handle?.setStatus('dotnet-ef is required to run this command.', true);
     reportProgress(1, 'error', 'dotnet-ef is required to run this command.');
     return undefined;
   }
 
-  void feature.toolManager.warnOnVersionMismatch(options.project, options.project.directory);
+  void feature.toolManager.warnOnVersionMismatch(options.project, options.project.directory, handle?.signal);
   if (options.contextName) {
     await feature.configStore.setLastContext(options.project.path, options.contextName);
   }
@@ -564,28 +589,32 @@ async function runFromValues(
       ? 'EF Core is loading the project and connecting to the selected database.'
       : 'EF Core is loading the selected project.'
   );
-  const result = await feature.cli.run({
-    args: options.args,
-    project: options.project,
-    startupProjectPath: options.startupProjectPath,
-    contextName: options.contextName,
-    title: options.title,
-    write: options.write,
-    json: options.json,
-    configurationOverride: options.configuration,
-    forceNoBuild: options.forceNoBuild
-  });
+  let result: EfCommandResult;
+  try {
+    result = await feature.cli.run({
+      args: options.args,
+      project: options.project,
+      startupProjectPath: options.startupProjectPath,
+      contextName: options.contextName,
+      title: options.title,
+      write: options.write,
+      json: options.json,
+      configurationOverride: options.configuration,
+      forceNoBuild: options.forceNoBuild,
+      signal: handle?.signal
+    });
+  } finally {
+    if (options.write) {
+      // A failed or cancelled process can still have changed files.
+      feature.invalidateModel(options.project.directory);
+    }
+  }
 
   if (result.kind === 'success') {
     reportProgress(3, 'running');
   }
-  if (options.write) {
-    // A write attempt — success, failure, or cancellation — can change files
-    // on disk, so the static model must be re-read.
-    feature.invalidateModel(options.project.directory);
-  }
 
-  setEfCenterStatus(
+  handle?.setStatus(
     result.kind === 'success'
       ? `Completed in ${(result.durationMs / 1000).toFixed(1)}s.`
       : result.errorSummary ?? (result.kind === 'cancelled' ? 'Command cancelled.' : 'Command failed.'),
@@ -707,7 +736,7 @@ async function addMigration(feature: EfFeature, node?: EfCommandSource): Promise
           return;
         }
 
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
         if (!result) {
           return;
         }
@@ -733,10 +762,11 @@ async function addMigration(feature: EfFeature, node?: EfCommandSource): Promise
           await vscode.window.showTextDocument(vscode.Uri.file(created.filePath), { preview: false });
         }
 
-        const action = await vscode.window.showInformationMessage(`Migration '${name}' created.`, 'Update Database');
-        if (action === 'Update Database') {
-          void vscode.commands.executeCommand('dotnav.ef.updateDatabase', String(values[FIELD.project] ?? ''));
-        }
+        void vscode.window.showInformationMessage(`Migration '${name}' created.`, 'Update Database').then(action => {
+          if (action === 'Update Database') {
+            void vscode.commands.executeCommand('dotnav.ef.updateDatabase', String(values[FIELD.project] ?? ''));
+          }
+        });
       }
     }
   );
@@ -863,7 +893,8 @@ async function handleConnectionPing(
       return;
     }
 
-    const pingResult = await pingDatabaseConnection(connStr);
+    const pingResult = await pingDatabaseConnection(connStr, 2000, handle.signal);
+    if (handle.signal?.aborted || handle.isCurrent?.() === false) { return; }
     if (pingResult.online) {
       handle.setStatus(`● Connected to ${pingResult.provider} (${pingResult.host}:${pingResult.port}) in ${pingResult.latencyMs}ms.`, false);
     } else {
@@ -954,7 +985,7 @@ async function removeLastMigration(feature: EfFeature, node?: EfCommandSource): 
           handle.setValid(false);
           return;
         }
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
         if (result?.kind === 'error') {
           await reportEfFailure(feature.cli, 'Removing the last migration', result);
         } else if (result?.kind === 'success') {
@@ -1184,11 +1215,14 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
       preview: current => previewCommand(feature, current, request(current)),
       onChange: async (current, handle) => {
         await cascade.update(current, handle);
+        if (handle.isCurrent?.() === false) { return; }
         if (checkedTargetKey !== databaseTargetKey(current)) {
           checkedState = undefined;
           checkedTargetKey = undefined;
           handle.setSubmit('Update');
         }
+        const argumentProblem = parseAdditionalArguments(String(current[FIELD.extraArgs] ?? '')).error;
+        const baseValid = cascade.valid && !argumentProblem;
         if (current['add'] === true) {
           const migrationName = String(current[FIELD.target] ?? '').trim();
           const projectPath = String(current[FIELD.project] ?? '');
@@ -1203,11 +1237,18 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
           );
           handle.setSubmit('Create and Apply Migration');
           handle.setStatus(problem ?? 'EF Core will create this migration and apply it in one operation.', Boolean(problem));
-          handle.setValid(!problem);
+          handle.setValid(baseValid && !problem);
           return;
         }
         if (checkedState) {
           updateDatabaseSubmit(current, checkedState, handle);
+          if (!baseValid) { handle.setValid(false); }
+        } else {
+          handle.setSubmit('Update');
+          handle.setValid(baseValid);
+        }
+        if (argumentProblem) {
+          handle.setStatus(argumentProblem, true);
         }
       },
       onAction: async (action, current, handle) => {
@@ -1219,23 +1260,45 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
           return;
         }
 
+        checkedState = undefined;
+        checkedTargetKey = undefined;
         handle.setBusy(true);
         handle.setStatus('Checking the database…');
         try {
-          const status = await fetchAppliedState(feature, current);
-          checkedState = status;
-          checkedTargetKey = databaseTargetKey(current);
-          handle.setStatus(status.summary);
+          const status = await fetchAppliedState(feature, current, handle);
+          if (handle.isCurrent?.() === false || handle.signal?.aborted) { return; }
+          checkedState = status.kind === 'success' ? status : undefined;
+          checkedTargetKey = status.kind === 'success' ? databaseTargetKey(current) : undefined;
+          handle.setStatus(status.summary, status.kind === 'error' || status.kind === 'unknown');
+          if (status.kind === 'unknown') {
+            handle.setProgress({ title: 'Checking applied migrations', state: 'error', steps: [
+              { label: 'Process command result', state: 'error', detail: status.summary }
+            ] });
+          }
           if (status.options.length > 0) {
             handle.setOptions(FIELD.target, status.options);
           }
-          updateDatabaseSubmit(current, status, handle);
+          if (checkedState && current['add'] !== true) {
+            updateDatabaseSubmit(current, checkedState, handle);
+          } else {
+            handle.setSubmit(current['add'] === true ? 'Create and Apply Migration' : 'Update');
+            handle.setValid(cascade.valid && !parseAdditionalArguments(String(current[FIELD.extraArgs] ?? '')).error &&
+              (current['add'] !== true || !validateMigrationName(String(current[FIELD.target] ?? ''), updateExistingNames)));
+          }
         } finally {
           handle.setBusy(false);
         }
       },
       onSubmit: async (values, handle) => {
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+        let result: EfCommandResult | undefined;
+        try {
+          result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
+        } finally {
+          checkedState = undefined;
+          checkedTargetKey = undefined;
+          handle.setSubmit(values['add'] === true ? 'Create and Apply Migration' : 'Update');
+          handle.setValid(cascade.valid);
+        }
         if (!result) {
           return;
         }
@@ -1264,11 +1327,14 @@ async function updateDatabase(feature: EfFeature, node?: EfCommandSource): Promi
   );
 }
 
-interface EfDatabaseState {
-  readonly summary: string;
-  readonly options: EfDialogOption[];
-  readonly orderedNames: readonly string[];
-  readonly appliedNames: ReadonlySet<string>;
+class EfDatabaseState {
+  constructor(
+    readonly kind: 'success' | 'error' | 'cancelled' | 'unknown',
+    readonly summary: string,
+    readonly options: EfDialogOption[] = [],
+    readonly orderedNames: readonly string[] = [],
+    readonly appliedNames: ReadonlySet<string> = new Set()
+  ) {}
 }
 
 function updateDatabaseSubmit(
@@ -1285,7 +1351,8 @@ function updateDatabaseSubmit(
 /** The one place that talks to the database, and only on explicit request. */
 async function fetchAppliedState(
   feature: EfFeature,
-  values: EfDialogValues
+  values: EfDialogValues,
+  handle?: EfDialogHandle
 ): Promise<EfDatabaseState> {
   const result = await runFromValues(feature, values, {
     args: ['migrations', 'list'],
@@ -1293,31 +1360,25 @@ async function fetchAppliedState(
     write: false,
     json: true,
     acceptsConnection: true
-  });
+  }, undefined, handle);
 
   if (!result) {
-    return { summary: 'Could not start the check.', options: [], orderedNames: [], appliedNames: new Set() };
+    return new EfDatabaseState('error', 'Could not start the check.');
   }
 
   if (result.kind !== 'success') {
-    return {
-      summary: result.errorSummary
+    return new EfDatabaseState(result.kind === 'cancelled' ? 'cancelled' : 'error',
+      result.kind === 'cancelled' ? 'Database check cancelled.' : result.errorSummary
         ? `Could not read the database: ${maskConnectionString(result.errorSummary)}`
-        : 'Could not read the database.',
-      options: [],
-      orderedNames: [],
-      appliedNames: new Set()
-    };
+        : 'Could not read the database.');
   }
 
-  const entries = parseMigrationsList(result.stdout) ?? [];
+  const entries = parseMigrationsList(result.stdout, { strict: true });
+  if (!entries || entries.some(entry => entry.applied === undefined)) {
+    return new EfDatabaseState('unknown', 'Could not determine which migrations are applied. See Output for details.');
+  }
   if (entries.length === 0) {
-    return {
-      summary: 'The database reports no migrations.',
-      options: [],
-      orderedNames: [],
-      appliedNames: new Set()
-    };
+    return new EfDatabaseState('success', 'The database reports no migrations.');
   }
 
   const applied = entries.filter(entry => entry.applied === true);
@@ -1328,13 +1389,13 @@ async function fetchAppliedState(
     description: entry.applied === true ? 'applied' : entry.applied === false ? 'pending' : 'unknown'
   }));
 
-  return {
-    summary: `${applied.length} applied, ${pending.length} pending.` +
+  return new EfDatabaseState('success',
+    `${applied.length} applied, ${pending.length} pending.` +
       (pending.length > 0 ? ` Next: ${pending[0].name}` : ' The database is up to date.'),
     options,
-    orderedNames: entries.map(entry => entry.name),
-    appliedNames: new Set(applied.map(entry => entry.name))
-  };
+    entries.map(entry => entry.name),
+    new Set(applied.map(entry => entry.name))
+  );
 }
 
 async function generateScript(feature: EfFeature, node?: EfCommandSource): Promise<void> {
@@ -1372,7 +1433,7 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
       fields: [
         {
           id: FIELD.from,
-          label: 'From migration (exclusive)',
+          label: 'From migration (current state)',
           type: 'combo',
           value: '',
           options: migrationOptions(migrations),
@@ -1380,7 +1441,7 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
         },
         {
           id: FIELD.to,
-          label: 'To migration (inclusive)',
+          label: 'To migration (target state)',
           type: 'combo',
           value: '',
           options: migrationOptions(migrations),
@@ -1424,8 +1485,8 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
           handle.setValue(FIELD.output, selected.fsPath);
         }
       },
-      onSubmit: async values => {
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
         if (!result) {
           return;
         }
@@ -1557,7 +1618,8 @@ async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise
             title: 'Identifying the target database',
             write: false,
             json: true
-          });
+          }, undefined, handle);
+          if (handle.isCurrent?.() === false || handle.signal?.aborted) { return; }
           const info = result?.kind === 'success' ? parseDbContextInfo(result.stdout) : undefined;
           if (!info?.databaseName) {
             databaseIdentified = false;
@@ -1585,7 +1647,7 @@ async function dropDatabase(feature: EfFeature, node?: EfCommandSource): Promise
           return;
         }
 
-        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath, handle);
         if (result?.kind === 'error') {
           await reportEfFailure(feature.cli, 'Dropping the database', result);
         } else if (result?.kind === 'success') {
@@ -1626,8 +1688,8 @@ async function showDbContextInfo(feature: EfFeature, node?: EfCommandSource): Pr
     {
       preview: current => previewCommand(feature, current, request()),
       onChange: (current, handle) => cascade.update(current, handle),
-      onSubmit: async values => {
-        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath, handle);
         if (!result) {
           return;
         }
@@ -1649,14 +1711,15 @@ async function showDbContextInfo(feature: EfFeature, node?: EfCommandSource): Pr
           info?.dataSource ? `Data source: ${maskConnectionString(info.dataSource)}` : undefined
         ].filter((line): line is string => Boolean(line));
 
-        const choice = await vscode.window.showInformationMessage(
+        void vscode.window.showInformationMessage(
           lines.length > 0 ? lines.join('\n') : 'No DbContext info was returned.',
           { modal: true },
           'Show Output'
-        );
-        if (choice === 'Show Output') {
-          feature.cli.showOutput();
-        }
+        ).then(choice => {
+          if (choice === 'Show Output') {
+            feature.cli.showOutput();
+          }
+        });
       }
     }
   );
@@ -1692,8 +1755,8 @@ async function checkPendingModelChanges(feature: EfFeature, node?: EfCommandSour
     {
       preview: current => previewCommand(feature, current, request()),
       onChange: (current, handle) => cascade.update(current, handle),
-      onSubmit: async values => {
-        const result = await runFromValues(feature, values, request(), target.startupProjectPath);
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(), target.startupProjectPath, handle);
         if (!result) {
           return;
         }
@@ -1764,8 +1827,8 @@ async function createMigrationBundle(feature: EfFeature, node?: EfCommandSource)
     {
       preview: current => previewCommand(feature, current, request(current)),
       onChange: (current, handle) => cascade.update(current, handle),
-      onSubmit: async values => {
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
         if (result?.kind === 'success') {
           const output = String(values[FIELD.output] ?? defaultOutput);
           vscode.window.showInformationMessage(`Migration bundle created: ${output}`);
@@ -1853,8 +1916,8 @@ async function optimizeDbContext(feature: EfFeature, node?: EfCommandSource): Pr
     {
       preview: current => previewCommand(feature, current, request(current)),
       onChange: (current, handle) => cascade.update(current, handle),
-      onSubmit: async values => {
-        const result = await runFromValues(feature, values, request(values), target.startupProjectPath);
+      onSubmit: async (values, handle) => {
+        const result = await runFromValues(feature, values, request(values), target.startupProjectPath, handle);
         if (result?.kind === 'success') {
           vscode.window.showInformationMessage('Optimized DbContext model generated.');
         } else if (result?.kind === 'error') {

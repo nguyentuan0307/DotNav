@@ -12,46 +12,16 @@ function getVsCode(): typeof import('vscode') | undefined {
   }
 }
 
-export async function hasMatchingFileDescendant(
-  directoryPath: string,
-  filter: string,
-  depth: number = 0
-): Promise<boolean> {
-  if (depth > 6) return false;
-  try {
-    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-    const hiddenFolders = getHiddenFolders();
-    const hiddenFiles = getHiddenFiles();
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (hiddenFolders.has(entry.name.toLowerCase()) || entry.name.startsWith('.')) continue;
-        if (entry.name.toLowerCase().includes(filter)) return true;
-        const sub = await hasMatchingFileDescendant(path.join(directoryPath, entry.name), filter, depth + 1);
-        if (sub) return true;
-      } else if (entry.isFile()) {
-        if (isHiddenFile(entry.name, hiddenFiles)) continue;
-        if (entry.name.toLowerCase().includes(filter)) return true;
-      }
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-
 export async function readDirectoryNodes(
   directoryPath: string,
   projectRoot: string,
-  project?: ProjectModel,
-  filterText?: string
+  project?: ProjectModel
 ): Promise<TreeNode[]> {
   const entries = await fs.readdir(directoryPath, { withFileTypes: true });
   const hiddenFolders = getHiddenFolders();
   const hiddenFiles = getHiddenFiles();
   const showProjectFiles = getDotnavConfig<boolean>('showProjectFiles', true);
   const nodes: TreeNode[] = [];
-  const filter = filterText?.trim().toLowerCase();
 
   for (const entry of entries) {
     if (entry.isDirectory() && hiddenFolders.has(entry.name.toLowerCase())) {
@@ -68,35 +38,6 @@ export async function readDirectoryNodes(
     }
 
     if (!isInside(projectRoot, resourcePath)) {
-      continue;
-    }
-
-    if (filter) {
-      const nameMatches = entry.name.toLowerCase().includes(filter);
-      if (entry.isDirectory()) {
-        const hasDescendant = nameMatches || await hasMatchingFileDescendant(resourcePath, filter);
-        if (!hasDescendant) {
-          continue;
-        }
-        nodes.push({
-          kind: 'folder',
-          label: entry.name,
-          resourcePath,
-          project,
-          collapsibleState: 2 // Expanded
-        });
-      } else if (entry.isFile()) {
-        if (!nameMatches) {
-          continue;
-        }
-        nodes.push({
-          kind: 'file',
-          label: entry.name,
-          resourcePath,
-          project,
-          collapsibleState: 0 // None
-        });
-      }
       continue;
     }
 
