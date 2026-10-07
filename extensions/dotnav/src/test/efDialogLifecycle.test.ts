@@ -122,6 +122,7 @@ test('persistent Center accepts another submit after the first action completes'
   const values: EfDialogValues = { project: '/repo/App.csproj', connection: 'Password=secret', flag: false };
 
   await panel.receive({ type: 'ready', values });
+  panel.messages.length = 0;
   await panel.receive({ type: 'submit', values });
   await panel.receive({ type: 'submit', values });
   await panel.receive({ type: 'action', action: 'check', values });
@@ -129,7 +130,7 @@ test('persistent Center accepts another submit after the first action completes'
   assert.equal(submissions, 2);
   assert.equal(inlineActions, 1);
   assert.equal(panel.disposed, false);
-  assert.equal(panel.messages.filter(message => message.type === 'busy' && message.busy === false).length, 2);
+  assert.equal(panel.messages.filter(message => message.type === 'busy' && message.busy === false).length, 3);
 
   await panel.receive({ type: 'cancel' });
   await closed;

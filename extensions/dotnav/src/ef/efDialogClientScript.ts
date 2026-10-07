@@ -27,12 +27,11 @@ const progressSteps = document.getElementById('progress-steps');
 const helpOpenButton = document.getElementById('help-open');
 const helpDrawer = document.getElementById('help-drawer');
 const helpCloseButton = document.getElementById('help-close');
-const helpBackdrop = document.getElementById('help-backdrop');
 const persistedState = vscode.getState() || {};
 let currentLocale = INITIAL_LOCALE;
-let hostValid = true;
-let busy = false;
-let helpPreviouslyFocused = null;
+let hostValid = false;
+let busy = true;
+let activeGuideField;
 let currentProgress;
 
 function clientText(key) {
@@ -131,41 +130,83 @@ function validate() {
 
 function notifyChange() {
   validate();
+  if (busy) { return; }
   vscode.postMessage({ type: 'change', values: readValues() });
+}
+
+function applyBusy(value) {
+  busy = Boolean(value);
+  for (const node of document.querySelectorAll('button:not(#cancel):not([data-help-control])')) {
+    node.disabled = busy && node.dataset.toolbar !== 'output';
+  }
+  for (const node of form.querySelectorAll('input, select, textarea')) {
+    node.disabled = busy;
+  }
+  if (busy) {
+    for (const list of document.querySelectorAll('.combo-list')) { list.hidden = true; }
+    for (const display of form.querySelectorAll('[data-display]')) {
+      display.setAttribute('aria-expanded', 'false');
+      display.removeAttribute('aria-activedescendant');
+    }
+  }
+  document.getElementById('cancel').disabled = false;
+  submitButton.classList.toggle('busy', busy);
+  submitButton.setAttribute('aria-busy', busy ? 'true' : 'false');
+  validate();
 }
 
 function isHelpOpen() {
   return Boolean(helpDrawer && helpDrawer.classList.contains('open'));
 }
 
-function openHelp() {
-  if (!helpDrawer || !helpBackdrop || !helpOpenButton || isHelpOpen()) { return; }
-  helpPreviouslyFocused = document.activeElement;
+function openHelp(revealField = false) {
+  if (!helpDrawer || !helpOpenButton || isHelpOpen()) { return; }
   helpDrawer.removeAttribute('inert');
   helpDrawer.setAttribute('aria-hidden', 'false');
-  helpBackdrop.setAttribute('aria-hidden', 'false');
   helpDrawer.classList.add('open');
-  helpBackdrop.classList.add('open');
   helpOpenButton.setAttribute('aria-expanded', 'true');
-  document.body.classList.add('help-open');
-  setTimeout(() => helpCloseButton?.focus({ preventScroll: true }), 0);
+  document.body.classList.add('guide-open');
+  if (revealField) { highlightGuideField(activeGuideField); }
+  if (window.matchMedia('(max-width: 1100px)').matches) {
+    helpDrawer.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 function closeHelp(restoreFocus = true) {
-  if (!helpDrawer || !helpBackdrop || !helpOpenButton || !isHelpOpen()) { return; }
+  if (!helpDrawer || !helpOpenButton || !isHelpOpen()) { return; }
+  const focusInGuide = helpDrawer.contains(document.activeElement);
   helpDrawer.classList.remove('open');
-  helpBackdrop.classList.remove('open');
   helpDrawer.setAttribute('aria-hidden', 'true');
   helpDrawer.setAttribute('inert', '');
-  helpBackdrop.setAttribute('aria-hidden', 'true');
   helpOpenButton.setAttribute('aria-expanded', 'false');
-  document.body.classList.remove('help-open');
-  if (restoreFocus) {
-    const target = helpPreviouslyFocused instanceof HTMLElement ? helpPreviouslyFocused : helpOpenButton;
-    target.focus();
+  document.body.classList.remove('guide-open');
+  if (restoreFocus && focusInGuide) {
+    helpOpenButton.focus({ preventScroll: true });
   }
-  helpPreviouslyFocused = null;
 }
+
+function highlightGuideField(field) {
+  for (const node of document.querySelectorAll('[data-guide-field]')) {
+    const active = node.dataset.guideField === field;
+    node.classList.toggle('active', active);
+    if (active && isHelpOpen()) {
+      node.open = true;
+      const scroller = node.closest('.guide-body');
+      const bounds = node.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      if (bounds.top < view.top || bounds.bottom > view.bottom) {
+        scroller.scrollTop += bounds.top - view.top - 12;
+      }
+    }
+  }
+}
+
+form.addEventListener('focusin', event => {
+  const node = event.target.closest('[data-combo], [data-field]');
+  if (!node) { return; }
+  activeGuideField = node.dataset.combo || node.dataset.field;
+  highlightGuideField(activeGuideField);
+});
 
 // ── Searchable combo boxes ──────────────────────────────────────────────────
 function setupCombo(root) {
@@ -188,6 +229,7 @@ function setupCombo(root) {
   }
 
   function commit(option) {
+    if (busy) { return; }
     hidden.value = option.value;
     display.value = option.label;
     close();
@@ -350,26 +392,9 @@ for (const node of document.querySelectorAll('[data-reveal]')) {
   });
 }
 
-if (helpOpenButton && helpDrawer && helpCloseButton && helpBackdrop) {
-  helpOpenButton.addEventListener('click', openHelp);
+if (helpOpenButton && helpDrawer && helpCloseButton) {
+  helpOpenButton.addEventListener('click', () => isHelpOpen() ? closeHelp() : openHelp());
   helpCloseButton.addEventListener('click', () => closeHelp());
-  helpBackdrop.addEventListener('click', () => closeHelp());
-  helpDrawer.addEventListener('keydown', event => {
-    if (event.key !== 'Tab') { return; }
-    const focusable = Array.from(helpDrawer.querySelectorAll(
-      'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )).filter(node => !node.hasAttribute('hidden'));
-    if (focusable.length === 0) { return; }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  });
 }
 
 function anyListOpen() {
@@ -379,7 +404,7 @@ function anyListOpen() {
 document.addEventListener('keydown', event => {
   if (event.key === 'F1' && helpDrawer) {
     event.preventDefault();
-    openHelp();
+    openHelp(form.contains(document.activeElement));
     return;
   }
   if (event.key === 'Escape' && isHelpOpen()) {
@@ -390,7 +415,7 @@ document.addEventListener('keydown', event => {
   }
   if (anyListOpen()) { return; }
   if (event.key === 'Escape') { vscode.postMessage({ type: 'cancel' }); }
-  else if (event.key === 'Enter' && event.target.tagName !== 'BUTTON' && !submitButton.disabled) {
+  else if (event.key === 'Enter' && form.contains(event.target) && event.target.tagName === 'INPUT' && !submitButton.disabled) {
     vscode.postMessage({ type: 'submit', values: readValues() });
   }
 });
@@ -405,14 +430,7 @@ window.addEventListener('message', event => {
     statusNode.textContent = currentLocale === 'vi' ? statusNode.dataset.vi : statusNode.dataset.en;
     statusNode.classList.toggle('error', Boolean(message.error));
   } else if (message.type === 'busy') {
-    busy = Boolean(message.busy);
-    for (const node of document.querySelectorAll('button:not(#cancel):not([data-help-control])')) {
-      node.disabled = busy;
-    }
-    document.getElementById('cancel').disabled = false;
-    submitButton.classList.toggle('busy', busy);
-    submitButton.setAttribute('aria-busy', busy ? 'true' : 'false');
-    if (!busy) { validate(); }
+    applyBusy(message.busy);
   } else if (message.type === 'progress') {
     renderProgress(message.progress);
   } else if (message.type === 'validity') {
@@ -448,12 +466,12 @@ window.addEventListener('message', event => {
       const root = document.querySelector('[data-combo="' + field + '"]');
       if (root && root._refresh) { root._refresh(typeof value === 'string' ? value : undefined); }
     }
-    if (changed) { notifyChange(); }
+    if (changed && !message.silent) { notifyChange(); }
   } else if (message.type === 'options') {
     OPTIONS[message.field] = message.options || [];
     const root = document.querySelector('[data-combo="' + message.field + '"]');
     if (root && root._refresh) { root._refresh(message.selected); }
-    notifyChange();
+    if (!message.silent) { notifyChange(); }
   }
 });
 
@@ -465,6 +483,6 @@ const focusable = Array.from(
 ).filter(node => !node.closest('details.advanced'));
 if (focusable.length > 0) { focusable[0].focus(); focusable[0].select(); }
 applyLocale(INITIAL_LOCALE, false);
-validate();
+applyBusy(true);
 vscode.postMessage({ type: 'ready', values: readValues() });`;
 }

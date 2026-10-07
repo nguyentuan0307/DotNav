@@ -12,6 +12,7 @@ import {
 } from './efJsonParser';
 import { runProcess } from './efProcess';
 import { QueueCancelledError, QueueSnapshot, SerialQueue } from './efQueue';
+import { waitForEfChoice } from './efCancellation';
 
 export interface EfSettings {
   readonly configuration: string;
@@ -49,6 +50,7 @@ export interface EfCommandRequest {
   readonly configurationOverride?: string;
   /** Dialog checkbox: pass --no-build regardless of the freshness heuristic. */
   readonly forceNoBuild?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface EfCommandResult {
@@ -163,13 +165,16 @@ export class EfCli implements vscode.Disposable {
    * UI, timeout prompts, and output logging.
    */
   async run(request: EfCommandRequest): Promise<EfCommandResult> {
+    if (request.signal?.aborted) {
+      return { kind: 'cancelled', stdout: '', stderr: '', durationMs: 0 };
+    }
     const guard = await this.checkGuards(request);
     if (guard) {
       return guard;
     }
 
     try {
-      return await this.queue.enqueue(request.title, request.write, () => this.execute(request));
+      return await this.queue.enqueue(request.title, request.write, () => this.execute(request), request.signal);
     } catch (error) {
       if (error instanceof QueueCancelledError) {
         return {
@@ -196,14 +201,14 @@ export class EfCli implements vscode.Disposable {
     if (!request.raw && this.processManager) {
       const phase = this.processManager.getProjectPhase(request.project);
       if (phase && isActivePhase(phase)) {
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await waitForEfChoice(vscode.window.showWarningMessage(
           `${request.project.name} is currently ${phase === 'building' ? 'building' : 'running'} in DotNav. ` +
           'Running an EF command now can conflict with it.',
           { modal: true },
           'Stop It and Continue',
           'Continue Anyway'
-        );
-        if (choice === undefined) {
+        ), request.signal);
+        if (choice === undefined || request.signal?.aborted) {
           return { kind: 'cancelled', stdout: '', stderr: '', durationMs: 0 };
         }
 
@@ -216,11 +221,11 @@ export class EfCli implements vscode.Disposable {
     // R1: warn instead of silently queueing a second write command.
     const running = this.queue.runningEntry;
     if (request.write && running?.write) {
-      const choice = await vscode.window.showWarningMessage(
+      const choice = await waitForEfChoice(vscode.window.showWarningMessage(
         `'${running.label}' is still running. Queue '${request.title}' to run after it finishes?`,
         { modal: true },
         'Queue'
-      );
+      ), request.signal);
       if (choice !== 'Queue') {
         return { kind: 'cancelled', stdout: '', stderr: '', durationMs: 0 };
       }
@@ -245,6 +250,7 @@ export class EfCli implements vscode.Disposable {
     // Auto retry with a build when --no-build hit a stale/missing assembly.
     if (
       result.kind === 'error' &&
+      !request.signal?.aborted &&
       wantNoBuild &&
       (settings.noBuild === 'auto' || request.forceNoBuild) &&
       staleAssemblyPatterns.some(pattern => pattern.test(`${result.stderr}\n${result.stdout}`))
@@ -274,15 +280,20 @@ export class EfCli implements vscode.Disposable {
         cancellable: true
       },
       async (_progress, token) => {
-        let killProcess: (() => void) | undefined;
+        const controller = new AbortController();
         let cancelled = false;
         let timedOut = false;
         let timeoutTimer: NodeJS.Timeout | undefined;
 
-        const cancellationSubscription = token.onCancellationRequested(() => {
+        const cancel = () => {
           cancelled = true;
-          killProcess?.();
-        });
+          controller.abort();
+        };
+        const cancellationSubscription = token.onCancellationRequested(cancel);
+        request.signal?.addEventListener('abort', cancel, { once: true });
+        if (request.signal?.aborted || token.isCancellationRequested) {
+          cancel();
+        }
 
         const armTimeout = () => {
           timeoutTimer = setTimeout(() => {
@@ -291,28 +302,37 @@ export class EfCli implements vscode.Disposable {
               'Keep Waiting',
               'Kill Process'
             ).then(choice => {
+              if (finished) {
+                return;
+              }
               if (choice === 'Kill Process') {
                 timedOut = true;
-                killProcess?.();
+                controller.abort();
               } else if (choice === 'Keep Waiting') {
                 armTimeout();
               }
             });
           }, settings.commandTimeoutSeconds * 1000);
         };
+        let finished = false;
         armTimeout();
 
-        const processResult = await runProcess('dotnet', args, {
-          cwd,
-          env: { ...process.env, ...settings.environmentVariables },
-          onStart: kill => { killProcess = kill; },
-          onOutput: chunk => this.output.append(maskConnectionString(chunk))
-        });
-
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer);
+        let processResult;
+        try {
+          processResult = await runProcess('dotnet', args, {
+            cwd,
+            env: { ...process.env, ...settings.environmentVariables },
+            signal: controller.signal,
+            onOutput: chunk => this.output.append(maskConnectionString(chunk))
+          });
+        } finally {
+          finished = true;
+          if (timeoutTimer) {
+            clearTimeout(timeoutTimer);
+          }
+          cancellationSubscription.dispose();
+          request.signal?.removeEventListener('abort', cancel);
         }
-        cancellationSubscription.dispose();
 
         const durationMs = Date.now() - started;
         this.log(`exit ${processResult.exitCode ?? 'none'} in ${(durationMs / 1000).toFixed(1)}s`);
@@ -392,11 +412,12 @@ export async function reportEfFailure(cli: EfCli, title: string, result: EfComma
 
   const hint = result.errorKind ? hints[result.errorKind] : undefined;
   const summary = result.errorSummary ? maskConnectionString(result.errorSummary) : 'See output for details.';
-  const choice = await vscode.window.showErrorMessage(
+  void vscode.window.showErrorMessage(
     `${title} failed. ${hint ? `${hint} ` : ''}${summary}`,
     'Show Output'
-  );
-  if (choice === 'Show Output') {
-    cli.showOutput();
-  }
+  ).then(choice => {
+    if (choice === 'Show Output') {
+      cli.showOutput();
+    }
+  });
 }

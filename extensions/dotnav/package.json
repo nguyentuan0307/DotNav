@@ -2,7 +2,7 @@
   "name": "dotnav",
   "displayName": "DotNav: .NET Solution Explorer",
   "description": "A focused .NET workspace for VS Code with solution navigation, run configurations, Git workflows, and C# formatting.",
-  "version": "0.32.5",
+  "version": "0.32.6",
   "publisher": "tuna-ex",
   "author": "Tuan Nguyen",
   "icon": "media/icon.png",
@@ -55,8 +55,6 @@
     "onCommand:dotnav.checkOutdated",
     "onCommand:dotnav.addProjectReference",
     "onCommand:dotnav.removeProjectReference",
-    "onCommand:dotnav.searchSolutionTree",
-    "onCommand:dotnav.clearSolutionTreeFilter",
     "onCommand:dotnav.buildSolution",
     "onCommand:dotnav.buildFolderProjects",
     "onCommand:dotnav.rebuildSolution",
@@ -150,16 +148,6 @@
         "command": "dotnav.selectOpenedFile",
         "title": "Select Opened File",
         "icon": "$(target)"
-      },
-      {
-        "command": "dotnav.searchSolutionTree",
-        "title": "Filter Solution Tree",
-        "icon": "$(filter)"
-      },
-      {
-        "command": "dotnav.clearSolutionTreeFilter",
-        "title": "Clear Solution Filter",
-        "icon": "$(clear-all)"
       },
       {
         "command": "dotnav.formatSelection",
@@ -700,17 +688,6 @@
         "mac": "alt+shift+a"
       },
       {
-        "command": "dotnav.searchSolutionTree",
-        "key": "ctrl+f",
-        "mac": "cmd+f",
-        "when": "focusedView == dotnav"
-      },
-      {
-        "command": "dotnav.clearSolutionTreeFilter",
-        "key": "escape",
-        "when": "focusedView == dotnav && dotnav.hasTreeFilter"
-      },
-      {
         "command": "dotnav.openSymbolActions",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
@@ -783,16 +760,6 @@
           "command": "dotnav.selectOpenedFile",
           "when": "view == dotnav",
           "group": "navigation@0"
-        },
-        {
-          "command": "dotnav.searchSolutionTree",
-          "when": "view == dotnav",
-          "group": "navigation@0.5"
-        },
-        {
-          "command": "dotnav.clearSolutionTreeFilter",
-          "when": "view == dotnav && dotnav.hasTreeFilter",
-          "group": "navigation@0.55"
         },
         {
           "command": "dotnav.searchEverywhere",

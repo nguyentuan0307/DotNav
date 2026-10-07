@@ -24,6 +24,7 @@ interface Job<T = unknown> {
   readonly resolve: (value: T) => void;
   readonly reject: (error: unknown) => void;
   cancelled: boolean;
+  disposeCancellation?: () => void;
 }
 
 export class SerialQueue {
@@ -52,9 +53,21 @@ export class SerialQueue {
     return this.runningJob?.entry;
   }
 
-  enqueue<T>(label: string, write: boolean, run: () => Promise<T>): Promise<T> {
+  enqueue<T>(label: string, write: boolean, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new QueueCancelledError());
+        return;
+      }
       const job: Job<T> = { entry: { label, write }, run, resolve, reject, cancelled: false };
+      const abort = () => {
+        job.cancelled = true;
+        job.disposeCancellation?.();
+        job.reject(new QueueCancelledError());
+        this.notify();
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      job.disposeCancellation = () => signal?.removeEventListener('abort', abort);
       this.jobs.push(job as Job);
       this.notify();
       void this.pump();
@@ -67,6 +80,7 @@ export class SerialQueue {
     for (const job of this.jobs) {
       if (!job.cancelled) {
         job.cancelled = true;
+        job.disposeCancellation?.();
         cleared += 1;
         job.reject(new QueueCancelledError());
       }
@@ -97,6 +111,7 @@ export class SerialQueue {
           continue;
         }
 
+        job.disposeCancellation?.();
         this.runningJob = job;
         this.notify();
         try {

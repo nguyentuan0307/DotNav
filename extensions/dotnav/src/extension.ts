@@ -181,8 +181,6 @@ export function activate(context: vscode.ExtensionContext): void {
       removeProjectReference(provider, node)),
     vscode.commands.registerCommand('dotnav.selectSolution', () => provider.selectActiveSolution()),
     vscode.commands.registerCommand('dotnav.selectOpenedFile', () => selectOpenedFile(provider, treeView, true)),
-    vscode.commands.registerCommand('dotnav.searchSolutionTree', () => filterSolutionTree(provider)),
-    vscode.commands.registerCommand('dotnav.clearSolutionTreeFilter', () => clearSolutionTreeFilter(provider)),
     vscode.commands.registerCommand('dotnav.searchEverywhere', () => searchEverywhereInteractive(provider, symbolIndex, '', context)),
     vscode.commands.registerCommand('dotnav.searchApiEndpoints', () => searchEverywhereInteractive(provider, symbolIndex, '/', context)),
     vscode.commands.registerCommand('dotnav.traceCqrsFlow', (symbolOrQuery?: any) => traceCqrsFlowInteractive(provider, symbolIndex, symbolOrQuery, context)),
@@ -349,12 +347,7 @@ async function selectOpenedFile(
     return;
   }
 
-  let node = await provider.findNodeForFile(editor.document.uri.fsPath);
-  if (!node && provider.getTreeFilter()) {
-    provider.clearTreeFilter();
-    node = await provider.findNodeForFile(editor.document.uri.fsPath);
-  }
-
+  const node = await provider.findNodeForFile(editor.document.uri.fsPath);
   if (!node) {
     if (notifyNotFound) {
       vscode.window.showInformationMessage('File is not in the solution tree.');
@@ -383,28 +376,6 @@ function openSolutionTerminal(provider: DotnetTreeProvider): void {
   }
 
   openTerminalAt(solution.path ? path.dirname(solution.path) : solution.rootPath);
-}
-
-async function filterSolutionTree(provider: DotnetTreeProvider): Promise<void> {
-  const current = provider.getTreeFilter() || '';
-  const result = await vscode.window.showInputBox({
-    title: 'Filter Solution Tree',
-    prompt: 'Filter projects, folders, and files across the solution (plain text)',
-    value: current,
-    valueSelection: [0, current.length],
-    placeHolder: 'e.g. Services, CustomApp, RecordAppearance, Domain...',
-    validateInput: () => null
-  });
-
-  if (result === undefined) {
-    return;
-  }
-
-  provider.setTreeFilter(result);
-}
-
-function clearSolutionTreeFilter(provider: DotnetTreeProvider): void {
-  provider.clearTreeFilter();
 }
 
 async function revealWithScrollPadding(

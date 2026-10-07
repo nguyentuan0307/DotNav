@@ -33,29 +33,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private configStateProvider?: (configId: string) => ConfigRunSummary | undefined;
   private outdatedPackages: OutdatedPackages = new Map();
   private efProjectPaths = new Set<string>();
-  private treeFilterText?: string;
   private warmUpMetadataTimer?: NodeJS.Timeout;
-
-  setTreeFilter(filterText?: string): void {
-    const next = filterText?.trim().toLowerCase();
-    const nextVal = next ? next : undefined;
-    if (this.treeFilterText === nextVal) {
-      return;
-    }
-
-    this.treeFilterText = nextVal;
-    this.solutionTree = undefined;
-    void vscode.commands.executeCommand('setContext', 'dotnav.hasTreeFilter', !!this.treeFilterText);
-    this.fireChanged();
-  }
-
-  getTreeFilter(): string | undefined {
-    return this.treeFilterText;
-  }
-
-  clearTreeFilter(): void {
-    this.setTreeFilter(undefined);
-  }
 
   setEfProjectPaths(paths: readonly string[]): void {
     const next = new Set(paths.map(normalizePath));
@@ -196,14 +174,6 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       };
     }
 
-    if (node.kind === 'message') {
-      item.iconPath = new vscode.ThemeIcon('filter');
-      item.command = {
-        command: 'dotnav.clearSolutionTreeFilter',
-        title: 'Clear Filter'
-      };
-    }
-
     return item;
   }
 
@@ -240,11 +210,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         return nodes;
       }
 
-      if (!this.treeFilterText && vscode.workspace.getConfiguration('dotnav').get<boolean>('showDependencies', true)) {
+      if (vscode.workspace.getConfiguration('dotnav').get<boolean>('showDependencies', true)) {
         nodes.push(this.dependenciesNode(project));
       }
 
-      nodes.push(...await readDirectoryNodes(project.directory, project.directory, project, this.treeFilterText));
+      nodes.push(...await readDirectoryNodes(project.directory, project.directory, project));
       return nodes;
     }
 
@@ -295,11 +265,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     if (node.kind === 'folder' && node.resourcePath && node.project) {
-      return readDirectoryNodes(node.resourcePath, node.project.directory, node.project, this.treeFilterText);
+      return readDirectoryNodes(node.resourcePath, node.project.directory, node.project);
     }
 
     if (node.kind === 'folder' && node.resourcePath) {
-      return readDirectoryNodes(node.resourcePath, node.resourcePath, undefined, this.treeFilterText);
+      return readDirectoryNodes(node.resourcePath, node.resourcePath, undefined);
     }
 
     return [];
@@ -459,16 +429,6 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private solutionNode(solution: SolutionModel): TreeNode {
     const solutionName = solution.path ? path.basename(solution.path, path.extname(solution.path)) : solution.name;
 
-    if (this.treeFilterText) {
-      return {
-        id: 'solution:root',
-        kind: 'solution',
-        label: `${solutionName} (Filter: "${this.treeFilterText}")`,
-        resourcePath: solution.path,
-        collapsibleState: vscode.TreeItemCollapsibleState.Expanded
-      };
-    }
-
     return {
       id: 'solution:root',
       kind: 'solution',
@@ -484,7 +444,7 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       label: project.name,
       resourcePath: project.path,
       project,
-      collapsibleState: this.treeFilterText ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
+      collapsibleState: vscode.TreeItemCollapsibleState.Collapsed
     };
   }
 
@@ -528,64 +488,12 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }));
   }
 
-  private filterSolutionFolderTree(nodes: TreeNode[], filter: string): TreeNode[] {
-    const result: TreeNode[] = [];
-    for (const node of nodes) {
-      const labelLower = node.label.toLowerCase();
-      const matchesDirectly = labelLower.includes(filter);
-
-      if (node.children && node.children.length > 0) {
-        const filteredChildren = this.filterSolutionFolderTree(node.children, filter);
-        if (filteredChildren.length > 0) {
-          result.push({
-            ...node,
-            children: filteredChildren,
-            collapsibleState: vscode.TreeItemCollapsibleState.Expanded
-          });
-          continue;
-        }
-      }
-
-      if (node.kind === 'project' && node.project) {
-        const projNameMatches = node.project.name.toLowerCase().includes(filter);
-        const projPathMatches = node.project.relativePath.toLowerCase().includes(filter);
-        if (matchesDirectly || projNameMatches || projPathMatches) {
-          result.push({
-            ...node,
-            collapsibleState: vscode.TreeItemCollapsibleState.Expanded
-          });
-          continue;
-        }
-      } else if (matchesDirectly) {
-        result.push({
-          ...node,
-          collapsibleState: node.children ? vscode.TreeItemCollapsibleState.Expanded : node.collapsibleState
-        });
-      }
-    }
-    return result;
-  }
-
   private getSolutionTree(): TreeNode[] {
     if (!this.solutionTree && this.solution) {
       this.solutionTree = this.groupProjectNodes(this.solution);
     }
 
-    const rawTree = this.solutionTree ?? [];
-    if (!this.treeFilterText) {
-      return rawTree;
-    }
-
-    const filtered = this.filterSolutionFolderTree(rawTree, this.treeFilterText);
-    if (filtered.length === 0) {
-      return [{
-        kind: 'message',
-        label: `No projects match "${this.treeFilterText}" (Click to Clear)`,
-        collapsibleState: vscode.TreeItemCollapsibleState.None
-      }];
-    }
-
-    return filtered;
+    return this.solutionTree ?? [];
   }
 
   private groupProjectNodes(solution: SolutionModel): TreeNode[] {

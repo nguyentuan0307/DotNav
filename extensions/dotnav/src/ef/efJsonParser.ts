@@ -89,7 +89,7 @@ function parseJsonObject(output: string): Record<string, unknown> | undefined {
   }
 }
 
-export function parseMigrationsList(output: string): EfMigrationEntry[] | undefined {
+export function parseMigrationsList(output: string, options?: { strict?: boolean }): EfMigrationEntry[] | undefined {
   const items = parseJsonArray(output);
   if (!items) {
     return undefined;
@@ -97,13 +97,15 @@ export function parseMigrationsList(output: string): EfMigrationEntry[] | undefi
 
   const entries: EfMigrationEntry[] = [];
   for (const item of items) {
-    if (!item || typeof item !== 'object') {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      if (options?.strict) { return undefined; }
       continue;
     }
 
     const record = item as Record<string, unknown>;
     const id = typeof record.id === 'string' ? record.id : undefined;
     if (!id) {
+      if (options?.strict) { return undefined; }
       continue;
     }
 
