@@ -4,6 +4,20 @@ All notable changes to DotNav are documented here.
 
 ## Unreleased
 
+## [0.32.6](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.5...dotnav-v0.32.6) (2026-10-07)
+
+
+### Bug Fixes
+
+* **erd:** route self-referencing relationships ([f073c01](https://github.com/nguyentuan0307/DotNav/commit/f073c0125de488073a8057429a29f63829e8c911))
+* **dotnav:** recover EF tool state and cancel owned operations ([0c686e6](https://github.com/nguyentuan0307/DotNav/commit/0c686e6ef7164145c62ec962fa78d66ee868b954))
+* **dotnav:** make EF guides usable alongside forms ([fc4e6dd](https://github.com/nguyentuan0307/DotNav/commit/fc4e6dd34aed9ec53c79b68e8250ac6792f79c99))
+
+### Changes
+
+* refactor(dotnav): remove solution tree filter in favor of native find ([75809d6](https://github.com/nguyentuan0307/DotNav/commit/75809d6c777282818a5afb1ef91343091a8aba1f))
+
+
 ## [0.32.5](https://github.com/nguyentuan0307/DotNav/compare/dotnav-v0.32.4...dotnav-v0.32.5) (2026-09-22)
 
 
