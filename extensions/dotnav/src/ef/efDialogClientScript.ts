@@ -30,8 +30,8 @@ const helpCloseButton = document.getElementById('help-close');
 const helpBackdrop = document.getElementById('help-backdrop');
 const persistedState = vscode.getState() || {};
 let currentLocale = INITIAL_LOCALE;
-let hostValid = true;
-let busy = false;
+let hostValid = false;
+let busy = true;
 let helpPreviouslyFocused = null;
 let currentProgress;
 
@@ -131,7 +131,29 @@ function validate() {
 
 function notifyChange() {
   validate();
+  if (busy) { return; }
   vscode.postMessage({ type: 'change', values: readValues() });
+}
+
+function applyBusy(value) {
+  busy = Boolean(value);
+  for (const node of document.querySelectorAll('button:not(#cancel):not([data-help-control])')) {
+    node.disabled = busy && node.dataset.toolbar !== 'output';
+  }
+  for (const node of form.querySelectorAll('input, select, textarea')) {
+    node.disabled = busy;
+  }
+  if (busy) {
+    for (const list of document.querySelectorAll('.combo-list')) { list.hidden = true; }
+    for (const display of form.querySelectorAll('[data-display]')) {
+      display.setAttribute('aria-expanded', 'false');
+      display.removeAttribute('aria-activedescendant');
+    }
+  }
+  document.getElementById('cancel').disabled = false;
+  submitButton.classList.toggle('busy', busy);
+  submitButton.setAttribute('aria-busy', busy ? 'true' : 'false');
+  validate();
 }
 
 function isHelpOpen() {
@@ -188,6 +210,7 @@ function setupCombo(root) {
   }
 
   function commit(option) {
+    if (busy) { return; }
     hidden.value = option.value;
     display.value = option.label;
     close();
@@ -405,14 +428,7 @@ window.addEventListener('message', event => {
     statusNode.textContent = currentLocale === 'vi' ? statusNode.dataset.vi : statusNode.dataset.en;
     statusNode.classList.toggle('error', Boolean(message.error));
   } else if (message.type === 'busy') {
-    busy = Boolean(message.busy);
-    for (const node of document.querySelectorAll('button:not(#cancel):not([data-help-control])')) {
-      node.disabled = busy;
-    }
-    document.getElementById('cancel').disabled = false;
-    submitButton.classList.toggle('busy', busy);
-    submitButton.setAttribute('aria-busy', busy ? 'true' : 'false');
-    if (!busy) { validate(); }
+    applyBusy(message.busy);
   } else if (message.type === 'progress') {
     renderProgress(message.progress);
   } else if (message.type === 'validity') {
@@ -448,12 +464,12 @@ window.addEventListener('message', event => {
       const root = document.querySelector('[data-combo="' + field + '"]');
       if (root && root._refresh) { root._refresh(typeof value === 'string' ? value : undefined); }
     }
-    if (changed) { notifyChange(); }
+    if (changed && !message.silent) { notifyChange(); }
   } else if (message.type === 'options') {
     OPTIONS[message.field] = message.options || [];
     const root = document.querySelector('[data-combo="' + message.field + '"]');
     if (root && root._refresh) { root._refresh(message.selected); }
-    notifyChange();
+    if (!message.silent) { notifyChange(); }
   }
 });
 
@@ -465,6 +481,6 @@ const focusable = Array.from(
 ).filter(node => !node.closest('details.advanced'));
 if (focusable.length > 0) { focusable[0].focus(); focusable[0].select(); }
 applyLocale(INITIAL_LOCALE, false);
-validate();
+applyBusy(true);
 vscode.postMessage({ type: 'ready', values: readValues() });`;
 }

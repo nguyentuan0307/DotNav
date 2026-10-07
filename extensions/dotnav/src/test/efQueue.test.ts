@@ -83,3 +83,33 @@ test('generation tracker detects stale reads', () => {
   assert.equal(generations.isCurrent('key', generations.current('key')), true);
   assert.equal(generations.current('key'), before + 2);
 });
+
+test('an aborted queued request preserves the running request and unrelated jobs', async () => {
+  const queue = new SerialQueue();
+  let release!: () => void;
+  const running = queue.enqueue('running', false, () => new Promise<void>(resolve => { release = resolve; }));
+  const controller = new AbortController();
+  let ranCancelled = false;
+  const cancelled = queue.enqueue('cancelled', false, async () => { ranCancelled = true; }, controller.signal);
+  const rejection = assert.rejects(cancelled, QueueCancelledError);
+  const following = queue.enqueue('following', false, async () => 'ok');
+  controller.abort();
+  await rejection;
+  assert.equal(queue.runningEntry?.label, 'running');
+  assert.deepEqual(queue.snapshot.pending.map(entry => entry.label), ['following']);
+  release();
+  await running;
+  assert.equal(await following, 'ok');
+  assert.equal(ranCancelled, false);
+  assert.equal(queue.busy, false);
+});
+
+test('a pre-aborted request never enters the queue', async () => {
+  const queue = new SerialQueue();
+  const controller = new AbortController();
+  controller.abort();
+  let ran = false;
+  await assert.rejects(queue.enqueue('cancelled', false, async () => { ran = true; }, controller.signal), QueueCancelledError);
+  assert.equal(ran, false);
+  assert.equal(queue.busy, false);
+});

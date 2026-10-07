@@ -95,9 +95,13 @@ export function parseConnectionEndpoint(connStr: string): ParsedConnectionEndpoi
 
 export async function pingDatabaseConnection(
   connectionString: string,
-  timeoutMs = 2000
+  timeoutMs = 2000,
+  signal?: AbortSignal
 ): Promise<DatabasePingResult> {
   const endpoint = parseConnectionEndpoint(connectionString);
+  if (signal?.aborted) {
+    return { ...endpoint, online: false, latencyMs: 0, error: 'Connection test cancelled.' };
+  }
   if (endpoint.provider === 'SQLite') {
     return {
       online: true,
@@ -117,9 +121,15 @@ export async function pingDatabaseConnection(
     const cleanup = () => {
       if (!resolved) {
         resolved = true;
+        signal?.removeEventListener('abort', abort);
         socket.destroy();
       }
     };
+    const abort = () => {
+      cleanup();
+      resolve({ ...endpoint, online: false, latencyMs: Date.now() - start, error: 'Connection test cancelled.' });
+    };
+    signal?.addEventListener('abort', abort, { once: true });
 
     socket.setTimeout(timeoutMs);
 

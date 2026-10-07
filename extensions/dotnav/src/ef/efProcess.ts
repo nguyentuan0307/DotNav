@@ -9,6 +9,7 @@ export interface RunProcessOptions {
   /** Called once the process has started, so callers can wire cancellation. */
   readonly onStart?: (kill: () => void) => void;
   readonly onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
+  readonly signal?: AbortSignal;
 }
 
 export interface RunProcessResult {
@@ -21,6 +22,10 @@ export interface RunProcessResult {
 
 export function runProcess(command: string, args: readonly string[], options: RunProcessOptions): Promise<RunProcessResult> {
   return new Promise(resolve => {
+    if (options.signal?.aborted) {
+      resolve({ exitCode: undefined, stdout: '', stderr: '', killed: true });
+      return;
+    }
     let stdout = '';
     let stderr = '';
     let killed = false;
@@ -38,11 +43,15 @@ export function runProcess(command: string, args: readonly string[], options: Ru
     const finish = (result: RunProcessResult) => {
       if (!settled) {
         settled = true;
+        options.signal?.removeEventListener('abort', kill);
         resolve(result);
       }
     };
 
     const kill = () => {
+      if (settled || killed) {
+        return;
+      }
       killed = true;
       killProcessTree(child.pid);
     };
@@ -67,6 +76,10 @@ export function runProcess(command: string, args: readonly string[], options: Ru
     });
 
     options.onStart?.(kill);
+    options.signal?.addEventListener('abort', kill, { once: true });
+    if (options.signal?.aborted) {
+      kill();
+    }
   });
 }
 

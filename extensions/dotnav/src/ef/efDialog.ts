@@ -26,6 +26,8 @@ export interface EfProgressUpdate {
 
 /** Host-side handle passed to callbacks so they can drive the open dialog. */
 export interface EfDialogHandle {
+  readonly signal?: AbortSignal;
+  readonly isCurrent?: () => boolean;
   setPreview(text: string): void;
   setStatus(text: string, error?: boolean): void;
   setBusy(busy: boolean): void;
@@ -57,9 +59,26 @@ export interface EfDialogCallbacks {
  */
 /** One persistent EF Core Center tab; actions replace its active form. */
 let centerPanel: vscode.WebviewPanel | undefined;
-let openDialog: { panel: vscode.WebviewPanel; dismiss: (disposePanel?: boolean) => void } | undefined;
+let openDialog: { panel: vscode.WebviewPanel; isBusy: () => boolean; dismiss: (disposePanel?: boolean) => void } | undefined;
 let centerMessageSubscription: vscode.Disposable | undefined;
 let centerPanelDisposeSubscription: vscode.Disposable | undefined;
+
+class EfCenterViewState {
+  busy = false;
+  valid = true;
+  preview = '';
+  status = '';
+  error = false;
+  label: string;
+  danger: boolean;
+  progress: EfProgressUpdate | undefined;
+  readonly options = new Map<string, readonly EfDialogOption[]>();
+
+  constructor(spec: EfDialogSpec) {
+    this.label = spec.submitLabel;
+    this.danger = Boolean(spec.danger);
+  }
+}
 
 interface EfCenterSession {
   readonly common: EfDialogValues;
@@ -205,6 +224,10 @@ export function showEfDialog(
   spec: EfDialogSpec,
   callbacks: EfDialogCallbacks
 ): Promise<EfDialogValues | undefined> {
+  if (openDialog?.isBusy()) {
+    openDialog.panel.reveal(vscode.ViewColumn.Active, false);
+    return Promise.resolve(undefined);
+  }
   // Reuse one editor tab so context-menu actions route into the same Center.
   const reusablePanel = centerPanel;
   openDialog?.dismiss(false);
@@ -234,31 +257,156 @@ export function showEfDialog(
     initialLocale
   );
 
-  const handle: EfDialogHandle = {
-    setPreview: text => void panel.webview.postMessage({ type: 'preview', text }),
-    setStatus: (text, error) => void panel.webview.postMessage({
-      type: 'status',
-      text,
-      textVi: localizeEfText(text, 'vi'),
-      error
-    }),
-    setBusy: busy => void panel.webview.postMessage({ type: 'busy', busy }),
-    setValid: valid => void panel.webview.postMessage({ type: 'validity', valid }),
-    setSubmit: (label, danger) => void panel.webview.postMessage({
-      type: 'submit',
-      label,
-      labelVi: localizeEfText(label, 'vi'),
-      danger
-    }),
-    setValue: (field, value) => void panel.webview.postMessage({ type: 'value', field, value }),
-    setOptions: (field, options, selected) =>
-      void panel.webview.postMessage({ type: 'options', field, options, selected }),
-    setProgress: progress => void panel.webview.postMessage(progressMessage(progress)),
-  };
-
   return new Promise<EfDialogValues | undefined>(resolve => {
     let settled = false;
-    let submitting = false;
+    let revision = 0;
+    let operation: AbortController | undefined;
+    let changes: Promise<void> = Promise.resolve();
+    const state = new EfCenterViewState(spec);
+    const createHandle = (scope?: number, signal?: AbortSignal): EfDialogHandle => {
+      const isCurrent = () => !settled && (scope === undefined || scope === revision);
+      const post = (message: object) => {
+        if (isCurrent()) {
+          void panel.webview.postMessage(message);
+        }
+      };
+      return {
+        signal,
+        isCurrent,
+        setPreview: text => {
+          if (!isCurrent()) { return; }
+          state.preview = text;
+          post({ type: 'preview', text });
+        },
+        setStatus: (text, error = false) => {
+          if (!isCurrent()) { return; }
+          state.status = text;
+          state.error = error;
+          post({ type: 'status', text, textVi: localizeEfText(text, 'vi'), error });
+        },
+        setBusy: busy => {
+          if (!isCurrent()) { return; }
+          // The operation owner releases busy only after its callback settles.
+          state.busy = Boolean(operation) || busy;
+          post({ type: 'busy', busy: state.busy });
+        },
+        setValid: valid => {
+          if (!isCurrent()) { return; }
+          state.valid = valid;
+          post({ type: 'validity', valid });
+        },
+        setSubmit: (label, danger = false) => {
+          if (!isCurrent()) { return; }
+          state.label = label;
+          state.danger = danger;
+          post({ type: 'submit', label, labelVi: localizeEfText(label, 'vi'), danger });
+        },
+        setValue: (field, value) => {
+          if (!isCurrent()) { return; }
+          rememberSessionValues(spec.actionId, { [field]: value });
+          post({ type: 'value', field, value });
+        },
+        setOptions: (field, options, selected) => {
+          if (!isCurrent()) { return; }
+          state.options.set(field, options);
+          if (selected !== undefined) {
+            rememberSessionValues(spec.actionId, { [field]: selected });
+          }
+          post({ type: 'options', field, options, selected });
+        },
+        setProgress: progress => {
+          if (!isCurrent()) { return; }
+          state.progress = progress;
+          post(progressMessage(progress));
+        }
+      };
+    };
+    const handle = createHandle();
+    const terminalProgress = (result: 'error' | 'cancelled' | 'success') => {
+      if (state.progress?.state === 'running') {
+        handle.setProgress({
+          ...state.progress,
+          state: result,
+          steps: state.progress.steps.map(step => step.state === 'active'
+            ? { ...step, state: result === 'error' ? 'error' : result === 'success' ? 'complete' : 'pending' }
+            : step)
+        });
+      }
+    };
+    const change = (values: EfDialogValues): Promise<void> => {
+      const scope = ++revision;
+      rememberSessionValues(spec.actionId, values);
+      handle.setPreview(callbacks.preview(values));
+      changes = changes.then(async () => {
+        if (!settled && scope === revision) {
+          await callbacks.onChange?.(values, createHandle(scope));
+        }
+      }).catch(() => {
+        createHandle(scope).setStatus('Could not validate the form. See Output for details.', true);
+        createHandle(scope).setValid(false);
+      });
+      return changes;
+    };
+    const runOperation = async (
+      values: EfDialogValues,
+      callback: (values: EfDialogValues, handle: EfDialogHandle) => void | Promise<void>,
+      submit: boolean
+    ) => {
+      if (settled || operation) { return; }
+      const controller = new AbortController();
+      operation = controller;
+      handle.setBusy(true);
+      try {
+        await changes;
+        if (settled || controller.signal.aborted) { return; }
+        const scoped = createHandle(++revision, controller.signal);
+        rememberSessionValues(spec.actionId, values);
+        if (submit) {
+          await callbacks.onChange?.(values, scoped);
+          if (controller.signal.aborted || !state.valid || spec.fields.some(field =>
+            field.required && !String(values[field.id] ?? '').trim())) {
+            return;
+          }
+          scoped.setStatus('Running command…');
+        }
+        scoped.setProgress(undefined);
+        await callback(values, scoped);
+        terminalProgress(controller.signal.aborted ? 'cancelled' : 'success');
+      } catch {
+        // Unexpected exceptions can contain process arguments. Keep the
+        // Center status generic so a connection string is never echoed.
+        handle.setStatus('Command failed unexpectedly. See the notification or Output for details.', true);
+        terminalProgress(controller.signal.aborted ? 'cancelled' : 'error');
+      } finally {
+        if (!settled) {
+          try {
+            await callbacks.onChange?.(sessionValues(spec), createHandle(revision));
+          } catch {
+            handle.setValid(false);
+            handle.setStatus('Could not validate the form. See Output for details.', true);
+          }
+        }
+        if (controller.signal.aborted) {
+          handle.setStatus('Command cancelled.');
+          terminalProgress('cancelled');
+        }
+        operation = undefined;
+        handle.setBusy(false);
+      }
+    };
+    const replay = () => {
+      const remembered = sessionValues(spec);
+      handle.setBusy(state.busy);
+      for (const [field, options] of state.options) {
+        void panel.webview.postMessage({ type: 'options', field, options, selected: remembered[field], silent: true });
+      }
+      void panel.webview.postMessage({ type: 'values', values: remembered, silent: true });
+      handle.setPreview(state.preview);
+      handle.setStatus(state.status, state.error);
+      handle.setSubmit(state.label, state.danger);
+      handle.setValid(state.valid);
+      handle.setProgress(state.progress);
+    };
     const finish = (result: EfDialogValues | undefined, disposePanel = true) => {
       if (settled) {
         return;
@@ -278,7 +426,7 @@ export function showEfDialog(
       }
     };
 
-    openDialog = { panel, dismiss: (disposePanel = true) => finish(undefined, disposePanel) };
+    openDialog = { panel, isBusy: () => state.busy, dismiss: (disposePanel = true) => finish(undefined, disposePanel) };
 
     centerMessageSubscription = panel.webview.onDidReceiveMessage(async (message: {
       type: string;
@@ -289,6 +437,8 @@ export function showEfDialog(
       locale?: EfLocale;
     }) => {
       const values = message.values ?? sessionValues(spec);
+      if (settled && message.type !== 'cancel') { return; }
+      if (operation && ['change', 'action', 'submit', 'navigate'].includes(message.type)) { return; }
       switch (message.type) {
         case 'ready': {
           if (settled) {
@@ -296,56 +446,45 @@ export function showEfDialog(
           }
           // The DOM may have been destroyed while hidden. Rehydrate from host
           // memory before accepting its initial/default values.
-          const remembered = sessionValues(spec);
-          void panel.webview.postMessage({ type: 'values', values: remembered });
-          handle.setPreview(callbacks.preview(remembered));
-          await callbacks.onChange?.(remembered, handle);
+          if (!operation) {
+            await change(sessionValues(spec));
+          }
+          replay();
           break;
         }
         case 'change':
           if (settled) {
             return;
           }
-          rememberSessionValues(spec.actionId, values);
-          handle.setPreview(callbacks.preview(values));
-          await callbacks.onChange?.(values, handle);
+          await change(values);
           break;
         case 'action':
           if (settled) {
             return;
           }
           if (message.action) {
-            rememberSessionValues(spec.actionId, values);
-            await callbacks.onAction?.(message.action, values, handle);
+            const action = message.action;
+            await runOperation(values, (current, scoped) => callbacks.onAction?.(action, current, scoped), false);
           }
           break;
         case 'submit':
-          if (settled || submitting) {
+          if (settled || operation) {
             return;
           }
-          handle.setBusy(true);
-          handle.setStatus('Running command…');
-          rememberSessionValues(spec.actionId, values);
           if (callbacks.onSubmit) {
-            submitting = true;
-            try {
-              await callbacks.onSubmit(values, handle);
-            } catch {
-              // Unexpected exceptions can contain process arguments. Keep the
-              // Center status generic so a connection string is never echoed.
-              handle.setStatus('Command failed unexpectedly. See the notification or Output for details.', true);
-            } finally {
-              submitting = false;
-              if (!settled) {
-                handle.setBusy(false);
-              }
-            }
+            await runOperation(values, callbacks.onSubmit, true);
           } else {
+            handle.setBusy(true);
+            handle.setStatus('Running command…');
+            rememberSessionValues(spec.actionId, values);
             finish(values, false);
           }
           break;
         case 'cancel':
-          if (settled) {
+          if (operation) {
+            operation.abort();
+            handle.setStatus('Cancelling command…');
+          } else if (settled) {
             centerPanel = undefined;
             centerMessageSubscription?.dispose();
             centerPanelDisposeSubscription?.dispose();
@@ -374,6 +513,7 @@ export function showEfDialog(
           break;
         }
         case 'toolbar': {
+          if (operation && message.action !== 'output') { return; }
           const projectPath = String(values['project'] ?? '');
           const commands: Record<string, string> = {
             refresh: 'dotnav.ef.refresh',
