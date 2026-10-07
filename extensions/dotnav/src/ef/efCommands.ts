@@ -1433,7 +1433,7 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
       fields: [
         {
           id: FIELD.from,
-          label: 'From migration (exclusive)',
+          label: 'From migration (current state)',
           type: 'combo',
           value: '',
           options: migrationOptions(migrations),
@@ -1441,7 +1441,7 @@ async function generateScript(feature: EfFeature, node?: EfCommandSource): Promi
         },
         {
           id: FIELD.to,
-          label: 'To migration (inclusive)',
+          label: 'To migration (target state)',
           type: 'combo',
           value: '',
           options: migrationOptions(migrations),

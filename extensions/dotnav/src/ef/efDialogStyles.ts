@@ -6,7 +6,7 @@ export const efDialogStyles = `  :root {
     --accent: var(--vscode-focusBorder, var(--vscode-button-background));
   }
   * { box-sizing: border-box; }
-  html, body { min-height: 100%; overflow-x: hidden; }
+  html, body { min-height: 100%; overflow-x: clip; }
   body {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
@@ -326,41 +326,27 @@ export const efDialogStyles = `  :root {
   }
   .help-open:hover { background: var(--vscode-button-secondaryHoverBackground); }
   .help-open .icon { width: 14px; height: 14px; }
-  .help-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    opacity: 0;
-    visibility: hidden;
-    background: rgba(0, 0, 0, .42);
-    backdrop-filter: blur(1px);
-    transition: opacity .16s ease, visibility .16s ease;
-  }
-  .help-backdrop.open {
-    opacity: 1;
-    visibility: visible;
+  body.guide-open .center-layout {
+    max-width: 1440px;
+    grid-template-columns: 176px minmax(0, 1fr) 360px;
+    gap: 24px;
   }
   .help-drawer {
-    position: fixed;
-    inset: 0 0 0 auto;
-    z-index: 41;
-    display: flex;
+    position: sticky;
+    top: 94px;
+    grid-column: 3;
+    align-self: start;
+    min-width: 0;
+    display: none;
     flex-direction: column;
-    width: min(480px, calc(100vw - 32px));
-    height: 100vh;
+    max-height: calc(100vh - 152px);
     color: var(--vscode-foreground);
     background: var(--surface-raised);
-    border-left: 1px solid var(--surface-border);
-    box-shadow: -16px 0 42px rgba(0, 0, 0, .28);
-    transform: translateX(102%);
-    visibility: hidden;
-    transition: transform .18s ease, visibility .18s ease;
+    border: 1px solid var(--surface-border);
+    border-radius: 9px;
+    overflow: hidden;
   }
-  .help-drawer.open {
-    transform: translateX(0);
-    visibility: visible;
-  }
-  body.help-open { overflow: hidden; }
+  .help-drawer.open { display: flex; }
   .help-drawer-header {
     display: flex;
     align-items: center;
@@ -401,7 +387,8 @@ export const efDialogStyles = `  :root {
   .help-close:hover { background: var(--vscode-toolbar-hoverBackground); }
   .guide-body {
     flex: 1 1 auto;
-    padding: 20px;
+    min-height: 0;
+    padding: 18px;
     background: var(--surface-muted);
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -410,44 +397,41 @@ export const efDialogStyles = `  :root {
   .guide-body h2 {
     margin: 0 0 7px;
     color: var(--vscode-foreground);
-    font-size: .8em;
+    font-size: .92em;
     font-weight: 700;
-    letter-spacing: .035em;
-    text-transform: uppercase;
   }
   .guide-body p {
     margin: 0;
     color: var(--vscode-descriptionForeground);
-    font-size: .84em;
-    line-height: 1.55;
+    font-size: .95em;
+    line-height: 1.65;
   }
   .guide-purpose, .guide-result { padding: 0 0 15px; }
-  .guide-columns {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 16px;
-    padding: 15px 0;
+  .guide-background {
+    padding: 13px 0;
     border-top: 1px solid var(--surface-border);
     border-bottom: 1px solid var(--surface-border);
   }
-  .guide-body ul {
+  .guide-background > summary { cursor: pointer; font-weight: 600; }
+  .guide-background section { margin-top: 14px; }
+  .guide-body ul, .guide-body ol {
     margin: 0;
     padding-left: 18px;
     color: var(--vscode-descriptionForeground);
-    font-size: .84em;
-    line-height: 1.5;
+    font-size: .95em;
+    line-height: 1.65;
   }
-  .guide-body li + li { margin-top: 5px; }
+  .guide-body li + li { margin-top: 9px; }
+  .guide-steps { padding-bottom: 16px; }
+  .guide-steps li::marker { color: var(--vscode-textLink-foreground); font-weight: 700; }
   .field-guide { padding: 16px 0 4px; }
   .guide-field {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 5px;
-    padding: 10px 0;
+    padding: 10px 8px;
     border-top: 1px solid var(--surface-border);
   }
-  .guide-field-heading { display: flex; align-items: flex-start; gap: 7px; min-width: 0; }
-  .guide-field-name { font-size: .84em; font-weight: 600; overflow-wrap: anywhere; }
+  .guide-field.active { background: var(--vscode-list-hoverBackground); border-left: 2px solid var(--accent); }
+  .guide-field-heading { cursor: pointer; min-width: 0; line-height: 1.6; }
+  .guide-field-name { font-size: .95em; font-weight: 600; overflow-wrap: anywhere; }
   .field-badge {
     flex: 0 0 auto;
     padding: 1px 5px;
@@ -458,15 +442,16 @@ export const efDialogStyles = `  :root {
     font-weight: 650;
     line-height: 1.4;
     text-transform: uppercase;
+    margin-left: 5px;
   }
   .field-badge.required {
     color: var(--vscode-inputValidation-warningForeground, var(--vscode-editorWarning-foreground));
     border-color: var(--vscode-editorWarning-foreground);
   }
-  .guide-field > p { grid-column: 1; }
-  .guide-example { margin-top: 4px !important; font-family: var(--vscode-editor-font-family, monospace); }
+  .guide-field > p { margin-top: 8px; }
+  .guide-example { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
   .guide-result {
-    padding-top: 15px;
+    padding: 15px 0;
     border-top: 1px solid var(--surface-border);
   }
   .guide-caution {
@@ -878,11 +863,17 @@ export const efDialogStyles = `  :root {
     .toolbar-button { width: 32px; justify-content: center; padding: 5px; }
     .center-layout { grid-template-columns: 208px minmax(0, 700px); gap: 24px; }
   }
+  @media (max-width: 1100px) {
+    body.guide-open .center-layout { max-width: 1120px; grid-template-columns: 176px minmax(0, 1fr); }
+    .help-drawer { position: static; grid-column: 2; max-height: 480px; }
+  }
   @media (max-width: 760px) {
     .center-header { min-height: 58px; padding: 9px 12px; }
     .brand { min-width: 0; }
     .center-subtitle, .target-summary { display: none; }
     .center-layout { grid-template-columns: 1fr; gap: 18px; padding: 16px 14px 36px; }
+    body.guide-open .center-layout { grid-template-columns: 1fr; gap: 18px; }
+    .help-drawer { grid-column: 1; }
     .center-nav {
       position: static;
       display: flex;
@@ -918,7 +909,6 @@ export const efDialogStyles = `  :root {
       padding: 5px;
     }
     .help-open-label { display: none; }
-    .help-drawer { inset: 0; width: auto; }
     .guide-body { padding: 17px 15px; }
     .progress-steps { display: grid; gap: 7px; }
     .field-line { align-items: stretch; flex-direction: column; }

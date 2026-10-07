@@ -1,35 +1,40 @@
-# EF Core Tools: operation lifecycle and button state
+# EF Core Center: usable side guide and beginner-friendly content
 
 Status: complete; verified, reviewed, packaged and installed locally.
-Classification: L2 (cross-layer callbacks, queue, process cancellation). Review: independent Codex Reviewer with inherited model and effort.
+Baseline: 0c686e6 (working tree clean). Classification: L2, UI rendering/client/content contract across multiple files. Independent Codex Reviewer inherits main model and effort.
 
 ## Approved behavior
 
-1. Release busy state when work finishes, independently of notification dismissal; terminate progress on all failures.
-2. Recompute Update validity after connection/startup/context/configuration/mode changes. Invalidate checked state after every write attempt.
-3. Distinguish successful, failed, cancelled, and unknown database checks. Failed/unknown checks show an error and allow Update when the form is valid.
-4. Keep host UI state and replay it when the webview becomes ready. Scope callbacks to their action/revision and lock fields during work; Cancel, Output, and Help remain available.
-5. Propagate optional AbortSignal through operation, tool preparation, CLI, queue, and process runner. Cancel only the corresponding request, wait for termination, and retain the form. Idle Cancel closes the Center.
+1. Open a guide beside the form inside EF Core Center, without a backdrop or focus trap. Keep form fields, Check, Update and Cancel accessible. On narrow screens place the guide below the form; each surface remains scrollable.
+2. Present a short purpose, numbered action-specific steps, expected result and relevant cautions. Collapse prerequisites and field explanations/examples; highlight and reveal the explanation for the focused field without stealing focus.
+3. Review all eleven action guides (including the previously missing Create Empty Migration guide) in English and Vietnamese against actual DotNav commands and official EF documentation. Explain project/startup/context, defaults, Check vs Update, --add, rollback/0, Force/Offline, SQL ranges and compiled-model activation in plain language.
+4. Preserve operation ownership, busy state, field values, command generation and cancellation. Guide controls remain usable during an operation; Enter in guide content never submits the form.
 
-## Implementation scope
+## Files
 
-- EF dialog host/client: operation ownership, state replay, callback isolation, bounded busy state and field locking.
-- EF command callbacks/database check: explicit result states, consistent validation, scoped progress and non-blocking notifications.
-- EF CLI/tool preparation/queue/process: per-request cancellation, no retry after cancellation, listener/timer cleanup.
-- Regression tests and Chrome Headless E2E, with all EF/database operations mocked.
+- `efDialogHtml.ts`, `efDialogStyles.ts`, `efDialogClientScript.ts`: integrated responsive aside, readable sections and safe focus/keyboard behavior.
+- `efActionHelp.ts`, `efDialogI18n.ts`: bilingual steps and corrected explanations.
+- `efCommands.ts`: clarify SQL From/To field labels as current/target states (text only, preserving generated commands).
+- Existing guide/render tests and `scripts/ef-tools-e2e.mjs`: meaningful regressions for form interaction with guide open, focus, locale, narrow layouts and busy controls.
 
-## Acceptance and authorized verification
+## Verification and completion
 
-- Cover eight reproduced regressions: deferred notification, connection-change lock, --add lock, failed check, unknown applied status, stale check response, ready during execution, and Cancel without cancellation.
-- Cover cancellation before start, while queued, and while running; preserve unrelated queue entries.
-- Run `npm run compile`, `npm test`, `node scripts/ef-tools-e2e.mjs`, and `git diff --check`.
-- Freeze and independently review the complete L2 diff; address findings and mark review.
-- Run `npm run package:all` and `code --install-extension dist/dotnav.vsix --force`.
-- Track and clean only processes started by this task. No migration generation/application or real database write commands. No version/tag/commit changes.
+- Run `npm run compile`, `npm test`, `node scripts/ef-tools-e2e.mjs` at desktop and narrow viewport sizes, and `git diff --check`.
+- Inspect actual Chrome screenshots for desktop/narrow layouts. All EF/database commands in tests remain mocked.
+- Freeze complete L2 diff, independent review, fix verified findings, mark review.
+- Run `npm run package:all`; install `dist/dotnav.vsix` locally with `code --install-extension dist/dotnav.vsix --force`.
+- Track/clean only owned build/Chrome workers. No real EF operations, migrations, database updates, version/tag changes, commits or pushes.
 
-## Baseline and report
+## Sources
 
-Working tree was clean at intake. Source audit and in-memory reproduction completed before approval.
-Compile, full test suite (858 passing; one existing Windows-only skip), Chrome Headless E2E, and diff check pass.
-Independent L2 review completed in two rounds. Fixed two additional gaps: superseded project/startup validation and malformed migration-array members. No findings remain.
-`npm run package:all` passed. `code --install-extension dist/dotnav.vsix --force` reported successful installation. All EF/database regression and E2E operations were mocked; no migration was generated or applied.
+- https://learn.microsoft.com/en-us/ef/core/cli/dotnet
+- https://learn.microsoft.com/en-us/ef/core/performance/advanced-performance-topics#compiled-models
+- https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/applying#with-from-and-to
+
+## Verification report
+
+- Compile and full suite pass: 858 tests passing, one existing Windows-only test skipped on Linux.
+- Chrome E2E passes at 1440, 1000, 680 and 420px. Actual desktop/narrow screenshots inspected. All EF/database execution mocked.
+- Independent L2 review completed in two rounds; three findings fixed (Update name example, SQL rollback/state guidance, F1 focused-field reveal). No findings remain.
+- Final diff check passed; owned build/Chrome workers cleaned.
+- `npm run package:all` passed. `code --install-extension dist/dotnav.vsix --force` succeeded; installed bundle matches the packaged bundle. No real EF/database operation was run.
