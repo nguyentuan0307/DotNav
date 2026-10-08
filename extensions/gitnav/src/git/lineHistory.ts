@@ -34,11 +34,15 @@ export interface LineHistoryQuery {
   readonly relPath: string;
   readonly headStart: number;
   readonly headEnd: number;
+  readonly ref?: string;
+  readonly sourceLabel?: string;
 }
 
 export interface FileHistoryQuery {
   readonly repoRoot: string;
   readonly relPath: string;
+  readonly ref?: string;
+  readonly sourceLabel?: string;
 }
 
 export class GitOperationCancelledError extends Error {
@@ -61,7 +65,8 @@ export async function getLineHistory(
     `${query.headStart},${query.headEnd}:${query.relPath}`,
     `--format=${recordSeparator}%H${fieldSeparator}%an${fieldSeparator}%ae${fieldSeparator}%at${fieldSeparator}%s`,
     `--max-count=${maxCommits}`,
-    '--no-color'
+    '--no-color',
+    ...(query.ref ? [query.ref] : [])
   ], token);
 
   if (result.exitCode !== 0) {
@@ -89,6 +94,7 @@ export async function getFileHistory(
     `--format=${recordSeparator}%H${fieldSeparator}%an${fieldSeparator}%ae${fieldSeparator}%at${fieldSeparator}%s`,
     `--max-count=${maxCommits}`,
     '--no-color',
+    ...(query.ref ? [query.ref] : []),
     '--',
     query.relPath
   ], token);
@@ -296,9 +302,10 @@ function parseHunkHeader(line: string): { oldStart: number; newStart: number } |
 }
 
 export function lineHistoryLabel(query: LineHistoryQuery): string {
-  return `${path.basename(query.relPath)}:${query.headStart}-${query.headEnd}`;
+  const label = `${path.basename(query.relPath)}:${query.headStart}-${query.headEnd}`;
+  return query.sourceLabel ? `${label} · ${query.sourceLabel}` : label;
 }
 
 export function fileHistoryLabel(query: FileHistoryQuery): string {
-  return query.relPath;
+  return query.sourceLabel ? `${query.relPath} · ${query.sourceLabel}` : query.relPath;
 }

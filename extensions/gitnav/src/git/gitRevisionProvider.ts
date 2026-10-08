@@ -16,8 +16,10 @@ export class GitRevisionProvider implements vscode.TextDocumentContentProvider {
   }
 }
 
-export function revisionUri(root: string, ref: string, filePath: string): vscode.Uri {
-  return vscode.Uri.from({ scheme: gitRevisionScheme, path: `/${filePath}`, query: new URLSearchParams({ root, ref, path: filePath }).toString() });
+export function revisionUri(root: string, ref: string, filePath: string, label?: string): vscode.Uri {
+  const query = new URLSearchParams({ root, ref, path: filePath });
+  if (label) query.set('label', label);
+  return vscode.Uri.from({ scheme: gitRevisionScheme, path: `/${filePath}`, query: query.toString() });
 }
 
 export function emptyRevisionUri(root: string, ref: string, filePath: string): vscode.Uri {
