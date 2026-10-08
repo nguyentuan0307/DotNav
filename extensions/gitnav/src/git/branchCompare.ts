@@ -4,6 +4,7 @@ import { BoundedCache } from './boundedCache';
 import { findRepoRoot, runGit, toGitRelativePath } from './gitCli';
 import { readFileRevision } from './fileRevision';
 import { pickFileRevision } from './fileRevisionPicker';
+import { captureRevisionHistoryContext, captureWorktreeHistoryContext, EditorHistoryContext } from './editorHistoryContext';
 
 interface GitBranchItem extends vscode.QuickPickItem {
   readonly ref: string;
@@ -13,24 +14,33 @@ interface CompareDocument {
   readonly uri: vscode.Uri;
 }
 
+interface CompareDocumentContent {
+  readonly content: string;
+  readonly historyContext: EditorHistoryContext;
+}
+
 const scheme = 'gitnav-compare';
 
 export class BranchCompareDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  private readonly documents = new BoundedCache<string>(50);
+  private readonly documents = new BoundedCache<CompareDocumentContent>(50);
   private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.onDidChangeEmitter.event;
 
   provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.documents.get(uri.toString()) ?? '';
+    return this.documents.get(uri.toString())?.content ?? '';
   }
 
-  createDocument(label: string, relPath: string, content: string): vscode.Uri {
+  getHistoryContext(uri: vscode.Uri): EditorHistoryContext | undefined {
+    return this.documents.get(uri.toString())?.historyContext;
+  }
+
+  createDocument(label: string, relPath: string, content: string, historyContext: EditorHistoryContext): vscode.Uri {
     const uri = vscode.Uri.from({
       scheme,
       path: `/${path.basename(relPath)}`,
       query: `id=${encodeURIComponent(`${Date.now()}:${Math.random()}`)}&label=${encodeURIComponent(label)}`
     });
-    this.documents.set(uri.toString(), content);
+    this.documents.set(uri.toString(), { content, historyContext });
     this.onDidChangeEmitter.fire(uri);
     return uri;
   }
@@ -91,7 +101,8 @@ export async function compareFileWithCommit(provider: BranchCompareDocumentProvi
     }
 
     const content = await readFileRevision(repoRoot, revision);
-    const left = fullDocument(provider, `Revision: ${revision.shortHash}/${revision.path}`, relPath, content);
+    const historyContext = await captureRevisionHistoryContext(repoRoot, revision.path, revision.ref);
+    const left = fullDocument(provider, `Revision: ${revision.shortHash}/${revision.path}`, revision.path, content, historyContext);
     const title = `${path.basename(relPath)}: ${revision.shortHash} ↔ Working Tree`;
     await vscode.commands.executeCommand('vscode.diff', left.uri, editor.document.uri, title, { preview: true });
   });
@@ -128,16 +139,17 @@ async function compareEditorDocumentWithBranch(
     return;
   }
 
-  const branchContent = await readFileAtBranch(repoRoot, branch, relPath);
+  const historyContext = await captureRevisionHistoryContext(repoRoot, relPath, branch.ref);
+  const branchContent = await readFileAtBranch(repoRoot, branch, relPath, historyContext.ref);
   if (branchContent === undefined) {
     return;
   }
 
   const left = selection
-    ? selectionDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent, selection)
-    : fullDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent);
+    ? selectionDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent, selection, historyContext)
+    : fullDocument(provider, `Branch: ${branch.ref}`, relPath, branchContent, historyContext);
   const right = selection
-    ? selectedWorktreeDocument(provider, relPath, editor, selection)
+    ? await selectedWorktreeDocument(provider, repoRoot, relPath, editor, selection)
     : { uri: editor.document.uri };
 
   const title = selection
@@ -202,8 +214,8 @@ function branchRank(ref: string): number {
   return ref.includes('/') ? 1 : 0;
 }
 
-async function readFileAtBranch(repoRoot: string, branch: GitBranchItem, relPath: string): Promise<string | undefined> {
-  const result = await runGit(repoRoot, ['show', `${branch.ref}:${relPath}`]);
+async function readFileAtBranch(repoRoot: string, branch: GitBranchItem, relPath: string, ref: string): Promise<string | undefined> {
+  const result = await runGit(repoRoot, ['show', `${ref}:${relPath}`]);
   if (result.exitCode === 0) {
     return result.stdout;
   }
@@ -216,10 +228,12 @@ function fullDocument(
   provider: BranchCompareDocumentProvider,
   label: string,
   relPath: string,
-  content: string
+  content: string,
+  historyContext: EditorHistoryContext
 ): CompareDocument {
   return {
-    uri: provider.createDocument(`${label}/${relPath}`, relPath, content)
+    uri: provider.createDocument(`${label}/${relPath}`, relPath, content,
+      historyContext.sourceLineCount === undefined ? historyContext.withLineOffset(0, content) : historyContext)
   };
 }
 
@@ -228,22 +242,27 @@ function selectionDocument(
   label: string,
   relPath: string,
   content: string,
-  selection: vscode.Selection
+  selection: vscode.Selection,
+  historyContext: EditorHistoryContext
 ): CompareDocument {
   const range = selectedLineRange(selection);
   const selectedContent = lineRangeText(content, range);
-  return fullDocument(provider, `${label}/${relPath}:${range.start + 1}-${range.end + 1}`, relPath, selectedContent);
+  return fullDocument(provider, `${label}/${relPath}:${range.start + 1}-${range.end + 1}`, relPath,
+    selectedContent, historyContext.withLineOffset(range.start, content));
 }
 
-function selectedWorktreeDocument(
+async function selectedWorktreeDocument(
   provider: BranchCompareDocumentProvider,
+  repoRoot: string,
   relPath: string,
   editor: vscode.TextEditor,
   selection: vscode.Selection
-): CompareDocument {
+): Promise<CompareDocument> {
   const range = selectedLineRange(selection);
-  const content = lineRangeText(editor.document.getText(), range);
-  return fullDocument(provider, `Working Tree/${relPath}:${range.start + 1}-${range.end + 1}`, relPath, content);
+  const snapshot = editor.document.getText();
+  const historyContext = await captureWorktreeHistoryContext(repoRoot, relPath, snapshot, range.start);
+  const content = lineRangeText(snapshot, range);
+  return fullDocument(provider, `Working Tree/${relPath}:${range.start + 1}-${range.end + 1}`, relPath, content, historyContext);
 }
 
 function lineRangeText(content: string, range: { start: number; end: number }): string {

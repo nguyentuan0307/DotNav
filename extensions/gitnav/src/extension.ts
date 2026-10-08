@@ -2,7 +2,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BranchCompareDocumentProvider, compareFileWithBranch, compareFileWithCommit, compareSelectionWithBranch } from './git/branchCompare';
 import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
-import { FileHistoryQuery, GitOperationCancelledError, LineHistoryQuery, fileHistoryLabel, getFileHistory, getLineHistory, lineHistoryLabel } from './git/lineHistory';
+import { GitOperationCancelledError, LineHistoryQuery, fileHistoryLabel, getFileHistory, getLineHistory, lineHistoryLabel } from './git/lineHistory';
+import { EditorHistoryContext, historyEditor, revisionHistoryContext } from './git/editorHistoryContext';
 import { LineHistoryPanel } from './git/lineHistoryPanel';
 import { mapWorktreeRangeToHead } from './git/lineMapping';
 import { GitLogViewProvider } from './git/gitLogViewProvider';
@@ -84,9 +85,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void worktreeStatusBarController.refresh(root);
       }
     }),
-    vscode.commands.registerCommand('gitnav.showFileHistory', () => showFileHistory(context)),
-    vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', () => showHistoryForCurrentLine(context)),
-    vscode.commands.registerCommand('gitnav.showHistoryForSelection', () => showHistoryForSelection(context)),
+    vscode.commands.registerCommand('gitnav.showFileHistory', (uri?: vscode.Uri) => showFileHistory(context, branchCompareProvider, uri)),
+    vscode.commands.registerCommand('gitnav.showHistoryForCurrentLine', (uri?: vscode.Uri) => showHistoryForCurrentLine(context, branchCompareProvider, uri)),
+    vscode.commands.registerCommand('gitnav.showHistoryForSelection', (uri?: vscode.Uri) => showHistoryForSelection(context, branchCompareProvider, uri)),
     vscode.commands.registerCommand('gitnav.compareFileWithBranch', () => compareFileWithBranch(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.compareFileWithCommit', () => compareFileWithCommit(branchCompareProvider)),
     vscode.commands.registerCommand('gitnav.compareSelectionWithBranch', () => compareSelectionWithBranch(branchCompareProvider)),
@@ -129,26 +130,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 }
 
-async function showFileHistory(context: vscode.ExtensionContext): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.uri.scheme !== 'file') {
+async function showFileHistory(
+  context: vscode.ExtensionContext,
+  compareProvider: BranchCompareDocumentProvider,
+  resource?: vscode.Uri
+): Promise<void> {
+  const uri = resource ?? vscode.window.activeTextEditor?.document.uri;
+  if (!uri) {
     vscode.window.showInformationMessage('Open a file before viewing its history.');
     return;
   }
 
-  const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
-  if (!repoRoot) {
-    vscode.window.showInformationMessage('This file is not inside a Git repository.');
-    return;
-  }
-
-  const query: FileHistoryQuery = {
-    repoRoot,
-    relPath: toGitRelativePath(repoRoot, editor.document.uri.fsPath)
-  };
   const maxCommits = historyMaxCommits();
 
   try {
+    const historyContext = await resolveHistoryContext(uri, compareProvider);
+    if (!historyContext) return;
+    const query = historyContext.fileQuery();
     const entries = await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       cancellable: true,
@@ -164,23 +162,31 @@ async function showFileHistory(context: vscode.ExtensionContext): Promise<void> 
   }
 }
 
-async function showHistoryForCurrentLine(context: vscode.ExtensionContext): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.uri.scheme !== 'file') {
+async function showHistoryForCurrentLine(
+  context: vscode.ExtensionContext,
+  compareProvider: BranchCompareDocumentProvider,
+  resource?: vscode.Uri
+): Promise<void> {
+  const editor = historyEditor(resource, vscode.window.activeTextEditor, vscode.window.visibleTextEditors);
+  if (!editor) {
     vscode.window.showInformationMessage('Open a file before viewing line history.');
     return;
   }
 
   const line = editor.selection.active.line + 1;
-  const query = await resolveEditorLineHistoryQuery(editor, line, line);
+  const query = await resolveEditorLineHistoryQuery(editor, line, line, compareProvider);
   if (query) {
     await runLineHistoryQuery(context, query, 'History for Current Line');
   }
 }
 
-async function showHistoryForSelection(context: vscode.ExtensionContext): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.uri.scheme !== 'file') {
+async function showHistoryForSelection(
+  context: vscode.ExtensionContext,
+  compareProvider: BranchCompareDocumentProvider,
+  resource?: vscode.Uri
+): Promise<void> {
+  const editor = historyEditor(resource, vscode.window.activeTextEditor, vscode.window.visibleTextEditors);
+  if (!editor) {
     vscode.window.showInformationMessage('Open a file and select a code range first.');
     return;
   }
@@ -192,7 +198,7 @@ async function showHistoryForSelection(context: vscode.ExtensionContext): Promis
   }
 
   const range = selectedLineRange(selection);
-  const query = await resolveEditorLineHistoryQuery(editor, range.startLine, range.endLine);
+  const query = await resolveEditorLineHistoryQuery(editor, range.startLine, range.endLine, compareProvider);
   if (query) {
     await runLineHistoryQuery(context, query, 'History for Selection');
   }
@@ -231,25 +237,48 @@ async function revealLastChangeInGitLog(provider: GitLogViewProvider): Promise<v
 async function resolveEditorLineHistoryQuery(
   editor: vscode.TextEditor,
   startLine: number,
-  endLine: number
+  endLine: number,
+  compareProvider?: BranchCompareDocumentProvider
 ): Promise<LineHistoryQuery | undefined> {
   try {
-    const repoRoot = await findRepoRoot(editor.document.uri.fsPath);
-    if (!repoRoot) {
-      vscode.window.showInformationMessage('This file is not inside a Git repository.');
-      return undefined;
-    }
-
-    const relPath = toGitRelativePath(repoRoot, editor.document.uri.fsPath);
-    const query = await resolveLineHistoryQuery(repoRoot, relPath, startLine, endLine);
+    const historyContext = await resolveHistoryContext(editor.document.uri, compareProvider);
+    if (!historyContext) return undefined;
+    const query = editor.document.uri.scheme === 'file'
+      ? await resolveLineHistoryQuery(historyContext.repoRoot, historyContext.relPath, startLine, endLine)
+      : historyContext.lineQuery(startLine, endLine, editor.document.getText());
     if (!query) {
       vscode.window.showInformationMessage('This line or selection has not been committed yet.');
     }
-    return query;
+    return query ? { ...query, sourceLabel: historyContext.label } : undefined;
   } catch (error) {
     showHistoryError(error);
     return undefined;
   }
+}
+
+async function resolveHistoryContext(
+  uri: vscode.Uri,
+  compareProvider?: BranchCompareDocumentProvider
+): Promise<EditorHistoryContext | undefined> {
+  if (uri.scheme === gitRevisionScheme) return revisionHistoryContext(uri.query);
+  if (uri.scheme === 'gitnav-compare') {
+    const historyContext = compareProvider?.getHistoryContext(uri);
+    if (!historyContext) {
+      throw new Error('History context is unavailable. Reopen the comparison and try again.');
+    }
+    return historyContext;
+  }
+  if (uri.scheme !== 'file') {
+    throw new Error('Open a file or a GitNav comparison before viewing history.');
+  }
+  const repoRoot = await findRepoRoot(uri.fsPath);
+  if (!repoRoot) {
+    vscode.window.showInformationMessage('This file is not inside a Git repository.');
+    return undefined;
+  }
+  const branch = await runGit(repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  const label = branch.exitCode === 0 ? branch.stdout.trim() : 'HEAD';
+  return new EditorHistoryContext(repoRoot, toGitRelativePath(repoRoot, uri.fsPath), 'HEAD', `Working Tree (${label})`);
 }
 
 async function resolveLineHistoryQuery(

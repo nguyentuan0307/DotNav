@@ -154,7 +154,9 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
     item.command === 'dotnav.formatSelection' && item.group?.startsWith('6_dotnav')
   ));
   assert.ok(editorContext.some((item: { command?: string; submenu?: string; when?: string; group?: string }) =>
-    item.submenu === 'gitnav.editorMenu' && item.when === 'resourceScheme == file' && item.group?.startsWith('6_gitnav')
+    item.submenu === 'gitnav.editorMenu'
+      && item.when === 'resourceScheme == file || resourceScheme == gitnav-revision || resourceScheme == gitnav-compare'
+      && item.group?.startsWith('6_gitnav')
   ));
   assert.ok(!editorContext.some((item: { command?: string }) =>
     item.command === 'gitnav.showHistoryForSelection'
@@ -187,6 +189,10 @@ test('keeps DotNav formatting visible and groups GitNav editor actions', () => {
   assert.ok(gitMenu.some((item: { command: string; when?: string }) =>
     item.command === 'gitnav.showHistoryForSelection' && item.when?.includes('editorHasSelection')
   ));
+  for (const command of ['gitnav.compareFileWithBranch', 'gitnav.compareFileWithCommit',
+    'gitnav.compareSelectionWithBranch', 'gitnav.revealLastChangeInGitLog', 'gitnav.openFileAtRevision']) {
+    assert.ok(gitMenu.find((item: { command: string }) => item.command === command)?.when?.includes('resourceScheme == file'));
+  }
 });
 
 test('contributes Git Log as a bottom panel webview', () => {

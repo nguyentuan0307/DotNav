@@ -588,19 +588,21 @@ Backup option có thể dùng cho một số reset/drop/update-reset chung. Riê
 
 ### 16.1 File, line và selection history
 
-1. Lấy active editor và file, dòng tại cursor hoặc selected line range.
-2. Tìm repository root và Git-relative path.
-3. Nếu file đang dirty, map range working tree về `HEAD` bằng diff mapping.
-4. Chạy `git log -L` cho line/selection hoặc `git log --follow -p` cho toàn file, với giới hạn `gitnav.history.maxCommits`.
+1. Lấy URI được truyền từ menu chuột phải; Command Palette dùng active editor. Line/selection lấy range từ editor có cùng URI, kể cả phía còn lại của diff.
+2. File thường tìm repository root và Git-relative path. Document diff của GitNav dùng context repository/path/revision riêng của phía được chọn.
+3. Nếu file thường đang dirty, map range working tree về `HEAD` bằng diff mapping. Selection compare cộng offset dòng; snapshot Working Tree giữ mapping (kể cả staged/unsaved changes) và SHA lúc tạo compare.
+4. Chạy `git log -L` cho line/selection hoặc `git log --follow -p` cho toàn file, truyền revision của phía đang xem, với giới hạn `gitnav.history.maxCommits`.
 5. Hiện `LineHistoryPanel`; user chọn commit để xem diff/metadata.
 
 Operation có progress cancellable. Mapping giúp history không bị lệch chỉ vì user đã thêm/xóa dòng chưa commit.
+Menu History hỗ trợ `file`, `gitnav-revision` và `gitnav-compare`; header ghi nguồn branch/commit. Phía rỗng và context compare hết cache báo rõ, không fallback về branch hiện tại. Menu Timeline trong danh sách file Git Log giữ nguyên.
 
 ### 16.2 Compare
 
 - Compare toàn file hoặc selection với branch/ref được chọn.
 - Compare toàn file với commit gần đây hoặc commit/tag/SHA nhập thủ công.
 - Revision content được cung cấp bằng virtual document scheme, sau đó dùng VS Code diff editor.
+- Branch compare giữ SHA của mỗi phía revision tại lúc mở diff; checkout hoặc branch tip thay đổi sau đó không đổi nguồn History của phiên bản đã mở.
 - Root commit và merge parent được xử lý theo base phù hợp; file rename được parse bằng NUL-delimited output.
 
 ### 16.3 Revision navigation
