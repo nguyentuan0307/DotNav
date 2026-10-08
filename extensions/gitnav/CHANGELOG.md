@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.23.0](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.22.1...gitnav-v0.23.0) (2026-10-08)
+
+
+### Features
+
+* **gitnav:** show history for the selected diff revision ([764ee15](https://github.com/nguyentuan0307/DotNav/commit/764ee15d85e5d68cf62d7cb4a98578c07276b3d7))
+
+
 ## [0.22.1](https://github.com/nguyentuan0307/DotNav/compare/gitnav-v0.22.0...gitnav-v0.22.1) (2026-09-21)
 
 
