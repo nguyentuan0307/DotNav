@@ -17,6 +17,7 @@ import { GitWebviewMessage, GitWebviewMessageRouter } from './gitWebviewProtocol
 import { renderGitLogWebviewHtml } from './gitLogWebviewHtml';
 import { formatFullCommitInfo, revisionPathsForChange } from './gitPanelParsers';
 import { findRepoRoot } from './gitCli';
+import { captureRevisionHistoryContext } from './editorHistoryContext';
 
 async function mapWithConcurrency<T, TResult>(
   items: readonly T[],
@@ -1040,13 +1041,19 @@ export class GitLogViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private async openCompareDiff(from: string, to: string, filePath: string, status = 'M', oldPath?: string, expectedRoot = this.root): Promise<void> {
     if (!expectedRoot) return;
     const revisionPaths = revisionPathsForChange({ status, path: filePath, oldPath });
-    const left = revisionPaths.from
-      ? revisionUri(expectedRoot, from, revisionPaths.from)
+    const [leftContext, rightContext] = await Promise.all([
+      revisionPaths.from ? captureRevisionHistoryContext(expectedRoot, revisionPaths.from, from) : undefined,
+      revisionPaths.to && to !== 'working tree'
+        ? captureRevisionHistoryContext(expectedRoot, revisionPaths.to, to) : undefined
+    ]);
+    if (this.root !== expectedRoot) return;
+    const left = leftContext
+      ? revisionUri(expectedRoot, leftContext.ref, leftContext.relPath, leftContext.label)
       : emptyRevisionUri(expectedRoot, from, oldPath ?? filePath);
     const right = revisionPaths.to
       ? to === 'working tree'
         ? vscode.Uri.file(path.join(expectedRoot, revisionPaths.to))
-        : revisionUri(expectedRoot, to, revisionPaths.to)
+        : revisionUri(expectedRoot, rightContext!.ref, revisionPaths.to, rightContext!.label)
       : emptyRevisionUri(expectedRoot, to, filePath);
     if (to === 'working tree') {
       const title = `${path.basename(filePath)} (${from} ↔ Working Tree)`;

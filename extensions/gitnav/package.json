@@ -160,7 +160,7 @@
       "editor/context": [
         {
           "submenu": "gitnav.editorMenu",
-          "when": "resourceScheme == file",
+          "when": "resourceScheme == file || resourceScheme == gitnav-revision || resourceScheme == gitnav-compare",
           "group": "6_gitnav@1"
         }
       ],
@@ -180,23 +180,27 @@
         },
         {
           "command": "gitnav.compareFileWithBranch",
+          "when": "resourceScheme == file",
           "group": "2_compare@1"
         },
         {
           "command": "gitnav.compareFileWithCommit",
+          "when": "resourceScheme == file",
           "group": "2_compare@2"
         },
         {
           "command": "gitnav.compareSelectionWithBranch",
-          "when": "editorHasSelection",
+          "when": "resourceScheme == file && editorHasSelection",
           "group": "2_compare@3"
         },
         {
           "command": "gitnav.revealLastChangeInGitLog",
+          "when": "resourceScheme == file",
           "group": "3_navigation@1"
         },
         {
           "command": "gitnav.openFileAtRevision",
+          "when": "resourceScheme == file",
           "group": "3_navigation@2"
         }
       ],
