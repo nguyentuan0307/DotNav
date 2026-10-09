@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { LineHistoryEntry } from './lineHistory';
+import { captureHistoryPanelLocation, HistoryPanelLocation, HistoryPanelPlacement } from './historyPanelPlacement';
 
 interface PanelState {
   readonly title: string;
@@ -9,24 +10,54 @@ interface PanelState {
 
 export class LineHistoryPanel {
   private static panel: vscode.WebviewPanel | undefined;
+  private static readonly placement = new HistoryPanelPlacement(vscode.window.tabGroups,
+    <T = unknown>(command: string) => vscode.commands.executeCommand<T>(command),
+    () => vscode.window.activeTextEditor);
+  private static pending: Promise<void> = Promise.resolve();
 
-  static show(entries: LineHistoryEntry[], header: string, extensionUri: vscode.Uri, title = 'History for Selection'): void {
+  static captureLocation(resource?: vscode.Uri): HistoryPanelLocation | undefined {
+    return captureHistoryPanelLocation(resource, vscode.window.activeTextEditor,
+      vscode.window.visibleTextEditors, vscode.window.tabGroups);
+  }
+
+  static show(entries: LineHistoryEntry[], header: string, extensionUri: vscode.Uri, title = 'History for Selection', location?: HistoryPanelLocation): Promise<void> {
+    return LineHistoryPanel.enqueue(() => LineHistoryPanel.placement.show(location,
+      column => LineHistoryPanel.showAtColumn(entries, header, extensionUri, title, column)));
+  }
+
+  private static enqueue(action: () => Promise<void>): Promise<void> {
+    const task = LineHistoryPanel.pending.then(action);
+    LineHistoryPanel.pending = task.catch(() => undefined);
+    return task;
+  }
+
+  private static showAtColumn(entries: LineHistoryEntry[], header: string, extensionUri: vscode.Uri, title: string, column: vscode.ViewColumn): void {
     if (!LineHistoryPanel.panel) {
       LineHistoryPanel.panel = vscode.window.createWebviewPanel(
         'gitnav.lineHistory',
         title,
-        vscode.ViewColumn.Beside,
+        column,
         {
           enableScripts: true,
           retainContextWhenHidden: true,
           localResourceRoots: [extensionUri]
         }
       );
+      // Queue cleanup after tab updates, including an asynchronous reveal beside an ordinary file.
+      const tabChanges = vscode.window.tabGroups.onDidChangeTabs(() => {
+        void LineHistoryPanel.enqueue(() => LineHistoryPanel.placement.cleanupEmptyGroups())
+          .catch(error => console.warn(`GitNav History group cleanup: ${String(error)}`));
+      });
       LineHistoryPanel.panel.onDidDispose(() => {
+        tabChanges.dispose();
         LineHistoryPanel.panel = undefined;
+        void LineHistoryPanel.enqueue(() => LineHistoryPanel.panel
+          ? LineHistoryPanel.placement.cleanupEmptyGroups()
+          : LineHistoryPanel.placement.panelClosed())
+          .catch(error => console.warn(`GitNav History group cleanup: ${String(error)}`));
       });
     } else {
-      LineHistoryPanel.panel.reveal(vscode.ViewColumn.Beside, true);
+      LineHistoryPanel.panel.reveal(column, true);
     }
 
     LineHistoryPanel.panel.title = title;

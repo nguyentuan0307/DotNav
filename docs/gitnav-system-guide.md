@@ -596,6 +596,8 @@ Backup option có thể dùng cho một số reset/drop/update-reset chung. Riê
 
 Operation có progress cancellable. Mapping giúp history không bị lệch chỉ vì user đã thêm/xóa dòng chưa commit.
 Menu History hỗ trợ `file`, `gitnav-revision` và `gitnav-compare`; header ghi nguồn branch/commit. Phía rỗng và context compare hết cache báo rõ, không fallback về branch hiện tại. Menu Timeline trong danh sách file Git Log giữ nguyên.
+Khi gọi từ diff, History ở bên trái cho phía original và bên phải cho phía modified. Hai phía diff vẫn thuộc cùng một tab; History nằm trong editor group cạnh toàn bộ diff. Một tab History được tái dùng và chuyển phía khi cần. Vị trí được ghi nhận trước khi tải lịch sử, theo tab/group của nguồn; thay đổi focus không đổi phía mở History. Nhóm trống do GitNav tạo được dọn khi chuyển hoặc đóng History, không đóng nhóm có tab khác. Layout dọc/lồng nhau dùng vị trí ngang thực tế; cửa sổ editor nổi được focus trực tiếp theo group nguồn, không chờ activeTabGroup cập nhật.
+Nếu editor thường và diff cùng mở một URI, editor visible có column xác định giúp loại trừ group không thuộc nguồn. Khi đổi sang cửa sổ VS Code khác trong lúc tải và lệnh focus group không kích hoạt được cửa sổ nguồn, GitNav báo “Focus the source editor window and run History again.” thay vì mở History nhầm cửa sổ. Focus lại cửa sổ diff rồi gọi History; chuyển focus giữa các group trong cùng cửa sổ vẫn tự động bám nguồn.
 
 ### 16.2 Compare
 
