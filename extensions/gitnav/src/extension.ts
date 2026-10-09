@@ -5,6 +5,7 @@ import { findRepoRoot, runGit, toGitRelativePath } from './git/gitCli';
 import { GitOperationCancelledError, LineHistoryQuery, fileHistoryLabel, getFileHistory, getLineHistory, lineHistoryLabel } from './git/lineHistory';
 import { EditorHistoryContext, historyEditor, revisionHistoryContext } from './git/editorHistoryContext';
 import { LineHistoryPanel } from './git/lineHistoryPanel';
+import type { HistoryPanelLocation } from './git/historyPanelPlacement';
 import { mapWorktreeRangeToHead } from './git/lineMapping';
 import { GitLogViewProvider } from './git/gitLogViewProvider';
 import { GitRepositoryService } from './git/gitRepositoryService';
@@ -141,6 +142,7 @@ async function showFileHistory(
     return;
   }
 
+  const location = LineHistoryPanel.captureLocation(uri);
   const maxCommits = historyMaxCommits();
 
   try {
@@ -156,7 +158,7 @@ async function showFileHistory(
       vscode.window.showInformationMessage('No committed history was found for this file.');
       return;
     }
-    LineHistoryPanel.show(entries, fileHistoryLabel(query), context.extensionUri, 'File History');
+    await LineHistoryPanel.show(entries, fileHistoryLabel(query), context.extensionUri, 'File History', location);
   } catch (error) {
     showHistoryError(error);
   }
@@ -173,10 +175,11 @@ async function showHistoryForCurrentLine(
     return;
   }
 
+  const location = LineHistoryPanel.captureLocation(editor.document.uri);
   const line = editor.selection.active.line + 1;
   const query = await resolveEditorLineHistoryQuery(editor, line, line, compareProvider);
   if (query) {
-    await runLineHistoryQuery(context, query, 'History for Current Line');
+    await runLineHistoryQuery(context, query, 'History for Current Line', location);
   }
 }
 
@@ -197,10 +200,11 @@ async function showHistoryForSelection(
     return;
   }
 
+  const location = LineHistoryPanel.captureLocation(editor.document.uri);
   const range = selectedLineRange(selection);
   const query = await resolveEditorLineHistoryQuery(editor, range.startLine, range.endLine, compareProvider);
   if (query) {
-    await runLineHistoryQuery(context, query, 'History for Selection');
+    await runLineHistoryQuery(context, query, 'History for Selection', location);
   }
 }
 
@@ -304,7 +308,8 @@ async function resolveLineHistoryQuery(
 async function runLineHistoryQuery(
   context: vscode.ExtensionContext,
   query: LineHistoryQuery,
-  title: string
+  title: string,
+  location?: HistoryPanelLocation
 ): Promise<void> {
   try {
     const entries = await vscode.window.withProgress({
@@ -318,7 +323,7 @@ async function runLineHistoryQuery(
       return;
     }
 
-    LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri, title);
+    await LineHistoryPanel.show(entries, lineHistoryLabel(query), context.extensionUri, title, location);
   } catch (error) {
     showHistoryError(error);
   }
