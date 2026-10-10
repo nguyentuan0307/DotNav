@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
+import { DEFAULT_CONTAINER_FOLDERS, containerFolderOf, containerFolderSet } from './containerFolders';
 import { isInside, readDirectoryNodes, readDockerProjectNodes } from './fileTree';
 import { ProjectModel, SolutionModel, TreeNode } from './models';
 import { normalizePath, samePath } from './pathUtils';
@@ -517,17 +518,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private groupProjectsByDiskPath(solution: SolutionModel, projects: ProjectModel[]): TreeNode[] {
     const rootProjects: TreeNode[] = [];
     const groups = new Map<string, TreeNode[]>();
-    const containerFolders = new Set(['src', 'source', 'sources', 'test', 'tests']);
+    const containerFolders = containerFolderSet(this.containerFolderNames());
 
     for (const project of projects) {
-      const parts = project.relativePath.split('/').filter(Boolean);
-      if (parts.length <= 1) {
-        rootProjects.push(this.projectNode(project));
-        continue;
-      }
-
-      const groupName = parts[0];
-      if (!containerFolders.has(groupName.toLowerCase())) {
+      const groupName = containerFolderOf(project.relativePath, containerFolders);
+      if (!groupName) {
         rootProjects.push(this.projectNode(project));
         continue;
       }
@@ -548,6 +543,11 @@ export class DotnetTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       }));
 
     return [...groupNodes, ...rootProjects.sort((a, b) => a.label.localeCompare(b.label))];
+  }
+
+  private containerFolderNames(): readonly string[] {
+    const configured = vscode.workspace.getConfiguration('dotnav').get<string[]>('containerFolders');
+    return Array.isArray(configured) ? configured : DEFAULT_CONTAINER_FOLDERS;
   }
 
   private insertSolutionFolderProject(

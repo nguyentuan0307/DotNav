@@ -1423,6 +1423,21 @@
           },
           "description": "File globs hidden from the solution tree."
         },
+        "dotnav.containerFolders": {
+          "type": "array",
+          "default": [
+            "src",
+            "source",
+            "sources",
+            "test",
+            "tests",
+            "tools"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Folder names collapsed into a single folder node in the solution tree. Applied to the first path segment of each project when the solution file carries no folder information (e.g. .slnx). Set to an empty array to keep every project at the root."
+        },
         "dotnav.showDependencies": {
           "type": "boolean",
           "default": true,
