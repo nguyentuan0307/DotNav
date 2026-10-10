@@ -64,6 +64,10 @@ until their target is identified and explicitly confirmed.
 
 Open **Settings** and search for `DotNav`. Settings use the `dotnav.*` namespace for solution navigation, run behavior, file nesting, icons, and C# formatting.
 
+### Solution tree
+
+Solutions whose folder information is not available to the tree builder — `.slnx`, where `<Folder Name>` entries are not parsed — fall back to grouping projects by the first segment of their path relative to the solution root. `dotnav.containerFolders` lists which folder names become a folder node, so a layout DotNav does not know about (a `tools/` folder holding maintenance projects, for example) can be collapsed the same way. It defaults to `src`, `source`, `sources`, `test`, `tests`, and `tools`; an empty array keeps every project at the root.
+
 ### Build and Smart Build
 
 **Build** keeps the normal `dotnet build`/MSBuild behavior and is always available as the safety path. **Smart Build** evaluates the real MSBuild project graph in a separate process, fingerprints evaluated inputs and outputs, and invokes MSBuild only for projects that cannot be proven current. It first builds directly changed projects, then compares their reference assemblies: unchanged public APIs only propagate implementation outputs, while changed or unprovable APIs rebuild the reverse-dependent closure. Dependency waves run in order while independent projects run in parallel. Restore is skipped only when assets and restore inputs are proven unchanged.
