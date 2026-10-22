@@ -1,3 +1,96 @@
+# GitNav: Git timeout policy & interactive rebase runtime (+ đề xuất tách client ERD)
+
+Status: **CHỜ DUYỆT** — chưa sửa code.
+Baseline: `6dbee57` trên `claude/eloquent-maxwell-t4yo4w` (trùng `origin/master`), working tree sạch.
+Request: sửa issue ① (watchdog 25s cắt lệnh git dài) và ② (interactive rebase cần `node` trên PATH); đề xuất cải tiến ④ (client ERD trong template literal).
+
+## Issue ① — Watchdog 25s áp cho mọi lệnh git
+
+### Nguyên nhân
+- `extensions/gitnav/src/git/gitCli.ts:15` — `DEFAULT_GIT_TIMEOUT_MS = 25_000`, là giá trị mặc định của tham số `timeoutMs` trong `runGit` (`gitCli.ts:25`).
+- Không caller nào truyền timeout riêng. `GitRepositoryService.git` (`gitRepositoryService.ts:359`) gọi `runGit(root, args, token)`; mọi mutation trong `GitMutationRunner` (fetch/pull/push/merge/rebase/cherry-pick/revert/commit/switch/stash…), `runInteractiveRebase`, `worktreeManager` (`worktree add/remove/prune`) đều đi qua mặc định 25s.
+- Hậu quả: push/fetch repo lớn hoặc mạng chậm, commit có pre-commit hook (lint/test), checkout repo lớn, nhập credential (Git Credential Manager trên Windows) > 25s → SIGTERM. Kill `merge`/`rebase`/`cherry-pick` giữa chừng để lại repo ở trạng thái đang thao tác dở.
+
+### Giải pháp (tối giản, 1 chỗ)
+Chọn timeout mặc định theo subcommand ngay trong `gitCli.ts`, không phải sửa các call site:
+- Thêm `LONG_GIT_TIMEOUT_MS = 10 * 60_000` và hàm export `defaultGitTimeoutMs(args)`.
+- Lệnh ghi/mạng → 10 phút: `fetch, pull, push, clone, merge, rebase, cherry-pick, revert, commit, switch, checkout, reset, restore, am, apply, gc`; `stash` (trừ `list`/`show`); `worktree` (trừ `list`).
+- Mọi lệnh khác (log, status, diff, show, rev-parse, for-each-ref, blame, ls-files…) giữ nguyên 25s — chống treo khi CPU 100% như thiết kế ban đầu.
+- `runGit(..., timeoutMs: number = defaultGitTimeoutMs(args))`. Caller truyền timeout tường minh vẫn được tôn trọng (test hiện có dùng 5000).
+- **Vì sao 10 phút thay vì bỏ hẳn timeout**: `RepositoryMutationQueue` tuần tự hoá mutation theo repo, và một số bước chuẩn bị (fetch trong `update`/`checkoutUpdate`/`pushAfterUpdate`, background auto-fetch) chạy không có cancellation token. Bỏ hẳn timeout thì một lệnh treo (SSH passphrase, lock) sẽ khoá queue vĩnh viễn. 10 phút đủ cho thao tác thực tế mà vẫn tự giải phóng. Bước cuối của mutation vẫn huỷ được qua notification progress hiện có.
+- Ngoài scope (ghi nhận, không làm): truyền cancellation token cho các bước chuẩn bị nói trên.
+
+### File sửa
+- `extensions/gitnav/src/git/gitCli.ts` (khoảng 15 dòng).
+- Test: `extensions/gitnav/src/test/gitFeatures.test.ts` — thêm case cho `defaultGitTimeoutMs` (lệnh đọc = 25s; push/fetch/commit/rebase/merge = 10 phút; `stash list` / `worktree list` = 25s; `stash push` / `worktree add` = 10 phút).
+
+## Issue ② — Interactive rebase phụ thuộc `node` trên PATH
+
+### Nguyên nhân
+`extensions/gitnav/src/git/gitInteractiveRebase.ts:23-24` đặt `GIT_SEQUENCE_EDITOR: node "<script>"` và `GIT_EDITOR: node "<script>"`. Extension host của VS Code chạy trên runtime Electron có sẵn, không bảo đảm có Node.js cài riêng → máy không có `node` (thường gặp với dev .NET trên Windows) bị lỗi ở Interactive Rebase, Edit Commit Message (commit cũ), reword/squash.
+
+### Giải pháp
+- Chạy script bằng chính runtime của extension host: `process.execPath` kèm `ELECTRON_RUN_AS_NODE=1`.
+- Đặt biến **inline trong chuỗi lệnh editor** (`ELECTRON_RUN_AS_NODE=1 "<execPath>" "<script>"`; git chạy editor qua `sh`, kể cả Git for Windows) thay vì đưa vào env của tiến trình git — tránh rò `ELECTRON_RUN_AS_NODE` sang git hooks chạy trong lúc rebase.
+- Chạy được trong Node thuần (test, Remote SSH/WSL): `process.execPath` là `node`, biến môi trường bị bỏ qua.
+- Thêm helper nhỏ `nodeScriptCommand(scriptPath)` để test được (đặt trong `gitCli.ts`, vì `gitInteractiveRebase.ts` import `vscode` lúc runtime nên không import được trong unit test).
+
+### File sửa
+- `extensions/gitnav/src/git/gitInteractiveRebase.ts` (2 dòng env).
+- `extensions/gitnav/src/git/gitCli.ts` (helper).
+- Test: unit test cho định dạng lệnh (dùng `process.execPath`, không bắt đầu bằng `node `), và integration test chạy `git rebase -i` thật trên repo tạm, với `GIT_SEQUENCE_EDITOR` lấy từ helper (script đổi `pick` → `drop`) để xác nhận git thực thi được chuỗi lệnh (quoting) trên OS hiện tại.
+
+## Kiểm thử ① + ②
+1. `git diff --check`.
+2. `npm run compile` → exit 0.
+3. `npm test` → toàn bộ pass (trên cloud: .NET 8 + `DOTNET_ROLL_FORWARD=Major` cho 3 test Smart Build).
+4. Kiểm chứng thủ công qua script tạm: repo có pre-commit hook `sleep 30` → `runGit(['commit',…])` thành công (trước sửa: timedOut). Rebase với PATH không chứa `node` → thành công.
+5. Không đụng UI/webview → không cần E2E. Đóng gói `.vsix` chỉ khi bạn yêu cầu (không cài được vào VS Code local từ cloud).
+6. Commit dự kiến: `fix(gitnav): scale git timeout by command and run rebase editors on the host runtime` (hoặc tách 2 commit). Push lên `claude/eloquent-maxwell-t4yo4w`; không tạo PR trừ khi bạn yêu cầu.
+
+---
+
+## Đề xuất ④ — Tách client ERD khỏi template literal (CHỈ ĐỀ XUẤT, chưa thuộc scope sửa)
+
+### Hiện trạng
+- `extensions/dotnav/src/ef/diagram/efDiagramClient.ts`: 4.331 dòng JS (76 hàm, state toàn cục) trong `return \`...\``; `efDiagramStyles.ts` có 2.106 dòng CSS cùng kiểu. `efDiagramHtml.ts` nhúng cả hai inline vào HTML.
+- Không được typecheck/lint; phải escape `` \` ``, `\${}`, regex (AGENTS.md mục 2 phải cảnh báo riêng).
+- Test (`src/test/efDiagramClient.test.ts`) cắt chuỗi bằng `indexOf('  function computeRelGeometry(')` rồi `new Function(...)` — vỡ khi đổi tên/thụt lề.
+- Message protocol host↔webview không chia sẻ type (`parseEfDiagramMessage` ở host, `switch (msg.type)` ở client).
+
+### Kiến trúc đích
+```
+src/ef/diagram/
+  efDiagramProtocol.ts        ← type message dùng chung host + client
+  webview/                    ← tsconfig riêng: lib DOM, không import vscode
+    main.ts                   ← bootstrap, acquireVsCodeApi, message router
+    state.ts                  ← state + undo/redo
+    geometry.ts               ← computeRelGeometry, routing (pure → test trực tiếp)
+    render/{cards,links,notes,sidebar,finder}.ts
+    interactions/{drag,marquee,zoom,keyboard}.ts
+    diagram.css
+```
+- esbuild (đã là devDependency) bundle `webview/main.ts` → `out/webview/efDiagram.js` (IIFE) và copy CSS; thêm bước này vào script `compile` và whitelist `!out/webview/**` trong `.vscodeignore`.
+- `efDiagramHtml.ts` dùng `<script nonce src="${asWebviewUri}">` + `<link rel="stylesheet">`; CSP thêm `script-src ${cspSource}` (GitNav đã làm vậy trong `gitLogWebviewHtml.ts`). `localResourceRoots` đã cho phép `extensionPath`.
+
+### Lộ trình (mỗi bước 1 PR, behavior không đổi)
+| Bước | Nội dung | Rủi ro |
+|---|---|---|
+| P0 | Chụp baseline E2E Chrome headless (DOM, click, kéo thả, zoom, focus mode, notes, export Mermaid) trên fixture DbContext | Thấp |
+| P1 | **Chuyển cơ học**: sinh `webview/main.js` bằng cách *chạy* `getEfDiagramClientScript()` và ghi output ra file (chuỗi đã unescape chính xác lúc runtime, không unescape tay); tương tự CSS. Nạp qua URI. Rename `.ts` + `// @ts-nocheck` | Thấp; so E2E với P0 |
+| P2 | Tách pure module (`geometry`, layout, undo stack) có type; viết lại 5 test hiện có thành import trực tiếp | Thấp |
+| P3 | `efDiagramProtocol.ts` dùng chung; bỏ `@ts-nocheck` từng file | Trung bình |
+| P4 | Tách render/interactions; thay state toàn cục bằng object `DiagramState` | Trung bình |
+| P5 | Áp dụng cùng mẫu cho `efDialogClientScript.ts`/`efDialogStyles.ts` (EF Core Center) và Local History; cập nhật AGENTS.md mục 2 | Thấp |
+
+### Lợi ích
+Typecheck + IDE support cho 6.400+ dòng client, hết lỗi escape, test geometry/routing trực tiếp, protocol an toàn kiểu, có thể thêm ESLint (issue ⑦) cho cả webview, HTML ban đầu nhỏ hơn (script cache theo URI).
+
+### Chi phí
+P0–P2 khoảng 1–2 phiên làm việc; P3–P5 làm dần. Cần E2E headless ở mỗi bước (môi trường cloud có Chromium/Playwright).
+
+---
+
 # GitNav: History follows the selected diff side
 
 ## Follow-up plan: History tab placement follows the invoked diff side
